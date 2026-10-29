@@ -164,3 +164,11 @@ Petición explícita: apartado Vault conectado al baúl de OnlyFans, con mejor b
 - Inspector de metadatos con origen y estado de conexión claros. No hay miniaturas ni archivos reales, reproducción, descarga o envío simulados.
 - Conexión a OnlyFans pendiente de adaptador independiente autorizado. No usar OnlyX como backend. Al integrar se requerirá enumeración paginada completa de carpetas/medios, identidad de cuenta, estados de carga/error y sincronización real; no mostrar datos demo como importados.
 - 32 pruebas y compilación correctas; aislamiento, búsqueda y favoritos cubiertos. La búsqueda de carpetas es local sobre el catálogo demo.
+
+## Entrega 0.6 · Dashboard inspirado en la referencia abierta
+
+- Revisada visualmente la pestaña Dashboard de OnlyX, incluyendo ingresos, Hoy, Fans, pendientes y tabla de modelos. Se reproduce la estructura con código React propio y marca BRUFF; no se copia código ni información privada del servicio.
+- Nuevo apartado inicial Dashboard: alcance cuenta actual/todas explícito, neto/bruto, 7/30/90 días y fechas personalizadas, comparación anterior, agrupación día/semana/mes, barras con detalle, acumulados horarios, nuevos/activos, pendientes con acceso al chat correcto, tabla ordenable, selección de columnas y CSV.
+- Histórico sintético independiente de las fichas, identificado como demo. No hay importación de OnlyX, OnlyFans ni conexiones nuevas. El neto aplica una deducción ilustrativa del 20%, no una liquidación contable real. La muestra abarca 90 días; comparaciones anteriores a ella carecen de datos.
+- 35 pruebas correctas y compilación. Cubiertos aislamiento entre cuentas incluso con IDs de fan repetidos, conciliación de barras y tabla, límites temporales y CSV. Verificación visual local de filtros, comparación y detalle de transacciones; verificado salto desde el resumen de todas las cuentas al chat de Alex en Luna. Sin nueva prueba específica de vista móvil.
+- Conexiones independientes, datos reales e identidad siguen pendientes. El dashboard no activa BRUFF ni envía mensajes.
