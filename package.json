@@ -1,9 +1,25 @@
 {
   "name": "chatting-iabot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Prototipo propio de conversaciones y configuración del asistente",
-  "engines": { "node": ">=22" },
-  "scripts": { "start": "node scripts/serve.mjs", "check": "node scripts/check.mjs" }
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "vite --host 127.0.0.1",
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test src/policy.test.js",
+    "check": "pnpm test && pnpm run build"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "vite": "^8.0.0"
+  },
+  "packageManager": "pnpm@11.25.0"
 }

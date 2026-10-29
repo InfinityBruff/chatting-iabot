@@ -8,3 +8,5 @@ node_modules/
 *.zip
 .openai/
 coverage/
+dist/
+.sites-runtime/

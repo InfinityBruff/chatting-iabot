@@ -66,3 +66,7 @@ Criterios de aceptación:
 - Proveedor de IA y alojamiento del backend.
 
 GitHub versiona y coordina el desarrollo; por sí solo no aporta conexión a cuentas, motor de IA ni servidor de aplicación.
+
+## Entrega 0.2 · React
+
+Migrado el prototipo a React y Vite con componentes separados, pruebas de reglas de activación y selección múltiple de fans. La persistencia sigue siendo local; backend, autenticación de equipo, IA e integraciones permanecen pendientes.

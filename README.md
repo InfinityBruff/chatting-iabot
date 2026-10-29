@@ -1,38 +1,45 @@
-# Chatting IABOT
+# Chatting IABOT · React
 
-Plataforma propia de gestión de conversaciones con asistente configurable. OnlyX es una referencia funcional; este repositorio no contiene su código fuente ni su implementación privada.
+Plataforma propia de conversaciones y asistente configurable, construida con React y Vite. OnlyX es una referencia funcional; este proyecto no contiene su código fuente.
 
-## Estado real: prototipo 0.1
+## Versión 0.2
 
-Implementado: bandeja con búsqueda y filtro, conversaciones de ejemplo, mensajes locales de prueba, selección de fans, modos todos/selección/pausado, instrucciones, tono, vocabulario y tiempos con validación. Los datos se guardan en `localStorage` del navegador.
+- Componentes React separados para bandeja, conversación y configuración.
+- Búsqueda y filtro de conversaciones.
+- Activación por fan y selección múltiple para activar/desactivar grupos.
+- Modos todos/selección/pausa, instrucciones, tono, vocabulario y tiempos con validación.
+- Mensajes locales de prueba y persistencia en el navegador.
+- Conserva los datos compatibles de la versión anterior en el mismo navegador y dominio.
 
-Pendiente: autenticación, base de datos compartida, permisos, conexión a cuentas, sincronización, IA, cola de envíos, archivos y analítica real. Los controles del prototipo guardan preferencias, pero no ejecutan un asistente ni envían mensajes a terceros.
+Todavía es un prototipo: no incluye IA, conexión a cuentas, envíos reales, autenticación propia ni base de datos compartida. Los parámetros se guardan, pero no ejecutan un asistente todavía.
 
 ## Ejecutar
 
-Requiere Node.js 22 o posterior. No hay dependencias que instalar.
+Requiere Node.js 22.12 o posterior y pnpm 11.25.0.
 
 ```sh
-npm start
+npm install -g pnpm@11.25.0
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-Abrir http://127.0.0.1:8765. El servidor escucha solo en la máquina local. También se puede servir `dist/` con cualquier servidor estático.
+Abrir la URL local que imprime Vite. Para verificar y compilar:
 
 ```sh
-npm run check
+pnpm test
+pnpm build
+pnpm preview
 ```
 
-## Archivos
+La compilación genera `dist/`, publicable en un alojamiento estático.
 
-- `dist/index.html`: interfaz y lógica completas del prototipo.
-- `scripts/serve.mjs`: servidor local.
-- `scripts/check.mjs`: comprobaciones básicas de integridad y sintaxis.
-- `docs/PLAN.md`: módulos, arquitectura propuesta y criterios de aceptación.
+## Estructura
 
-## GitHub
+- `src/App.jsx`: composición de la aplicación y estado compartido.
+- `src/components/`: bandeja, chat y editor del asistente.
+- `src/policy.js`: reglas de elegibilidad y validación de tiempos.
+- `src/storage.js`: carga, validación y persistencia local.
+- `src/styles.css`: diseño adaptable.
+- `docs/PLAN.md`: alcance y módulos pendientes.
 
-Crear o elegir un repositorio privado y subir estos archivos. El paquete exportado excluye `.git`, el identificador de Sites y cualquier configuración local de despliegue. GitHub almacena y versiona el código; la aplicación de producción necesitará además alojamiento, base de datos y un proveedor de IA/conexión a las cuentas.
-
-No subir claves, contraseñas, conversaciones reales ni archivos de usuarios al repositorio. Las credenciales futuras se usarán en el servidor mediante variables de entorno.
-
-El código entregado corresponde a esta versión inicial; no representa una réplica completa de OnlyX.
+No subir credenciales ni conversaciones reales al repositorio. GitHub versiona el código; la IA, el backend y las integraciones se añadirán por separado.
