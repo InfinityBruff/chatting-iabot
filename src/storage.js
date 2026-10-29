@@ -22,7 +22,7 @@ export function loadState() {
       ids.add(fan.id);
       if (fan.messages.some(m => !m || typeof m.text!=='string'||typeof m.mine!=='boolean')) return fresh;
     }
-    return {config,fans:saved.fans};
+    return {config,fans:saved.fans,campaigns:Array.isArray(saved.campaigns)?saved.campaigns.filter(c=>c&&typeof c.name==='string'&&typeof c.text==='string'&&Array.isArray(c.recipientIds)&&typeof c.createdAt==='string'):[]};
   } catch { return fresh; }
 }
 export function saveState(state) { localStorage.setItem(key,JSON.stringify(state)); }

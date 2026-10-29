@@ -70,3 +70,9 @@ GitHub versiona y coordina el desarrollo; por sí solo no aporta conexión a cue
 ## Entrega 0.2 · React
 
 Migrado el prototipo a React y Vite con componentes separados, pruebas de reglas de activación y selección múltiple de fans. La persistencia sigue siendo local; backend, autenticación de equipo, IA e integraciones permanecen pendientes.
+
+## Entrega 0.3 · BRUFF Workspace
+
+Interfaz de tres columnas, gasto destacado por fan, estrellas sobre el avatar con cinco umbrales configurables, ficha con desglose de gasto, suscripción, compras, actividad y notas editables. BRUFF se controla globalmente y por fan, con pausa manual prioritaria. Campañas para todos/seleccionados/en línea con vista de destinatarios y guardado de borradores locales. Respuestas rápidas y adjuntos ficticios para probar el flujo.
+
+Origen de la información: datos de ejemplo. Estrellas calculadas solo con gasto de la cuenta, sin afirmar acceso al gasto con otras modelos. No se ha inspeccionado el chat de OnlyFans: la política del navegador ha bloqueado su lectura. Ninguna configuración activa IA ni envíos reales.
