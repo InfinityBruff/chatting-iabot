@@ -1,3 +1,5 @@
+import VaultPanel from './components/VaultPanel.jsx';
+import {toggleVaultFavorite} from './vault.js';
 import {UnsavedProvider,useGuardedNavigation} from './components/UnsavedChanges.jsx';
 import {saveCampaign} from './campaigns.js';
 import {moveArchive} from './archive.js';
@@ -16,7 +18,7 @@ import {Icon,Toggle} from './components/UI.jsx';
 import {canAssist} from './policy.js';
 import {profileFor} from './fanData.js';
 import {loadState,saveState} from './storage.js';
-const navigation=[['inbox','chat','PRO MESSAGE','Conversaciones'],['settings','bolt','BRUFF IA','Comportamiento'],['accounts','grid','Cuentas','Control de asistencia'],['campaigns','campaign','Campañas','Borradores'],['team','users','Equipo','Roles y comisiones'],['templates','attach','Biblioteca','Plantillas'],['analytics','grid','Analítica','Gasto y rendimiento'],['system','settings','Configuración','Conexiones y actividad']];
+const navigation=[['inbox','chat','PRO MESSAGE','Conversaciones'],['settings','bolt','BRUFF IA','Comportamiento'],['accounts','grid','Cuentas','Control de asistencia'],['campaigns','campaign','Campañas','Borradores'],['team','users','Equipo','Roles y comisiones'],['vault','folder','Vault','Baúl de contenido'],['templates','attach','Biblioteca','Plantillas'],['analytics','grid','Analítica','Gasto y rendimiento'],['system','settings','Configuración','Conexiones y actividad']];
 export default function App(){return <UnsavedProvider><WorkspaceApp/></UnsavedProvider>}
 function WorkspaceApp(){
  const guard=useGuardedNavigation();
@@ -39,6 +41,7 @@ function WorkspaceApp(){
  else if(view==='settings')body=<div className="settings-wrap"><AssistantSettings key={creator.id} creatorName={creator.name} config={rawConfig} onSave={newConfig=>commit({...state,accountConfigs:{...state.accountConfigs,[creator.id]:newConfig}},'Configuración de BRUFF guardada')}/></div>;
  else if(view==='accounts')body=<AccountsPanel state={state} onMode={(id,mode)=>commit(setAccountMode(state,id,mode),'Modo de cuenta actualizado',id)} onFan={(id,ids,on)=>commit(toggleFans(state,id,ids,on),on?'BRUFF habilitado para fan':'Fan en atención manual',id)} onPauseAll={v=>commit({...state,globalPaused:v},v?'Agencia en pausa':'Pausa de agencia retirada',null)} onAll={()=>{let next={...state,globalPaused:false};for(const c of creators)next=setAccountMode(next,c.id,'all');commit(next,'BRUFF habilitado para todos los chats de todas las cuentas · Demo',null)}} onSelect={id=>{selectCreator(id);setView('inbox')}}/>;
  else if(view==='team')body=<TeamPanel key={creator.id} state={state} onSave={m=>commit({...state,team:[...state.team.filter(v=>v.id!==m.id),m]},'Ficha de trabajador guardada · Invitación no enviada',null)} onStatus={(id,status)=>commit({...state,team:state.team.map(m=>m.id===id?{...m,status}:m)},'Estado local del trabajador actualizado',null)}/>;
+ else if(view==='vault')body=<VaultPanel key={creator.id} creator={creator} state={state} onFavorite={id=>commit(toggleVaultFavorite(state,creator.id,id))} onConnection={()=>setView('system')}/>;
  else if(view==='templates')body=<TemplatesPanel key={creator.id} state={state} creatorId={creator.id} onSave={t=>commit({...state,templates:[...state.templates.filter(v=>v.id!==t.id),t]},'Plantilla guardada')} onRemove={id=>commit(moveArchive(state,'templates',creator.id,id),'Plantilla archivada')} onRestore={id=>commit(moveArchive(state,'templates',creator.id,id,true),'Plantilla restaurada')}/>;
  else if(view==='analytics')body=<AnalyticsPanel state={state} creatorId={creator.id}/>;
  else if(view==='system')body=<SystemPanel state={state}/>;

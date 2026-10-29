@@ -156,3 +156,11 @@ No marcar producto completo mientras falten identidad, correo, conexión real y 
 - 29 pruebas y compilación correctas. Dos pruebas nuevas validan cambios de permisos/comisiones, reversión y comparación de plantillas. Sin nueva comprobación visual en esta iteración.
 - Consulta oficial de referencia: https://docs.onlymonster.ai/changelog/changelog-2026 — mejoras de edición y organización de plantillas. No se atribuye el aviso de cambios de BRUFF a ese producto.
 - Siguiente trabajo: validación visual conjunta de biblioteca, archivo, campañas y equipo; corregir fallos antes de ampliar. Después avanzar en diseño implementable del backend independiente, identidad y permisos sin crear servicios de pago ni conexiones reales silenciosamente.
+
+## Entrega 0.5 · Vault por cuenta
+
+Petición explícita: apartado Vault conectado al baúl de OnlyFans, con mejor búsqueda de todas las carpetas. Implementada la interfaz, no la conexión.
+- Nuevo acceso Vault separado de Biblioteca de plantillas. Catálogos demo por modelo, carpetas con contadores, contenido sin carpeta, favoritos persistentes, filtros de formato y búsqueda por título/etiqueta/carpeta, orden y vistas lista/cuadrícula.
+- Inspector de metadatos con origen y estado de conexión claros. No hay miniaturas ni archivos reales, reproducción, descarga o envío simulados.
+- Conexión a OnlyFans pendiente de adaptador independiente autorizado. No usar OnlyX como backend. Al integrar se requerirá enumeración paginada completa de carpetas/medios, identidad de cuenta, estados de carga/error y sincronización real; no mostrar datos demo como importados.
+- 32 pruebas y compilación correctas; aislamiento, búsqueda y favoritos cubiertos. La búsqueda de carpetas es local sobre el catálogo demo.
