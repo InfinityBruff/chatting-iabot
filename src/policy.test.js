@@ -51,3 +51,16 @@ test('draft validation rejects unknown media and malformed text; blank text cann
  assert.deepEqual(draftFor({draft:{text:44,attachment:{id:'unknown'}}}),{text:'',attachment:null});assert.equal(draftFor({draft:{text:'x'.repeat(4000)}}).text.length,3000);
  const state=updateDraft(workspace(),'luna',1,{text:'   '});assert.equal(saveDraftMessage(state,'luna',1).fans[0].messages.length,0);
 });
+
+import {archivedFor,moveArchive} from './archive.js';
+test('archiving and restoring templates preserve contents and account isolation',()=>{
+ const a={id:'same',creatorId:'luna',title:'Luna',text:'Original'},b={id:'same',creatorId:'valeria',title:'Valeria',text:'Other'};const state={templates:[a,b]};
+ const archived=moveArchive(state,'templates','luna','same');assert.deepEqual(archived.templates,[b]);assert.deepEqual(archivedFor(archived,'templates','luna'),[a]);assert.deepEqual(archivedFor(archived,'templates','valeria'),[]);
+ const restored=moveArchive(JSON.parse(JSON.stringify(archived)),'templates','luna','same',true);assert.deepEqual(restored.templates,[a,b]);assert.deepEqual(restored.archivedTemplates,[]);
+});
+test('campaign restoration preserves audience and dates and never creates messages',()=>{
+ const campaign={id:77,creatorId:'luna',name:'Draft',text:'Hi',recipientIds:[1,2],createdAt:'2026-10-29T00:00:00Z'};const state={campaigns:[campaign],fans:[{id:1,messages:[]}]};const archived=moveArchive(state,'campaigns','luna',77);const restored=moveArchive(archived,'campaigns','luna',77,true);assert.deepEqual(restored.campaigns,[campaign]);assert.equal(restored.fans,state.fans);assert.deepEqual(restored.fans[0].messages,[]);
+});
+test('archive actions are idempotent and refuse overwriting conflicts or other accounts',()=>{
+ const item={id:1,creatorId:'luna',text:'v1'};const state={templates:[item]};const archived=moveArchive(state,'templates','luna',1);assert.equal(moveArchive(archived,'templates','luna',1),archived);assert.equal(moveArchive(archived,'templates','valeria',1,true),archived);const conflict={...archived,templates:[{...item,text:'v2'}]};assert.equal(moveArchive(conflict,'templates','luna',1,true),conflict);assert.equal(moveArchive(state,'unknown','luna',1),state);
+});

@@ -119,3 +119,12 @@ No marcar producto completo mientras falten identidad, correo, conexión real y 
 - Tres pruebas nuevas cubren aislamiento por cuenta y fan, persistencia serializada, adjuntos, limpieza atómica, entradas inválidas y mensajes vacíos. Total: 18 pruebas y compilación correctas; sin nueva verificación visual en esta iteración.
 - Referencia pública consultada: https://www.creatorhero.com/hero-copilot — distingue preparación/guardado de borradores y acciones aprobadas. No se deduce de esta fuente que conserve borradores de conversación; esa mejora responde al pendiente propio de BRUFF.
 - Sigue pendiente la protección de cambios sin guardar en formularios de configuración y notas, restauración de archivos y edición de campañas. Persistencia local, sin sincronización multiusuario ni garantía frente a escrituras simultáneas entre pestañas.
+
+## Entrega 0.4.2 · Archivo recuperable por cuenta
+
+- Biblioteca y Campañas incluyen un apartado desplegable de elementos archivados con contador, contenido y botón Restaurar.
+- Recupera también los registros archivados con versiones anteriores, conservando texto, audiencia, identificador y fecha. No borra definitivamente ni envía mensajes.
+- Archivar/restaurar comprueba cuenta e identificador, evita duplicados y conserva ambas versiones ante un conflicto. Los registros de otra modelo permanecen intactos.
+- 21 pruebas y compilación correctas. Tres pruebas nuevas cubren restauración, aislamiento, persistencia serializada, idempotencia y conflictos; sin verificación visual nueva en esta iteración.
+- Referencia oficial consultada: https://docs.onlymonster.ai/changelog/changelog-2025 menciona archivado automático de campañas detenidas. BRUFF implementa archivado manual y recuperación local como mejora propia, sin atribuir a OnlyMonster un comportamiento de restauración no verificado.
+- Próximo avance: edición de borradores de campañas conservando su identidad y selección de destinatarios; después protección de cambios en formularios. Backend y conexiones reales siguen pendientes.
