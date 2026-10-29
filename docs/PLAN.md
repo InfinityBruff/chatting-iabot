@@ -128,3 +128,13 @@ No marcar producto completo mientras falten identidad, correo, conexión real y 
 - 21 pruebas y compilación correctas. Tres pruebas nuevas cubren restauración, aislamiento, persistencia serializada, idempotencia y conflictos; sin verificación visual nueva en esta iteración.
 - Referencia oficial consultada: https://docs.onlymonster.ai/changelog/changelog-2025 menciona archivado automático de campañas detenidas. BRUFF implementa archivado manual y recuperación local como mejora propia, sin atribuir a OnlyMonster un comportamiento de restauración no verificado.
 - Próximo avance: edición de borradores de campañas conservando su identidad y selección de destinatarios; después protección de cambios en formularios. Backend y conexiones reales siguen pendientes.
+
+## Entrega 0.4.3 · Editar campañas sin duplicarlas
+
+- Cada borrador activo tiene «Editar borrador». Conserva identidad y fecha de creación, registra actualización y sustituye solo la campaña de su cuenta.
+- Al editar se conserva por defecto la audiencia guardada; cambiar a todos/en línea recalcula explícitamente. Selección manual disponible dentro del editor, sin depender de la selección temporal de la bandeja.
+- Excluye destinatarios que ya no pertenecen a la cuenta y muestra aviso; exige al menos un destinatario válido. No recrea campañas archivadas o desaparecidas durante la edición.
+- Cancelar o pulsar Escape con cambios muestra «Seguir editando / Descartar cambios». Nuevas campañas usan UUID en lugar de milisegundos.
+- 24 pruebas y compilación correctas; tres pruebas nuevas cubren identidad, aislamiento, validación y ausencia de envíos. No se hizo una nueva prueba visual en esta iteración.
+- Consultada https://docs.onlymonster.ai/ai-magic-assistant/boosting-fan-engagement-with-ai-powered-priority-mass-messages sobre revisar y adaptar texto para la audiencia. El mantenimiento de identidad y destinatarios es implementación propia.
+- Pendientes: protección de formularios restantes y validación visual completa de los últimos flujos. Backend, identidad, correo, IA y conexión autorizada siguen sin configurar.

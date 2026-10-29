@@ -64,3 +64,14 @@ test('campaign restoration preserves audience and dates and never creates messag
 test('archive actions are idempotent and refuse overwriting conflicts or other accounts',()=>{
  const item={id:1,creatorId:'luna',text:'v1'};const state={templates:[item]};const archived=moveArchive(state,'templates','luna',1);assert.equal(moveArchive(archived,'templates','luna',1),archived);assert.equal(moveArchive(archived,'templates','valeria',1,true),archived);const conflict={...archived,templates:[{...item,text:'v2'}]};assert.equal(moveArchive(conflict,'templates','luna',1,true),conflict);assert.equal(moveArchive(state,'unknown','luna',1),state);
 });
+
+import {saveCampaign,scopedRecipients} from './campaigns.js';
+test('campaign edits preserve identity and creation date without duplicating or touching another account',()=>{
+ const old={id:1,creatorId:'luna',name:'Before',text:'Before',audience:'selected',recipientIds:[1],createdAt:'2026-01-01'},other={...old,creatorId:'valeria'};const state={...workspace(),campaigns:[old,other]};const next=saveCampaign(state,'luna',{name:' After ',text:' Edited ',audience:'selected',recipientIds:[2]},1,'2026-10-29');assert.equal(next.campaigns.length,2);assert.equal(next.campaigns[0].id,1);assert.equal(next.campaigns[0].createdAt,'2026-01-01');assert.equal(next.campaigns[0].text,'Edited');assert.equal(next.campaigns[1],other);assert.equal(next.fans,state.fans);
+});
+test('campaign recipients exclude other accounts and deduplicate; unavailable drafts are not recreated',()=>{
+ const state={...workspace(),campaigns:[]};assert.deepEqual(scopedRecipients(state.fans,'luna',[1,1,101,999]),[1]);assert.throws(()=>saveCampaign(state,'luna',{name:'Test',text:'Test',audience:'all',recipientIds:[1]},42));assert.throws(()=>saveCampaign(state,'luna',{name:'Test',text:'Test',audience:'all',recipientIds:[101]}));
+});
+test('new drafts have unique IDs and reject invalid content without sending messages',()=>{
+ const state={...workspace(),campaigns:[]};const input={name:'Campaign',text:'Hello',audience:'selected',recipientIds:[1]};const a=saveCampaign(state,'luna',input),b=saveCampaign(a,'luna',input);assert.notEqual(a.campaigns[0].id,b.campaigns[0].id);assert.equal(b.campaigns.length,2);assert.equal(b.fans,state.fans);for(const patch of [{name:' '},{text:' '},{text:'x'.repeat(3001)},{audience:'bad'}])assert.throws(()=>saveCampaign(state,'luna',{...input,...patch}));
+});
