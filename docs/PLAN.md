@@ -76,3 +76,37 @@ Migrado el prototipo a React y Vite con componentes separados, pruebas de reglas
 Interfaz de tres columnas, gasto destacado por fan, estrellas sobre el avatar con cinco umbrales configurables, ficha con desglose de gasto, suscripción, compras, actividad y notas editables. BRUFF se controla globalmente y por fan, con pausa manual prioritaria. Campañas para todos/seleccionados/en línea con vista de destinatarios y guardado de borradores locales. Respuestas rápidas y adjuntos ficticios para probar el flujo.
 
 Origen de la información: datos de ejemplo. Estrellas calculadas solo con gasto de la cuenta, sin afirmar acceso al gasto con otras modelos. No se ha inspeccionado el chat de OnlyFans: la política del navegador ha bloqueado su lectura. Ninguna configuración activa IA ni envíos reales.
+
+## Entrega 0.4 · 29 octubre 2026 — Producto independiente
+
+Decisión del usuario: producto independiente, sin depender de OnlyX para operar. El conector OnlyX se consultó únicamente para documentación; no se han leído ni modificado cuentas reales.
+
+Investigación pública de esta iteración:
+- https://help.creatorhero.com/en/articles/10500000-fan-info — notas, perfil, idioma, zona horaria, métricas PPV y origen del fan.
+- https://help.creatorhero.com/en/collections/12037234-chat-tools-enhancements — resúmenes, traducción y herramientas de chat.
+- https://onlymonster.ai/faq — cuentas, permisos, segmentación, plantillas y reparto de bandejas.
+- https://docs.onlymonster.ai/changelog/changelog-2026 — evolución de filtros y métricas.
+- https://onlyx.ai/ — personalidad, memoria, límites y configuración por creadora.
+- La búsqueda del conector OnlyX solo devolvió un índice; no funcionó la búsqueda en vivo. Las páginas de conceptos no fueron accesibles por web en esta iteración. No se inspeccionaron áreas privadas ni código propietario. El acceso previo a la página de OnlyFans fue bloqueado; no se reintentó.
+
+Implementado y verificable localmente:
+- Navegación con PRO MESSAGE, BRUFF IA, Cuentas, Campañas, Equipo, Biblioteca, Analítica y Configuración.
+- Configuración independiente de BRUFF por cuenta y pausa de agencia. Todos/selección/pausa; excepciones manuales por fan. Activar todos de una cuenta retira sus excepciones. Los cambios de una cuenta no mutan otra.
+- Personalidad, tono, identidad, instrucciones, idioma, emojis, ritmo, descansos, seguimientos, revisión, memoria y límites comerciales guardados por cuenta. Solo elegibilidad y estrellas tienen efecto operativo hoy; no hay generación ni scheduler de mensajes.
+- Fichas de trabajadores con correo, rol, cuentas, permisos y comisión; estados preparados/suspendidos. No envía invitaciones, no crea credenciales ni aplica seguridad real.
+- Plantillas por cuenta disponibles desde el chat, edición y archivo.
+- Analítica derivada de datos demo, exportación JSON y calculadora de comisiones sin atribución ni pagos reales.
+- Ficha de fan con campos manuales de nombre preferido, cumpleaños, zona horaria, origen, intereses y límites.
+- Registro local de cambios y exportación de copia local. No es una auditoría de seguridad.
+- Migración conserva fans, notas, campañas y datos previos.
+
+Pendiente por prioridad para siguientes ejecuciones horarias:
+1. Persistencia de borradores por conversación y protección frente a perder ediciones al navegar.
+2. Restauración de archivos, edición de campañas y filtros/segmentos por cuenta; no fingir envíos.
+3. Backend de identidad y base compartida: seleccionar servicios con el usuario, modelar workspace/roles/RLS, invitaciones de un solo uso y contraseña fuera del cliente. Los permisos deben comprobarse en servidor.
+4. Adaptador independiente autorizado a OnlyFans: verificar una vía soportada, su alcance y disponibilidad. No extraer sesiones ni pedir contraseñas por chat. No afirmar conexión directa sin validación.
+5. Motor BRUFF con proveedor compatible, cola, revisión, límites, cancelación al tomar control humano e idempotencia. No activar en fans reales sin instrucción explícita y pruebas.
+6. Atribución de ventas por trabajador, períodos y liquidación real una vez haya transacciones verificadas.
+7. Biblioteca de medios real, compras completas, historial PPV, automatizaciones, zonas horarias y segmentación a partir de datos conectados.
+
+No marcar producto completo mientras falten identidad, correo, conexión real y motor IA. Las ejecuciones horarias deben entregar avances comprobados, evitar cambios cosméticos repetitivos y pedir decisiones solo cuando sean necesarias. GitHub destino confirmado: InfinityBruff/chatting-iabot. Hosting privado Sites confirmado.
