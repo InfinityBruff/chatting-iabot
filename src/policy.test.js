@@ -31,3 +31,23 @@ test('account all explicitly clears its exceptions, pause retains selected fans'
 test('legacy settings migrate to isolated accounts without losing notes or templates',()=>{const original={...workspace(),templates:[{id:'mine'}]};original.fans[0].notes='Keep';const copy=migrateWorkspace(original);assert.deepEqual(copy.templates,original.templates);assert.equal(copy.fans[0].notes,'Keep');copy.accountConfigs.luna.tone='Directo';assert.notEqual(copy.accountConfigs.valeria.tone,'Directo')});
 test('advanced assistant settings reject contradictory prices and schedules',()=>{const config=workspace().accountConfigs.luna;assert.equal(validateConfig(config),'');assert.ok(validateConfig({...config,priceFloor:50,priceCeiling:10}));assert.ok(validateConfig({...config,followupLimit:10}));assert.ok(validateConfig({...config,quietStart:'99:99'}));assert.ok(validateConfig({...config,quietEnabled:true,quietStart:'08:00',quietEnd:'08:00'}))});
 test('team validation rejects duplicates, invalid access and commissions',()=>{const member={id:'1',name:'Demo',email:'demo@example.com',creatorIds:['luna'],permissions:['chat'],commission:10};assert.equal(validateMember(member),'');assert.ok(validateMember({...member,commission:''}));assert.ok(validateMember({...member,commission:101}));assert.ok(validateMember({...member,creatorIds:[]}));assert.ok(validateMember({...member,permissions:['unknown']}));assert.ok(validateMember({...member,id:'2'},[member]));assert.equal(validateMember(member,[member]),'');assert.equal(commissionEstimate(12345,12.5),1543)});
+
+import {draftFor,hasDraft,updateDraft,saveDraftMessage} from './drafts.js';
+import {demoMedia} from './fanData.js';
+test('drafts are isolated by account AND fan, survive serialization and retain attachments',()=>{
+ let state=workspace();state.fans.push({id:1,creatorId:'valeria',messages:[]});
+ state=updateDraft(state,'luna',1,{text:'Hola 😊',attachment:demoMedia[0]});
+ state=updateDraft(state,'luna',2,{text:'Otro fan'});
+ state=updateDraft(state,'valeria',1,{text:'Otra cuenta'});
+ const restored=JSON.parse(JSON.stringify(state));
+ assert.equal(draftFor(restored.fans[0]).text,'Hola 😊');assert.equal(draftFor(restored.fans[0]).attachment.id,demoMedia[0].id);
+ assert.equal(draftFor(restored.fans[1]).text,'Otro fan');assert.equal(draftFor(restored.fans.at(-1)).text,'Otra cuenta');
+});
+test('saving a local message clears its draft atomically without clearing another fan',()=>{
+ let state=updateDraft(workspace(),'luna',1,{text:'  Hola  ',attachment:demoMedia[0]});state=updateDraft(state,'luna',2,{text:'Conservar'});
+ const next=saveDraftMessage(state,'luna',1);assert.equal(next.fans[0].messages.at(-1).text,'Hola');assert.equal(next.fans[0].messages.at(-1).attachment.id,demoMedia[0].id);assert.equal(hasDraft(next.fans[0]),false);assert.equal(draftFor(next.fans[1]).text,'Conservar');assert.equal(saveDraftMessage(next,'luna',1).fans[0].messages.length,1);
+});
+test('draft validation rejects unknown media and malformed text; blank text cannot create a message',()=>{
+ assert.deepEqual(draftFor({draft:{text:44,attachment:{id:'unknown'}}}),{text:'',attachment:null});assert.equal(draftFor({draft:{text:'x'.repeat(4000)}}).text.length,3000);
+ const state=updateDraft(workspace(),'luna',1,{text:'   '});assert.equal(saveDraftMessage(state,'luna',1).fans[0].messages.length,0);
+});

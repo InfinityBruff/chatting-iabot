@@ -110,3 +110,12 @@ Pendiente por prioridad para siguientes ejecuciones horarias:
 7. Biblioteca de medios real, compras completas, historial PPV, automatizaciones, zonas horarias y segmentación a partir de datos conectados.
 
 No marcar producto completo mientras falten identidad, correo, conexión real y motor IA. Las ejecuciones horarias deben entregar avances comprobados, evitar cambios cosméticos repetitivos y pedir decisiones solo cuando sean necesarias. GitHub destino confirmado: InfinityBruff/chatting-iabot. Hosting privado Sites confirmado.
+
+## Entrega 0.4.1 · Borradores por conversación
+
+- El texto, emojis y adjuntos de ejemplo se guardan como borrador en el fan de su cuenta. Cambiar de conversación, modelo o apartado y recargar conserva el borrador en este navegador.
+- La lista muestra una vista previa «Borrador» y un filtro específico. Las plantillas se añaden al texto existente en lugar de sustituirlo.
+- Guardar el mensaje local añade el mensaje y limpia únicamente su borrador en una sola actualización. No envía mensajes reales.
+- Tres pruebas nuevas cubren aislamiento por cuenta y fan, persistencia serializada, adjuntos, limpieza atómica, entradas inválidas y mensajes vacíos. Total: 18 pruebas y compilación correctas; sin nueva verificación visual en esta iteración.
+- Referencia pública consultada: https://www.creatorhero.com/hero-copilot — distingue preparación/guardado de borradores y acciones aprobadas. No se deduce de esta fuente que conserve borradores de conversación; esa mejora responde al pendiente propio de BRUFF.
+- Sigue pendiente la protección de cambios sin guardar en formularios de configuración y notas, restauración de archivos y edición de campañas. Persistencia local, sin sincronización multiusuario ni garantía frente a escrituras simultáneas entre pestañas.
