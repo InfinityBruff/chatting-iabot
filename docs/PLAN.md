@@ -138,3 +138,12 @@ No marcar producto completo mientras falten identidad, correo, conexión real y 
 - 24 pruebas y compilación correctas; tres pruebas nuevas cubren identidad, aislamiento, validación y ausencia de envíos. No se hizo una nueva prueba visual en esta iteración.
 - Consultada https://docs.onlymonster.ai/ai-magic-assistant/boosting-fan-engagement-with-ai-powered-priority-mass-messages sobre revisar y adaptar texto para la audiencia. El mantenimiento de identidad y destinatarios es implementación propia.
 - Pendientes: protección de formularios restantes y validación visual completa de los últimos flujos. Backend, identidad, correo, IA y conexión autorizada siguen sin configurar.
+
+## Entrega 0.4.4 · Protección de notas y ajustes pendientes
+
+- Antes de cambiar de fan, cuenta o apartado, o cerrar la ficha, las notas/contexto y ajustes BRUFF sin guardar muestran «Seguir editando / Descartar y continuar».
+- El diálogo conserva el editor y el destino solicitado, atrapa el foco con dialog nativo y permite cancelar con Escape. Recargar/cerrar solicita la advertencia nativa del navegador cuando este la admite; no es una garantía de persistencia ante cierre forzado.
+- No guarda ni aplica automáticamente instrucciones pendientes. Los borradores de mensajes siguen su guardado local independiente.
+- 27 pruebas y compilación correctas. Verificado en navegador: editar nota, intentar abrir BRUFF, cancelar conservando el texto y descartar continuando al destino. No se alteraron datos reales.
+- Referencia consultada: https://help.creatorhero.com/en/articles/10500000-fan-info para notas y campos manuales. La protección contra pérdida de cambios es una mejora propia, no una función atribuida a esa fuente.
+- Pendiente extender protección a editores de equipo/plantillas y probar flujos de archivo/campañas visualmente. Backend y servicios reales siguen pendientes.

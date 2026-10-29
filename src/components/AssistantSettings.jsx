@@ -1,8 +1,10 @@
+import {useUnsavedChanges} from './UnsavedChanges.jsx';
 import React,{useState} from 'react';
 import {validateConfig} from '../policy.js';
 const tabs=[['voice','Personalidad'],['rhythm','Ritmo e idioma'],['sales','Ofertas y límites'],['review','Revisión y memoria'],['stars','Estrellas']];
 export default function AssistantSettings({config,onSave,creatorName}){
  const [draft,setDraft]=useState({...config}),[tab,setTab]=useState('voice'),[error,setError]=useState(''),[dirty,setDirty]=useState(false);
+ useUnsavedChanges(dirty,'Configuración BRUFF de '+creatorName);
  const update=(name,value)=>{setDraft(d=>({...d,[name]:value}));setDirty(true)};
  const text=(key,title,max=3000)=><label className="wide">{title}<textarea maxLength={max} rows="4" value={draft[key]} onChange={e=>update(key,e.target.value)}/></label>;
  const select=(key,title,options)=><label>{title}<select value={draft[key]} onChange={e=>update(key,e.target.value)}>{options.map(v=><option key={v}>{v}</option>)}</select></label>;

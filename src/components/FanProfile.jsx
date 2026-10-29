@@ -1,3 +1,5 @@
+import {useUnsavedChanges} from './UnsavedChanges.jsx';
+import {sameFields} from '../unsaved.js';
 import React,{useState} from 'react';
 import {profileFor,money} from '../fanData.js';
 import {canAssist} from '../policy.js';
@@ -6,6 +8,7 @@ export default function FanProfile({fan,config,onNote,onToggle,onClose,onDetails
  const p=profileFor(fan);
  const [details,setDetails]=useState({nickname:'',birthday:'',timezone:'',source:'',interests:'',preferences:'',...fan.details});
  const [tab,setTab]=useState('profile'),[note,setNote]=useState(fan.notes??p.notes),[purchaseQuery,setPurchaseQuery]=useState('');
+ useUnsavedChanges(note!==(fan.notes??p.notes)||!sameFields(details,fan.details,['nickname','birthday','timezone','source','interests','preferences']),'Notas o contexto de '+fan.name);
  const conversion=p.offered>0?Math.round(p.bought/p.offered*100):null;
  const amounts=[['Contenido',p.ppvCents,'#a58aff'],['Propinas',p.tipsCents,'#54d6b1'],['Suscripción',p.subCents,'#62aaf5']];
  const transactions=p.transactions.filter(t=>t.label.toLocaleLowerCase().includes(purchaseQuery.toLocaleLowerCase()));
