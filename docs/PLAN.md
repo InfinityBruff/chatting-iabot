@@ -147,3 +147,12 @@ No marcar producto completo mientras falten identidad, correo, conexión real y 
 - 27 pruebas y compilación correctas. Verificado en navegador: editar nota, intentar abrir BRUFF, cancelar conservando el texto y descartar continuando al destino. No se alteraron datos reales.
 - Referencia consultada: https://help.creatorhero.com/en/articles/10500000-fan-info para notas y campos manuales. La protección contra pérdida de cambios es una mejora propia, no una función atribuida a esa fuente.
 - Pendiente extender protección a editores de equipo/plantillas y probar flujos de archivo/campañas visualmente. Backend y servicios reales siguen pendientes.
+
+## Entrega 0.4.5 · Protección de equipo y biblioteca
+
+- Equipo y plantillas usan el mismo aviso de cambios sin guardar. Protege cancelar/cerrar, abrir otra ficha o plantilla, crear una nueva mientras se edita, archivar desde biblioteca y cambiar de apartado/cuenta.
+- Abrir un formulario sin modificarlo no genera advertencia; volver exactamente a los valores iniciales la elimina. Guardar correctamente cierra el editor sin pedir descartar.
+- Los borradores permanecen aislados: la ficha de equipo se reinicia al cambiar de cuenta después de confirmar; no se envían invitaciones ni se aplican permisos reales.
+- 29 pruebas y compilación correctas. Dos pruebas nuevas validan cambios de permisos/comisiones, reversión y comparación de plantillas. Sin nueva comprobación visual en esta iteración.
+- Consulta oficial de referencia: https://docs.onlymonster.ai/changelog/changelog-2026 — mejoras de edición y organización de plantillas. No se atribuye el aviso de cambios de BRUFF a ese producto.
+- Siguiente trabajo: validación visual conjunta de biblioteca, archivo, campañas y equipo; corregir fallos antes de ampliar. Después avanzar en diseño implementable del backend independiente, identidad y permisos sin crear servicios de pago ni conexiones reales silenciosamente.
