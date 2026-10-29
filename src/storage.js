@@ -1,3 +1,4 @@
+import {scopeState} from './creators.js';
 import { defaults, validateConfig } from './policy.js';
 const key='iabot-v1';
 const seedFans=[
@@ -7,7 +8,7 @@ const seedFans=[
   {id:4,name:'Lucas',tag:'Seguimiento',on:false,messages:[{text:'¡Gracias por acordarte!',mine:false}]}
 ];
 export function loadState() {
-  const fresh={config:{...defaults},fans:structuredClone(seedFans)};
+  const fresh=scopeState({config:{...defaults},fans:structuredClone(seedFans)});
   try {
     const saved=JSON.parse(localStorage.getItem(key));
     if (!saved) return fresh;
@@ -22,7 +23,7 @@ export function loadState() {
       ids.add(fan.id);
       if (fan.messages.some(m => !m || typeof m.text!=='string'||typeof m.mine!=='boolean')) return fresh;
     }
-    return {config,fans:saved.fans,campaigns:Array.isArray(saved.campaigns)?saved.campaigns.filter(c=>c&&typeof c.name==='string'&&typeof c.text==='string'&&Array.isArray(c.recipientIds)&&typeof c.createdAt==='string'):[]};
+    return scopeState({...saved,config,fans:saved.fans,campaigns:Array.isArray(saved.campaigns)?saved.campaigns.filter(c=>c&&typeof c.name==='string'&&typeof c.text==='string'&&Array.isArray(c.recipientIds)&&typeof c.createdAt==='string'):[]});
   } catch { return fresh; }
 }
 export function saveState(state) { localStorage.setItem(key,JSON.stringify(state)); }
