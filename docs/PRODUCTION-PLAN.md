@@ -87,3 +87,7 @@ No equiparar botones o configuración guardada con una conexión, envío, invita
 ## Próximo paso concreto
 
 Completar la fase 1 y avanzar a la selección técnica de alojamiento/autenticación propia y contrato API de la fase 2. No volver a añadir módulos demo para aparentar avance. Las fases sin credenciales pueden avanzar en contratos, pruebas y repositorios de datos; las acciones externas dependientes esperan su configuración/autorización.
+
+### Avance fase 2 — frontera API, 30/10/2026
+
+Usuario sin alojamiento contratado. Añadidos handler autenticado y adaptador Supabase; API de sesión/cuentas/notas con permisos por petición, fan compuesto y control de versión. 53 pruebas y build correctos. Persistencia, login visible, despliegue de servidor y conexión a React pendientes; no hay backend productivo. Siguiente avance: proyecto Supabase, migración Postgres con aislamiento y repositorio transaccional; ver detalles y límites en BACKEND.md.
