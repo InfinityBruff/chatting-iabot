@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {markFanRead,scopeState} from './creators.js';
+import {profileFor} from './fanData.js';
+import {loadState,saveState} from './storage.js';
+test('marking a chat read leaves the same fan id in another account untouched',()=>{const a={id:1,creatorId:'luna',name:'A',profile:{unread:3}},b={id:1,creatorId:'valeria',name:'B',profile:{unread:5}};const next=markFanRead({fans:[a,b]},'luna',1);assert.equal(next.fans[0].profile.unread,0);assert.equal(next.fans[1],b);assert.equal(a.profile.unread,3)});
+test('a fan in another account cannot inherit Luna financial profile by numeric id',()=>{const p=profileFor({id:1,creatorId:'valeria',name:'B'});assert.equal(p.totalCents,null);assert.deepEqual(p.transactions,[])});
+test('migration does not suppress another account fan with a matching id',()=>{const s=scopeState({fans:[{id:101,creatorId:'luna'}]});assert.equal(s.fans.filter(f=>f.id===101).length,2)});
+test('local reload preserves separate notes and drafts for identical ids across accounts',()=>{const descriptor=Object.getOwnPropertyDescriptor(globalThis,'localStorage');let raw=null;Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:()=>raw,setItem:(_,v)=>{raw=v}}});try{const state=loadState();state.fans=[{id:1,creatorId:'luna',name:'Uno',tag:'',on:false,messages:[],notes:'Luna',draft:{text:'L'}},{id:1,creatorId:'valeria',name:'Dos',tag:'',on:false,messages:[],notes:'Valeria',draft:{text:'V'}}];saveState(state);const restored=loadState();assert.equal(restored.fans.length,2);assert.equal(restored.fans[1].notes,'Valeria');assert.equal(restored.fans[0].draft.text,'L');assert.equal(restored.fans[1].draft.text,'V')}finally{if(descriptor)Object.defineProperty(globalThis,'localStorage',descriptor);else delete globalThis.localStorage}});

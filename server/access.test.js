@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {canAccessAccount,requireConnectedProvider} from './access.js';
+const base={userId:'u',workspaceId:'w',creatorId:'a',permission:'read',memberships:[{userId:'u',workspaceId:'w',status:'active',role:'operator'}],accounts:[{workspaceId:'w',id:'a'},{workspaceId:'other',id:'b'}],grants:[{userId:'u',workspaceId:'w',creatorId:'a',permission:'read'}]};
+test('account grants never cross creator or workspace boundaries',()=>{assert.equal(canAccessAccount(base),true);for(const patch of [{creatorId:'b'},{workspaceId:'other'},{permission:'send'},{userId:'other'},{permission:'invented'}])assert.equal(canAccessAccount({...base,...patch}),false)});
+test('disabled members and unauthenticated callers cannot reuse grants',()=>{assert.equal(canAccessAccount({...base,userId:null}),false);assert.equal(canAccessAccount({...base,memberships:[{...base.memberships[0],status:'disabled'}]}),false)});
+test('viewer cannot send even with a stale send grant',()=>{assert.equal(canAccessAccount({...base,permission:'send',memberships:[{...base.memberships[0],role:'viewer'}],grants:[{...base.grants[0],permission:'send'}]}),false)});
+test('admin role remains restricted to its workspace',()=>{const admin={...base,memberships:[{...base.memberships[0],role:'admin'}]};assert.equal(canAccessAccount({...admin,permission:'settings'}),true);assert.equal(canAccessAccount({...admin,creatorId:'b'}),false)});
+test('provider cannot act until connection is verified for that provider',()=>{const provider={id:'selected-provider'};assert.throws(()=>requireConnectedProvider({connectionStatus:'pending'},provider));assert.throws(()=>requireConnectedProvider({connectionStatus:'connected',externalId:'x',provider:'other'},provider));assert.doesNotThrow(()=>requireConnectedProvider({connectionStatus:'connected',externalId:'x',provider:provider.id},provider))});

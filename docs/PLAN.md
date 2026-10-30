@@ -172,3 +172,17 @@ Petición explícita: apartado Vault conectado al baúl de OnlyFans, con mejor b
 - Histórico sintético independiente de las fichas, identificado como demo. No hay importación de OnlyX, OnlyFans ni conexiones nuevas. El neto aplica una deducción ilustrativa del 20%, no una liquidación contable real. La muestra abarca 90 días; comparaciones anteriores a ella carecen de datos.
 - 35 pruebas correctas y compilación. Cubiertos aislamiento entre cuentas incluso con IDs de fan repetidos, conciliación de barras y tabla, límites temporales y CSV. Verificación visual local de filtros, comparación y detalle de transacciones; verificado salto desde el resumen de todas las cuentas al chat de Alex en Luna. Sin nueva prueba específica de vista móvil.
 - Conexiones independientes, datos reales e identidad siguen pendientes. El dashboard no activa BRUFF ni envía mensajes.
+
+## Entrega 0.7 · Analítica con siete informes
+
+- Petición directa del usuario: reproducir Analytics de la pestaña OnlyX. Se observaron Hoy, Ingresos, Embudo, Retención, Fans, Ventas de contenido y Actividad del chat. Implementación React propia, sin copiar datos privados ni usar OnlyX como backend.
+- Subnavegación, cuenta/todas, fechas, neto/bruto, comparativas, gráficos con detalle, tablas con búsqueda/orden/columnas/paginación/CSV. Embudo acumulativo de ocho etapas y cohortes semanales con semanas inmaduras diferenciadas de cero. Se conserva Resumen y comisiones anterior.
+- Atribución a BRUFF, precios ofertados, archivos y actividad son ejemplos explícitos, no acciones del asistente. Métricas simplificadas documentadas: respuesta media, compradores repetidos dentro del periodo; no se afirma equivalencia con fórmulas propietarias. Histórico sintético compartido con Dashboard, independiente de ficha del fan.
+- 38 pruebas y compilación correctas; comprobados en navegador los siete informes y su distribución. Pruebas de conciliación, aislamiento, embudo posterior al alta y cohortes incompletas. La conexión autorizada independiente y las estadísticas reales siguen pendientes.
+
+## Auditoría 0.7.1 · 30/10/2026
+
+- Plan vigente: docs/PRODUCTION-PLAN.md. Usuario confirma login propio con correo/contraseña para trabajadores, sin ChatGPT; adaptar despliegue/autenticación antes del piloto real.
+- Corregida identidad compuesta cuenta/fan al marcar leídos, restaurar estado y migrar ejemplos; impedida atribución del perfil financiero demo de Luna a otra cuenta por ID coincidente.
+- pnpm test incluye servidor; 47 pruebas y build correctos. Cuatro regresiones nuevas de aislamiento/recarga. No se considera el prototipo listo para producción.
+- Siguiente: fase 2 del plan, identidad/backend. Proveedor OnlyFans, alojamiento/auth compatibles y proveedor IA aún pendientes. Sin envíos ni asistentes reales activados.

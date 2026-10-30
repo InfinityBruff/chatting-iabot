@@ -20,8 +20,9 @@ export function loadState() {
     if (!Array.isArray(saved.fans) || !saved.fans.length) return fresh;
     const ids=new Set();
     for (const fan of saved.fans) {
-      if (!Number.isInteger(fan.id)||ids.has(fan.id)||typeof fan.name!=='string'||typeof fan.tag!=='string'||typeof fan.on!=='boolean'||!Array.isArray(fan.messages)) return fresh;
-      ids.add(fan.id);
+      const scopedId=JSON.stringify([fan?.creatorId||'luna',fan?.id]);
+      if (!fan||!Number.isInteger(fan.id)||ids.has(scopedId)||typeof fan.name!=='string'||typeof fan.tag!=='string'||typeof fan.on!=='boolean'||!Array.isArray(fan.messages)) return fresh;
+      ids.add(scopedId);
       if (fan.messages.some(m => !m || typeof m.text!=='string'||typeof m.mine!=='boolean')) return fresh;
     }
     return migrateWorkspace(scopeState({...saved,config,fans:saved.fans,campaigns:Array.isArray(saved.campaigns)?saved.campaigns.filter(c=>c&&typeof c.name==='string'&&typeof c.text==='string'&&Array.isArray(c.recipientIds)&&typeof c.createdAt==='string'):[]}));
