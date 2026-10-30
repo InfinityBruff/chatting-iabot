@@ -91,3 +91,7 @@ Completar la fase 1 y avanzar a la selección técnica de alojamiento/autenticac
 ### Avance fase 2 — frontera API, 30/10/2026
 
 Usuario sin alojamiento contratado. Añadidos handler autenticado y adaptador Supabase; API de sesión/cuentas/notas con permisos por petición, fan compuesto y control de versión. 53 pruebas y build correctos. Persistencia, login visible, despliegue de servidor y conexión a React pendientes; no hay backend productivo. Siguiente avance: proyecto Supabase, migración Postgres con aislamiento y repositorio transaccional; ver detalles y límites en BACKEND.md.
+
+### Base Supabase aplicada — 30/10/2026
+
+Proyecto Supabase creado por el usuario. Aplicada la primera estructura PostgreSQL privada: diez tablas, agencia BRUFF pausada, RLS y clientes sin privilegios. 17 comprobaciones SQL locales más 54 pruebas y build. Ver docs/SUPABASE-SETUP.md para evidencia, alcance y migración aplicada manualmente. Falta identidad del propietario y conexión API/interfaz; SMTP pendiente (usuario solo dispone de Gmail). No solicitar crear otro proyecto ni repetir esta migración.
