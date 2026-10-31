@@ -194,3 +194,5 @@ Petición explícita: apartado Vault conectado al baúl de OnlyFans, con mejor b
 - Registradas tres vinculaciones privadas. Ningún permiso nuevo de trabajadores ni envíos activados.
 - Interfaz real separada de demo: bandeja/historial paginados y analíticas de movimientos USD por intervalo UTC, con alcance parcial indicado.
 - Pendiente verificación autenticada y conciliación; Vault, envíos, adjuntos y motor IA siguen pendientes.
+
+Verificación autenticada 31/10: las tres modelos devuelven bandejas y transacciones reales en BRUFF publicado. Historial abierto y paginación de Valen comprobada (10 → 28 conversaciones). Desglose financiero distingue bruto/total, recuentos y páginas cargadas. Acceso anónimo al Edge devuelve 401. Sites privado y Cloudflare publicados. No se enviaron mensajes ni se concedieron accesos nuevos a trabajadores. 93 pruebas de aplicación y 64 PostgreSQL. Conciliación completa y sincronización continua siguen pendientes.

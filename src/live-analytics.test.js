@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {earningsCategories} from './live-analytics.js';
+test('earnings distinguishes money, counts and unknown metadata',()=>{const [x]=earningsCategories({total:{gross:100,total:80,delta:25,chartAmount:[{date:'2026-10-01',count:80}],chartCount:[{count:3}]}});assert.equal(x.total,80);assert.equal(x.points[0].amount,80);assert.equal(x.points[0].operations,3);assert.equal('delta' in x,false);assert.deepEqual(earningsCategories({unknown:{delta:99}}),[])});
+test('missing financial values stay unavailable',()=>{const [x]=earningsCategories({total:{total:0,gross:null}});assert.equal(x.total,0);assert.equal(x.gross,null)});
