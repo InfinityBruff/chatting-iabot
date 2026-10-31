@@ -114,5 +114,19 @@ await db.exec(`reset role;update bruff_private.memberships set status='disabled'
 check(await scalar(`select jsonb_array_length(public.bruff_live_accounts('${w}')) as value`),0);
 await reject(`select public.bruff_live_authorize('${w}','${model}','read')`);
 check(await scalar(`select has_function_privilege('anon','public.bruff_live_accounts(uuid)','execute') as value`),false);
+await db.exec('reset role');
+await db.exec(await readFile(new URL('../supabase/migrations/202610310007_live_send_vault.sql',import.meta.url),'utf8'));
+await db.exec(`select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+check(await scalar(`select public.bruff_live_authorize('${w}','${model}','vault') as value`),'acct_safeModel');
+check(await scalar(`select public.bruff_live_authorize('${w}','${model}','send') as value`),'acct_safeModel');
+await reject(`select public.bruff_live_authorize('${other}','${model}','send')`);
+await reject(`select public.bruff_live_authorize('${w}','${foreign}','vault')`);
+await db.exec(`reset role;update bruff_private.memberships set status='active' where workspace_id='${w}' and user_id='${worker}';insert into bruff_private.account_grants values('${w}','${worker}','${model}','send');select set_config('request.jwt.claim.sub','${worker}',false);set role authenticated`);
+check(await scalar(`select public.bruff_live_authorize('${w}','${model}','send') as value`),'acct_safeModel');
+await reject(`select public.bruff_live_authorize('${w}','${model}','vault')`);
+await db.exec(`reset role;update bruff_private.memberships set role='viewer' where workspace_id='${w}' and user_id='${worker}';set role authenticated`);
+await reject(`select public.bruff_live_authorize('${w}','${model}','send')`);
+await db.exec(`reset role;update bruff_private.memberships set status='disabled' where workspace_id='${w}' and user_id='${worker}';set role authenticated`);
+await reject(`select public.bruff_live_authorize('${w}','${model}','send')`);
 console.log(`${checks} team PostgreSQL checks passed: owner-only, scope, role changes, revocation, versions, invitation identity, service-only finalization and audit.`);
 }finally{await db.close()}

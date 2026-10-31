@@ -167,3 +167,17 @@ La interfaz autenticada incorpora «Abrir modelos · Chats y analíticas reales�
 Validación local: 91 pruebas de aplicación y 64 comprobaciones PostgreSQL; build correcto. Pendiente completar comprobación autenticada de los datos devueltos por las tres cuentas, conciliación de ingresos y comprobación de publicación.
 
 Verificación autenticada 31/10: las tres modelos devuelven bandejas y transacciones reales en BRUFF publicado. Historial abierto y paginación de Valen comprobada (10 → 28 conversaciones). Desglose financiero distingue bruto/total, recuentos y páginas cargadas. Acceso anónimo al Edge devuelve 401. Sites privado y Cloudflare publicados. No se enviaron mensajes ni se concedieron accesos nuevos a trabajadores. 93 pruebas de aplicación y 64 PostgreSQL. Conciliación completa y sincronización continua siguen pendientes.
+
+### 31/10 — Envíos manuales y baúl OFMAPI
+
+Implementado compositor real con revisión explícita del fan/texto/adjuntos, mensajes gratuitos, emojis y máximo 10 adjuntos. Subida desde ordenador limitada a 10 MB por archivo (fotos/vídeos/audios compatibles); se informa que subir transfiere el archivo a OnlyFans antes del envío al fan. Baúl por modelo: carpetas paginadas, filtros de tipo y búsqueda, previews con URLs del proxy oficial y selección de adjuntos. Historial muestra adjuntos disponibles sin exponer medios bloqueados ni HTML del proveedor.
+
+Los adjuntos y envíos revisados usan tickets HMAC de una hora ligados a usuario/agencia/modelo y vinculación externa. El envío revisado es inmutable, el reintento usa la misma Idempotency-Key del proveedor dentro de su ventana de 24 h; nunca hay reintentos automáticos. Una revisión perdida tras navegar/recargar requiere comprobar el historial antes de redactar de nuevo. No hay todavía libro persistente de envíos/atribución Send: Nombre ni recuperación duradera de intentos. No se promete entrega exactamente una vez fuera del contrato OFMAPI. URLs de contenido del proveedor duran hasta 24 h y no pueden revocarse retroactivamente por BRUFF una vez entregadas.
+
+Migración 007 amplía únicamente las operaciones admitidas a send/vault, respetando can_access y los roles existentes. Propietario/Manager acceden al baúl; Chatter mantiene solo chats con permisos read/drafts/send y subida directa, sin acceso al módulo general de baúl; Analista sin envío ni baúl. No se concedieron nuevas modelos a trabajadores. Asistente en pausa.
+
+Autorización explícita del usuario: ampliar la clave existente a Read & write y activar en Supabase envío manual, subidas y baúl. Clave OFMAPI renombrada BRUFF · mensajes y baúl; ampliación guardada sin recuperar ni rotar el secreto. bruff-live actualizado con código combinado equivalente al repositorio, validación Auth/SQL conservada y flag BRUFF_MANUAL_SEND_ENABLED=true guardado. Acceso anónimo remoto devuelve 401. Migración 007 ejecutada; confirmar resultado y registrar QA autenticado tras publicación.
+
+Validación: 100 pruebas de aplicación, 72 comprobaciones PGlite y build correctos. QA navegador local con datos ficticios: chat, selección de archivo de baúl y pantalla de revisión; fixture eliminado del código antes de publicación. No se ha enviado ningún mensaje real ni subido archivos reales de prueba. Pendiente QA autenticado de baúles de las tres modelos y prueba de envío/subida realizada por el usuario desde BRUFF. Vídeos >10 MB, PPV, envíos masivos, programados, autoría persistente y bot siguen pendientes.
+
+Contrato consultado: https://ofmapi.com/openapi.json y https://ofmapi.com/docs/idempotency .

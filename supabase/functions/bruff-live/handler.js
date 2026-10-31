@@ -1,7 +1,8 @@
+import {actionNames,liveAction,mediaView} from './actions.js';
 const origins=new Set(['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site']);
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pick=(obj,keys)=>Object.fromEntries(keys.filter(k=>obj?.[k]!==undefined).map(k=>[k,obj[k]]));
-export function normalizeLive(operation,data){
+export function normalizeLive(operation,data,binding){
  const page={cursor:typeof data.cursor==='string'?data.cursor:null,hasMore:data.hasMore===true};
  if(operation==='inbox'){
   if(!Array.isArray(data.conversations))throw Error('schema');
@@ -9,7 +10,7 @@ export function normalizeLive(operation,data){
  }
  if(operation==='messages'){
   if(!Array.isArray(data.messages))throw Error('schema');
-  return {...page,messages:data.messages.map(x=>pick(x,['id','text','isFromMe','createdAt','price','isTip','seenByFan','mediaCount','isOpened']))};
+  return {...page,messages:data.messages.map(x=>({...pick(x,['id','text','isFromMe','createdAt','price','isTip','seenByFan','mediaCount','isOpened']),media:(Array.isArray(x.media)?x.media:[]).map(m=>mediaView(m,binding))}))};
  }
  if(operation==='transactions'){
   if(!Array.isArray(data.transactions))throw Error('schema');
@@ -25,7 +26,7 @@ export function normalizeLive(operation,data){
  }
  throw Error('operation');
 }
-export function createLiveHandler({url,anonKey,providerKey,fetcher=fetch}){
+export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fetcher=fetch}){
  return async request=>{
   const origin=request.headers.get('origin');
   const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'}:{})};
@@ -41,16 +42,18 @@ export function createLiveHandler({url,anonKey,providerKey,fetcher=fetch}){
    const user=await fetcher(url+'/auth/v1/user',{headers:authHeaders,signal:AbortSignal.timeout(15000)});
    const identity=await user.json();if(!user.ok||!identity.id||!identity.email_confirmed_at)return reply(401,{error:'Sesión no válida'});
    const reader=request.body?.getReader();if(!reader)return reply(400,{error:'Faltan datos'});
-   let bytes=0,raw='';const decoder=new TextDecoder();
-   try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>8192){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
-   let input;try{input=JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['accounts','profile','inbox','messages','transactions','earnings'].includes(input.operation)||Object.keys(input).some(k=>!['workspace_id','creator_id','operation','conversation_id','cursor','start','end','query'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   const multipart=request.headers.get('content-type')?.startsWith('multipart/form-data;');
+   let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
+   try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
+   let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
+   if(!input||!uuid.test(input.workspace_id)||!['accounts','profile','inbox','messages','transactions','earnings',...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file'].includes(k)))return reply(400,{error:'Consulta no válida'});
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('access');return r.json()};
-   if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id})});
+   if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id}),writeEnabled});
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
-   const permission=['transactions','earnings'].includes(input.operation)?'analytics':'read';
+   const permission=['transactions','earnings'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
    const authorize=()=>rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p:permission});
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
+   if(actionNames.includes(input.operation))return await liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled});
    const params=new URLSearchParams();let path;
    if(['inbox','messages','transactions'].includes(input.operation)){params.set('pages','1');if(input.cursor!=null){if(typeof input.cursor!=='string'||input.cursor.length>2048)return reply(400,{error:'Cursor inválido'});params.set('cursor',input.cursor)}}
    if(input.operation==='messages'){if(typeof input.conversation_id!=='string'||!/^\d{1,24}$/.test(input.conversation_id))return reply(400,{error:'Conversación inválida'});path='conversations/'+input.conversation_id;}
@@ -65,10 +68,10 @@ export function createLiveHandler({url,anonKey,providerKey,fetcher=fetch}){
    }
    const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(25000),redirect:'error'});
    if(!response.ok)return reply(response.status===429?429:502,{error:response.status===429?'OFMAPI ha limitado las consultas. Espera antes de actualizar.':'OFMAPI no pudo consultar esta cuenta. Revisa su conexión o inténtalo más tarde.',providerStatus:response.status});
-   const data=normalizeLive(input.operation,await response.json());
+   const data=normalizeLive(input.operation,await response.json(),binding);
    // Recheck after provider latency so revoked membership cannot receive a pending result.
    if(await authorize()!==binding)throw Error('access');
    return reply(200,{data,observedAt:new Date().toISOString()});
-  }catch(e){return reply(e.message==='access'?403:503,{error:e.message==='access'?'No tienes acceso a esta modelo o apartado.':'No se pudieron cargar datos reales. No se han sustituido por ejemplos.'})}
+  }catch(e){return reply(e.message==='access'?403:e.message==='ticket'?400:503,{error:e.message==='access'?'No tienes acceso a esta modelo o apartado.':e.message==='ticket'?'La selección ha caducado o no pertenece a esta cuenta. Vuelve a seleccionar los archivos.':'No se pudo confirmar la operación. Si estabas enviando, conserva la revisión y consulta el historial antes de crear otro mensaje.'})}
  };
 }

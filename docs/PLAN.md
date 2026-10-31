@@ -196,3 +196,9 @@ Petición explícita: apartado Vault conectado al baúl de OnlyFans, con mejor b
 - Pendiente verificación autenticada y conciliación; Vault, envíos, adjuntos y motor IA siguen pendientes.
 
 Verificación autenticada 31/10: las tres modelos devuelven bandejas y transacciones reales en BRUFF publicado. Historial abierto y paginación de Valen comprobada (10 → 28 conversaciones). Desglose financiero distingue bruto/total, recuentos y páginas cargadas. Acceso anónimo al Edge devuelve 401. Sites privado y Cloudflare publicados. No se enviaron mensajes ni se concedieron accesos nuevos a trabajadores. 93 pruebas de aplicación y 64 PostgreSQL. Conciliación completa y sincronización continua siguen pendientes.
+
+## 31/10 — Envío manual y baúl preparados
+- Compositor real con revisión, reintentos del mismo intento y adjuntos firmados por cuenta; subir foto/vídeo/audio hasta 10 MB, máximo 10 adjuntos.
+- Baúl real por modelo: carpetas, filtros, búsqueda, previews y selección para mensajes. Sin asignar accesos nuevos a trabajadores.
+- Usuario autoriza Read & write en OFMAPI y activación Supabase; clave actualizada, función actualizada y flag manual guardado. Migración 007 ejecutada, comprobar resultado y QA de publicación.
+- 100 pruebas app + 72 comprobaciones PostgreSQL; build y QA local correctos. Sin mensajes reales de prueba ni bot activado. Detalle y pendientes en PRODUCTION-PLAN.md.
