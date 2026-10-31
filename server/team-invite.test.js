@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {createTeamInviteHandler} from '../supabase/functions/bruff-team-invite/handler.js';
-const body={workspace_id:'w',email:'worker@example.test',role:'operator',grants:[]};
+const body={display_name:'Nombre de prueba',workspace_id:'w',email:'worker@example.test',role:'operator',grants:[]};
 const request=(input=body)=>new Request('https://test/functions/v1/bruff-team-invite',{method:'POST',headers:{Authorization:'Bearer user-token',Origin:'https://bruff-workspace.pages.dev','Content-Type':'application/json'},body:JSON.stringify(input)});
 function mock(responses){const calls=[];return {calls,fetcher:async(url,options)=>{calls.push({url,options});const result=responses.shift();if(!result)throw new Error('Unexpected call');return new Response(JSON.stringify(result.body),{status:result.status||200})}}}
 const identity={body:{id:'owner',email_confirmed_at:'yes'}};
@@ -9,3 +9,5 @@ test('new invite binds grants only after auth returns a target',async()=>{const 
 test('existing identity is assigned without sending an email',async()=>{const m=mock([identity,{body:{id:'ticket',email:body.email,existing_user:'worker'}},{body:null}]);const response=await createTeamInviteHandler({url:'https://db',anonKey:'public',serviceKey:'secret',...m})(request());assert.equal((await response.json()).status,'existing');assert.equal(m.calls.length,3);assert.ok(!m.calls.some(c=>c.url.endsWith('/invite')))});
 test('email failure records failed state without granting membership',async()=>{const m=mock([identity,{body:{id:'ticket',email:body.email}},{status:500,body:{}},{body:null}]);assert.equal((await createTeamInviteHandler({url:'https://db',anonKey:'public',serviceKey:'secret',...m})(request())).status,502);assert.equal(JSON.parse(m.calls[3].options.body).result_status,'failed')});
 test('forged owner fields and unconfirmed identity are rejected',async()=>{for(const input of [{...body,user_id:'owner'},{...body,role:'owner'}]){const m=mock([identity]);assert.equal((await createTeamInviteHandler({url:'https://db',anonKey:'p',serviceKey:'s',...m})(request(input))).status,400)}const m=mock([{body:{id:'u'}}]);assert.equal((await createTeamInviteHandler({url:'https://db',anonKey:'p',serviceKey:'s',...m})(request())).status,401)});
+
+test('invitation requires a worker name before any invitation preparation',async()=>{for(const display_name of ['', ' '.repeat(3), 'x'.repeat(81), 'A\nB']){const m=mock([identity]);const response=await createTeamInviteHandler({url:'https://db',anonKey:'p',serviceKey:'s',...m})(request({...body,display_name}));assert.equal(response.status,400);assert.equal(m.calls.length,1)}});

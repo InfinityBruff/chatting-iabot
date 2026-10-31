@@ -8,3 +8,5 @@ test('bulk permission applies only to selected models and preserves unrelated mo
 test('mixed coverage is explicit and empty scope never reports all',()=>{assert.equal(grantCoverage([{creator_id:'a',permission:'read'}],['a','b'],'read').mixed,true);assert.equal(grantCoverage([],[],'read').all,false)});
 
 test('analyst analytics grant never implies chats; chatter cannot grant analytics or notes',()=>{assert.deepEqual(bulkTeamGrant([],['a'],'analytics',true,'viewer'),[{creator_id:'a',permission:'analytics'}]);assert.deepEqual(bulkTeamGrant([],['a'],'notes',true,'operator'),[]);assert.deepEqual(bulkTeamGrant([],['a'],'analytics',true,'operator'),[])});
+import {messageSenderName} from './team.js';
+test('message sender remains historical and missing authors are not guessed',()=>{assert.equal(messageSenderName({senderName:' Marta '}),'Marta');assert.equal(messageSenderName({mine:true}),'Autor no registrado');assert.equal(messageSenderName({senderName:''}),'Autor no registrado')});

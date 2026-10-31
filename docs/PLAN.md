@@ -186,3 +186,5 @@ Petición explícita: apartado Vault conectado al baúl de OnlyFans, con mejor b
 - Corregida identidad compuesta cuenta/fan al marcar leídos, restaurar estado y migrar ejemplos; impedida atribución del perfil financiero demo de Luna a otra cuenta por ID coincidente.
 - pnpm test incluye servidor; 47 pruebas y build correctos. Cuatro regresiones nuevas de aislamiento/recarga. No se considera el prototipo listo para producción.
 - Siguiente: fase 2 del plan, identidad/backend. Proveedor OnlyFans, alojamiento/auth compatibles y proveedor IA aún pendientes. Sin envíos ni asistentes reales activados.
+
+- 31/10: nombres persistentes en Equipo/invitaciones, edición del nombre propio y auditoría histórica. Migración 005 aplicada y Edge actualizada; 80 pruebas app + 54 PostgreSQL. Send: Nombre en mensajes demo, sin atribuirlos a trabajadores reales. Integración de remitente real pendiente del backend de envío.

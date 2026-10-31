@@ -79,5 +79,26 @@ await db.exec(`select set_config('request.jwt.claim.sub','${worker}',false);set 
 check(await scalar(`select bruff_private.can_access('${w}','${model}','send') as value`),true);
 check(await scalar(`select bruff_private.can_access('${w}','${model}','analytics') as value`),false);
 check(await scalar(`select bruff_private.can_access('${w}','${model}','notes') as value`),false);
+await db.exec(await readFile(new URL('../supabase/migrations/202610310005_team_names.sql',import.meta.url),'utf8'));
+await db.exec(`select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated;select public.bruff_set_my_display_name('${w}','Owner Test')`);
+check(await scalar(`select public.bruff_my_display_name('${w}') as value`),'Owner Test');
+await reject(`select public.bruff_set_my_display_name('${other}','Intruder')`);
+await reject(`select public.bruff_set_my_display_name('${w}','   ')`);
+await reject(`select public.bruff_set_my_display_name('${w}',repeat('a',81))`);
+await reject(`select public.bruff_team_update('${w}','${newUser}','operator','active','[]',3)`);
+await db.exec(`select public.bruff_team_update('${w}','${newUser}','operator','active','[{"creator_id":"${model}","permission":"read"}]',3,'Ana');reset role`);
+check(await scalar(`select display_name as value from bruff_private.memberships where workspace_id='${w}' and user_id='${newUser}'`),'Ana');
+check((await db.query(`select actor_name,target_name from bruff_private.team_audit where workspace_id='${w}' and action='member_updated' order by id desc limit 1`)).rows,[{actor_name:'Owner Test',target_name:'Ana'}]);
+await db.exec(`update auth.users set email_confirmed_at=now() where id='${newUser}'; select set_config('request.jwt.claim.sub','${newUser}',false);set role authenticated;select public.bruff_set_my_display_name('${w}','Ana Dos');reset role`);
+check(await scalar(`select target_name as value from bruff_private.team_audit where workspace_id='${w}' and action='member_updated' order by id desc limit 1`),'Ana');
+await db.exec(`update bruff_private.memberships set status='disabled' where workspace_id='${w}' and user_id='${newUser}';set role authenticated`);
+await reject(`select public.bruff_set_my_display_name('${w}','Disabled')`);
+await db.exec(`reset role;update bruff_private.team_invites set created_at=now()-interval '2 minutes';select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+const namedTicket=await scalar(`select public.bruff_team_prepare_invite('${w}','next@example.test','operator','[]','Next Worker') as value`);
+check(namedTicket.display_name,'Next Worker');
+const nextId='10000000-0000-0000-0000-000000000004';
+await db.exec(`reset role;insert into auth.users(id,email)values('${nextId}','next@example.test');set role service_role;select public.bruff_team_finish_invite('${namedTicket.id}','${nextId}','sent');reset role`);
+check(await scalar(`select display_name as value from bruff_private.memberships where workspace_id='${w}' and user_id='${nextId}'`),'Next Worker');
+check(await scalar(`select has_function_privilege('anon','public.bruff_set_my_display_name(uuid,text)','execute') as value`),false);
 console.log(`${checks} team PostgreSQL checks passed: owner-only, scope, role changes, revocation, versions, invitation identity, service-only finalization and audit.`);
 }finally{await db.close()}

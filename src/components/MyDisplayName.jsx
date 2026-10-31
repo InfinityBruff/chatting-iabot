@@ -1,0 +1,8 @@
+import React,{useEffect,useState} from 'react';
+import {authClient} from '../auth.js';
+export default function MyDisplayName({workspaceId,userId}){
+ const [name,setName]=useState(null),[editing,setEditing]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ useEffect(()=>{let active=true;authClient.rpc('bruff_my_display_name',{w:workspaceId}).then(({data,error})=>{if(active){setName(error?'':data||'');if(error)setError('No se pudo cargar tu nombre.')}});return()=>{active=false}},[workspaceId,userId]);
+ async function save(e){e.preventDefault();setBusy(true);setError('');const value=e.currentTarget.elements.displayName.value.trim();try{const {error}=await authClient.rpc('bruff_set_my_display_name',{w:workspaceId,display_name:value});if(error)throw error;setName(value);setEditing(false)}catch{setError('No se pudo guardar el nombre. Comprueba que tengas acceso y usa entre 1 y 80 caracteres.')}finally{setBusy(false)}}
+ return <div className="my-display-name">{name===null?<p>Cargando nombre…</p>:editing?<form onSubmit={save}><label htmlFor={'my-name-'+workspaceId}>Tu nombre en esta agencia</label><input id={'my-name-'+workspaceId} name="displayName" autoComplete="name" defaultValue={name} maxLength={80} required disabled={busy}/><button disabled={busy}>Guardar nombre</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>Cancelar</button></form>:<p><strong>{name||'Tu nombre está pendiente'}</strong> <button onClick={()=>setEditing(true)}>{name?'Editar mi nombre':'Añadir mi nombre'}</button></p>}{error&&<p role="alert" className="access-error">{error}</p>}</div>
+}

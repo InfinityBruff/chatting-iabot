@@ -18,3 +18,5 @@ export function grantCoverage(grants,ids,permission){
 }
 
 export function editablePermissions(role){return role==='operator'?['read','drafts','send']:role==='viewer'?['analytics']:[];}
+// Use the message's historical author label, never the currently logged-in worker.
+export function messageSenderName(message){return typeof message.senderName==='string'&&message.senderName.trim()?message.senderName.trim():'Autor no registrado';}

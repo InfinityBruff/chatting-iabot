@@ -21,15 +21,15 @@ export function createTeamInviteHandler({url,anonKey,serviceKey,fetcher=fetch}) 
    let size=0;const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>24000){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode();}finally{reader.releaseLock()}
    let input;try{input=JSON.parse(raw)}catch{return reply(400,{error:'Solicitud no válida'})}
-   if(!input||Array.isArray(input)||Object.keys(input).some(k=>!['workspace_id','email','role','grants'].includes(k))||typeof input.workspace_id!=='string'||typeof input.email!=='string'||!['admin','operator','viewer'].includes(input.role)||!Array.isArray(input.grants))return reply(400,{error:'Datos de invitación no válidos'});
+   if(!input||Array.isArray(input)||Object.keys(input).some(k=>!['workspace_id','email','role','grants','display_name'].includes(k))||typeof input.workspace_id!=='string'||typeof input.email!=='string'||typeof input.display_name!=='string'||!input.display_name.trim()||input.display_name.trim().length>80||/[\u0000-\u001f\u007f]/.test(input.display_name)||!['admin','operator','viewer'].includes(input.role)||!Array.isArray(input.grants))return reply(400,{error:'Datos de invitación no válidos'});
    // Owner check, model scope, rate limit and pending-ticket uniqueness are transactional in SQL.
-   const prepared=await call('/rest/v1/rpc/bruff_team_prepare_invite',{w:input.workspace_id,email_address:input.email,r:input.role,g:input.grants});
+   const prepared=await call('/rest/v1/rpc/bruff_team_prepare_invite',{w:input.workspace_id,email_address:input.email,r:input.role,g:input.grants,display_name:input.display_name.trim()});
    if(!prepared.ok)return reply(403,{error:'No se pudo preparar la invitación. Comprueba tus permisos, el correo, las modelos y las invitaciones pendientes. Espera un minuto entre invitaciones.'});
    const ticket=prepared.data;
    let target=ticket.existing_user, result='existing';
    if(!target){
     let invited;
-    try{invited=await call('/auth/v1/invite',{email:ticket.email},true)}catch{return reply(502,{error:'No se pudo confirmar el envío. Revisa la invitación pendiente antes de volver a intentar.'})}
+    try{invited=await call('/auth/v1/invite',{email:ticket.email,data:{display_name:ticket.display_name}},true)}catch{return reply(502,{error:'No se pudo confirmar el envío. Revisa la invitación pendiente antes de volver a intentar.'})}
     if(!invited.ok){await call('/rest/v1/rpc/bruff_team_finish_invite',{ticket:ticket.id,target:null,result_status:'failed'},true);return reply(502,{error:'Supabase no pudo enviar la invitación. Revisa SMTP o espera antes de intentarlo de nuevo.'})}
     target=invited.data?.id; result='sent';
    }
