@@ -42,3 +42,7 @@ Añadido formulario Supabase signInWithPassword, cierre de sesión local, sesió
 La migración 202610310002_membership_rpc.sql está PREPARADA, NO APLICADA. Expone solo bruff_my_workspaces(), sin parámetros: auth.uid() determina identidad y cada llamada filtra membresías activas. No permite escribir ni consultar tablas privadas directamente. Requiere aprobación para habilitar este acceso por la interfaz. Hasta aplicarla, login puede verificar identidad pero muestra permisos pendientes. Login con contraseña real pendiente de prueba por el usuario; no se solicitan contraseñas por chat. SMTP y alojamiento independiente para trabajadores continúan pendientes.
 
 Documentación utilizada: https://supabase.com/docs/reference/javascript/auth-signinwithpassword .
+
+### Actualización remota — 31/10/2026
+
+Tras autorización del usuario se aplicó 202610310002_membership_rpc.sql desde SQL Editor. La nota anterior «NO APLICADA» describe el estado previo. Verificación remota bajo rol authenticated y contexto temporal del propietario: BRUFF, owner, globally_paused=true; anon EXECUTE=false y authenticated USAGE sobre bruff_private=false. Transacción de comprobación revertida. Esta comprobación SQL no sustituye la prueba de inicio de sesión con contraseña en navegador, pendiente del usuario. La interfaz publicada ya llama a esta RPC, por lo que no necesita recompilación para habilitarla.

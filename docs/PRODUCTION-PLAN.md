@@ -99,3 +99,33 @@ Proyecto Supabase creado por el usuario. Aplicada la primera estructura PostgreS
 ### Acceso propio preparado — 31/10/2026
 
 Propietario real vinculado y verificado. Formulario de acceso/cierre de sesión Supabase, sesiones en memoria, demo separada y pantalla de agencias/rol desde RPC. 57 pruebas de aplicación y 23 comprobaciones PostgreSQL correctas. Migración 202610310002_membership_rpc.sql pendiente de aprobación y aplicación remota; no afirmar permisos conectados hasta completarla. Prueba de contraseña real debe realizarla el usuario en la interfaz. Hosting para trabajadores y SMTP siguen pendientes.
+
+### Actualización verificada — 31/10/2026, Cloudflare Pages
+
+La migración 202610310002_membership_rpc.sql ya fue aplicada y el propietario verificó el acceso real y su rol en el sitio anterior; la nota precedente es histórica. Con autorización explícita del usuario se ha publicado el frontend en https://bruff-workspace.pages.dev/ mediante Cloudflare Pages, conectado únicamente a InfinityBruff/chatting-iabot, rama main, commit ddc003341a2f0b9b8838deed95d10dc657baef2c. Compilación pnpm run build, salida dist, Node 22.16.0 y pnpm 11.25.0. Cloudflare mostró despliegue satisfactorio y se verificó la pantalla de acceso en el dominio publicado. El sitio Sites anterior conserva su acceso privado.
+
+Pendiente probar el inicio de sesión en el nuevo dominio con el usuario, actualizar el texto antiguo del formulario que aún describe el alojamiento como pendiente y actualizar Node a una versión mantenida compatible con Corepack (el build actual terminó, pero emitió una advertencia de engines). SMTP, recuperación de acceso, invitaciones, backend operativo, conector independiente y motor BRUFF siguen pendientes; este despliegue no los habilita. No se han activado asistentes ni enviado mensajes reales.
+
+### Acceso en Cloudflare confirmado — 31/10/2026
+
+Después de que el usuario introdujera sus credenciales, se observó en https://bruff-workspace.pages.dev/ la agencia BRUFF, «Propietario · Acceso verificado» y pausa global activada. La demo está deshabilitada durante la sesión real. Verificación local repetida: 57 pruebas y build correctos; 23 comprobaciones PostgreSQL correctas. Esto confirma login y membresía en el nuevo alojamiento, no los módulos operativos pendientes.
+
+Supabase Site URL sigue guardado como http://localhost:3000. Se preparó https://bruff-workspace.pages.dev en el formulario, sin guardar, pendiente de confirmación específica del usuario para cambiar el destino de autenticación. Su respuesta «listo» confirmó únicamente que había iniciado sesión. No hay Redirect URLs configuradas.
+
+### Dirección de autenticación guardada — 31/10/2026
+
+Tras confirmación explícita posterior, se guardó Site URL = https://bruff-workspace.pages.dev en Supabase; el formulario terminó sin cambios pendientes. No se añadieron comodines ni destinos de terceros. La nota anterior describe el estado previo. SMTP personalizado continúa desactivado. Siguiente dependencia para invitaciones/recuperación: proveedor de correo y remitente verificado; además falta implementar y probar los flujos de aceptación y recuperación en React antes de enviar enlaces reales. Cambiar Site URL por sí solo no habilita estos flujos.
+
+### SMTP guardado y plantillas preparadas — 31/10/2026
+
+El usuario introdujo y guardó personalmente su contraseña de aplicación de Gmail. Se verificó tras recargar Supabase que SMTP personalizado permanece activado, con smtp.gmail.com, puerto 465, remitente BRUFF Workspace y contraseña almacenada oculta. No se leyó ni guardó la credencial en el repositorio. Esto confirma persistencia de configuración, no autenticación SMTP ni entrega: no se ha enviado ningún correo de prueba.
+
+Guardadas las plantillas de recuperación e invitación en español, manteniendo {{ .ConfirmationURL }}. Supabase advierte de posibles problemas de entrega al utilizar correo personal. La nota anterior sobre SMTP desactivado es histórica. Próximo paso: implementar y probar el procesamiento seguro de enlaces y formularios de recuperación/aceptación en React; actualmente detectSessionInUrl está desactivado y esos flujos no existen. Después se podrá comprobar entrega con un envío autorizado. No enviar invitaciones a trabajadores ni presentar los enlaces como operativos todavía.
+
+### Invitación y recuperación implementadas — 31/10/2026
+
+Pantallas en React para solicitar recuperación, validar enlaces invite/recovery, crear y confirmar contraseña, éxito y enlaces caducados. Procesan el fragmento implicit de ConfirmationURL con setSession y getUser; parámetros retirados inmediatamente de URL, sin almacenamiento persistente. No se aceptan redirecciones arbitrarias ni se conceden membresías. La sesión del enlace no abre módulos ni consulta agencias durante este flujo; volver al acceso cierra la sesión local. Contraseñas de 12–128 caracteres y confirmación; errores del proveedor traducidos sin mostrar detalles sensibles. Corregido texto antiguo sobre hosting pendiente.
+
+Verificación: pnpm check, 65 pruebas y build correctos; navegador local: formulario de recuperación y error de enlace caducado con URL limpia. Las pruebas de sesión válida y guardado usan dobles del cliente, no identidades reales. Pendiente prueba extremo a extremo con correo autorizado y contraseña introducida por el usuario; no se enviaron correos ni modificaron credenciales reales. Si Supabase exige reautenticación adicional, se muestra error y se requiere nuevo enlace/revisión, sin debilitar ajustes de seguridad. Las invitaciones reales siguen requiriendo asignar previamente permisos desde backend administrativo; no hay envío de invitaciones desde la UI todavía.
+
+Referencias oficiales: https://supabase.com/docs/reference/javascript/auth-resetpasswordforemail y https://supabase.com/docs/reference/javascript/auth-setsession .
