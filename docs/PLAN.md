@@ -188,3 +188,9 @@ Petición explícita: apartado Vault conectado al baúl de OnlyFans, con mejor b
 - Siguiente: fase 2 del plan, identidad/backend. Proveedor OnlyFans, alojamiento/auth compatibles y proveedor IA aún pendientes. Sin envíos ni asistentes reales activados.
 
 - 31/10: nombres persistentes en Equipo/invitaciones, edición del nombre propio y auditoría histórica. Migración 005 aplicada y Edge actualizada; 80 pruebas app + 54 PostgreSQL. Send: Nombre en mensajes demo, sin atribuirlos a trabajadores reales. Integración de remitente real pendiente del backend de envío.
+
+## 31/10 — Conector real de lectura OFMAPI
+- Implementados y desplegados en Supabase: `bruff-live`, RPC de modelos autorizadas y autorización por operación; migración 006.
+- Registradas tres vinculaciones privadas. Ningún permiso nuevo de trabajadores ni envíos activados.
+- Interfaz real separada de demo: bandeja/historial paginados y analíticas de movimientos USD por intervalo UTC, con alcance parcial indicado.
+- Pendiente verificación autenticada y conciliación; Vault, envíos, adjuntos y motor IA siguen pendientes.
