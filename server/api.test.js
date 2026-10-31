@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { createApi } from './api.js';
 import { createSupabaseAuthenticator } from './supabase-auth.js';
 
-function fixture() {
+function fixture(role='admin') {
   let active = true;
   const notes = new Map();
   const key = s => JSON.stringify([s.workspaceId, s.creatorId, s.fanId]);
   const repository = {
     async loadAccess() { return {
-      memberships: [{ userId: 'alice', workspaceId: 'agency', role: 'operator', status: active ? 'active' : 'disabled' }],
-      accounts: [{ workspaceId: 'agency', id: 'luna', displayName: 'Luna' }, { workspaceId: 'agency', id: 'other' }],
+      memberships: [{ userId: 'alice', workspaceId: 'agency', role, status: active ? 'active' : 'disabled' }],
+      accounts: [{ workspaceId: 'agency', id: 'luna', displayName: 'Luna' }],
       grants: ['read', 'notes'].map(permission => ({ userId: 'alice', workspaceId: 'agency', creatorId: 'luna', permission })),
     }; },
     async hasFan(s) { return s.creatorId === 'luna' && s.fanId === 'fan'; },
@@ -80,3 +80,5 @@ test('oversized body is rejected without changing the existing note', async () =
   assert.equal((await f.call(undefined, { body: { body: 'x'.repeat(25000), version: 1 } })).status, 413);
   assert.equal((await (await f.call()).json()).note.body, 'Original');
 });
+
+test('Chatter cannot read or edit notes even with stale notes grant',async()=>{const f=fixture('operator');assert.equal((await f.call()).status,403);assert.equal((await f.call(undefined,{body:{body:'No',version:0}})).status,403)});

@@ -57,7 +57,7 @@ export function createApi({ authenticate, repository } = {}) {
         return json(200, { accounts: accounts.map(({ id, displayName, connectionStatus }) => ({ id, displayName, connectionStatus })) });
       }
       if (!['GET', 'PUT'].includes(request.method)) return json(405, { error: 'Método no permitido' });
-      requireAccountAccess({ ...context, permission: 'read' });
+      requireAccountAccess({ ...context, permission: 'notes' });
       if (request.method === 'PUT') requireAccountAccess({ ...context, permission: 'notes' });
       const scope = { workspaceId, creatorId, fanId };
       if (!await repository.hasFan(scope)) return json(404, { error: 'Fan no encontrado en esta cuenta' });

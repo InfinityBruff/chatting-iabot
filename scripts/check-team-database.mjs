@@ -64,5 +64,20 @@ await db.exec(`select set_config('request.jwt.claim.sub','${owner}',false);set r
 const added=await scalar(`select public.bruff_team_add_account('${w}','New model') as value`);
 await db.exec('reset role');
 check(await scalar(`select connection_status as value from bruff_private.creator_accounts where id='${added}'`),'disconnected');
+await db.exec(await readFile(new URL('../supabase/migrations/202610310004_role_scopes.sql',import.meta.url),'utf8'));
+await db.exec(`update bruff_private.memberships set role='admin',status='active' where workspace_id='${w}' and user_id='${worker}';select set_config('request.jwt.claim.sub','${worker}',false);set role authenticated;`);
+check(await scalar(`select jsonb_array_length(public.bruff_team_snapshot('${w}')->'members') as value`),3);
+await reject(`select public.bruff_team_update('${w}','${owner}','viewer','disabled','[]',1)`);
+await reject(`select public.bruff_team_update('${w}','${newUser}','owner','active','[]',1)`);
+await reject(`select public.bruff_team_snapshot('${other}')`);
+await reject(`select public.bruff_team_update('${w}','${newUser}','operator','active','[{"creator_id":"${model}","permission":"notes"}]',1)`);
+await reject(`select public.bruff_team_update('${w}','${newUser}','viewer','active','[{"creator_id":"${model}","permission":"read"}]',1)`);
+await db.exec(`select public.bruff_team_update('${w}','${newUser}','viewer','active','[{"creator_id":"${model}","permission":"analytics"}]',1);reset role;select set_config('request.jwt.claim.sub','${newUser}',false)`);
+check(await scalar(`select bruff_private.can_access('${w}','${model}','analytics') as value`),true);
+for(const p of ['read','notes','send','settings','vault'])check(await scalar(`select bruff_private.can_access('${w}','${model}','${p}') as value`),false);
+await db.exec(`select set_config('request.jwt.claim.sub','${worker}',false);set role authenticated;select public.bruff_team_update('${w}','${newUser}','operator','active','[{"creator_id":"${model}","permission":"read"},{"creator_id":"${model}","permission":"send"}]',2);reset role;select set_config('request.jwt.claim.sub','${newUser}',false)`);
+check(await scalar(`select bruff_private.can_access('${w}','${model}','send') as value`),true);
+check(await scalar(`select bruff_private.can_access('${w}','${model}','analytics') as value`),false);
+check(await scalar(`select bruff_private.can_access('${w}','${model}','notes') as value`),false);
 console.log(`${checks} team PostgreSQL checks passed: owner-only, scope, role changes, revocation, versions, invitation identity, service-only finalization and audit.`);
 }finally{await db.close()}
