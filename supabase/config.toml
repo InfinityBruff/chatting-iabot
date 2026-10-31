@@ -1,0 +1,4 @@
+# This function verifies the bearer token remotely with Auth getUser and requires
+# an active owner in SQL. Legacy gateway JWT verification is intentionally off.
+[functions.bruff-team-invite]
+verify_jwt = false
