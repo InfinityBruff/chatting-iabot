@@ -243,3 +243,6 @@ El usuario pide añadirlo a la lista, sin activar ni implementar aún:
 - BRUFF: preferencias persistentes por agencia/modelo, apagado/seleccionados/todos (incluye futuros), excepciones manual/BRUFF/heredar por fan, solo propietario/manager editan. Apagar conserva selecciones. Versionado rechaza escrituras obsoletas. Migración 009 aplicada en Supabase.
 - Motor NO conectado: los interruptores guardan preferencias; no inician automatización ni envían mensajes. Conectar y verificar el motor es trabajo posterior.
 - QA local con datos ficticios: dos adjuntos, pago y gratis, confirmación, dos modelos independientes, fan individual. 110 pruebas aplicación y 121 comprobaciones PostgreSQL. No se enviaron mensajes reales ni se cambiaron preferencias de modelos reales durante QA.
+
+## 31/10 — Filas de fans alineadas
+Columna fija de 52 px para avatar, estrellas de 7 px sin separación y 14 px de margen al nombre. Interruptor compacto bajo el avatar con etiqueta BRUFF; reglas detalladas conservadas en la conversación. Verificado visualmente con nombres largos y cambio del interruptor en datos ficticios. El diagnóstico previo de acceso 403 sigue pendiente de la URL exacta del usuario.
