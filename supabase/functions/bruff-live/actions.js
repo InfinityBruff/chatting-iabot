@@ -39,9 +39,12 @@ export async function liveAction({input,identity,binding,providerKey,fetcher,aut
  }
  if(op==='prepare_send'){
   if(typeof input.conversation_id!=='string'||!/^\d{1,24}$/.test(input.conversation_id)||typeof input.text!=='string'||input.text.length>10000||!Array.isArray(input.attachments)||input.attachments.length>10||(!input.text.trim()&&!input.attachments.length))return reply(400,{error:'Revisa el mensaje: texto o archivos, máximo 10 adjuntos.'});
+  const price=input.price===undefined?0:input.price;
+  if(typeof price!=='number'||!Number.isFinite(price)||price<0||!Number.isSafeInteger(Math.round(price*100))||Math.abs(price*100-Math.round(price*100))>0.0000001)return reply(400,{error:'Introduce un precio válido en USD, con un máximo de dos decimales.'});
+  if(price>0&&!input.attachments.length)return reply(400,{error:'Adjunta contenido para poner un precio. El texto acompañante será visible sin pagar.'});
   const media=await Promise.all(input.attachments.map(t=>capability.read(t,'attachment')));
-  const value={conversation:input.conversation_id,body:{text:input.text,media,price:0,lockedText:false,typingWpm:0},id:crypto.randomUUID()};
-  return reply(200,{data:{ticket:await capability.sign('send',value)}});
+  const value={conversation:input.conversation_id,body:{text:input.text,media,price:Math.round(price*100)/100,lockedText:false,typingWpm:200},id:crypto.randomUUID()};
+  return reply(200,{data:{ticket:await capability.sign('send',value),price:value.body.price}});
  }
  const send=await capability.read(input.ticket,'send');
  // A reviewed ticket is immutable and expires well before the provider's 24h replay window.

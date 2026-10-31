@@ -48,3 +48,14 @@ test('multipart upload binds opaque result to this model without accepting arbit
  const r=await handler(new Request('https://bruff.test',{method:'POST',headers:{Authorization:'Bearer test'},body:form}));assert.equal(r.status,200);const result=await r.json();assert.equal(result.data.name,'sample.jpg');assert.equal(JSON.stringify(result).includes('private-test-key'),false);
  const p=await call({operation:'prepare_send',conversation_id:'12',text:'',attachments:[result.data.attachment]});assert.equal(p.status,200);await call({operation:'send_message',ticket:p.body.data.ticket});assert.equal(JSON.parse(calls.at(-1).options.body).media[0].id,'process');
 });
+test('PPV review binds price, accompanying text and vault media; retry cannot change price',async()=>{
+ const {call,calls}=setup();const v=await call({operation:'vault_media'});const p=await call({operation:'prepare_send',conversation_id:'123',text:'Mensaje acompañante',price:12.99,attachments:[v.body.data.media[0].attachment]});
+ assert.equal(p.status,200);assert.equal(p.body.data.price,12.99);assert.equal(calls.length,1);
+ for(const price of [12.99,0])assert.equal((await call({operation:'send_message',ticket:p.body.data.ticket,price})).status,200);
+ const sent=JSON.parse(calls.at(-1).options.body);assert.equal(sent.price,12.99);assert.equal(sent.text,'Mensaje acompañante');assert.equal(sent.lockedText,false);assert.deepEqual(sent.media,[42]);assert.equal(calls.at(-1).options.headers['Idempotency-Key'],calls.at(-2).options.headers['Idempotency-Key']);
+});
+test('invalid prices and paid text-only messages are rejected without sending',async()=>{
+ const {call,calls}=setup();for(const price of [-1,1.001,'10',null,1e30])assert.equal((await call({operation:'prepare_send',conversation_id:'123',text:'x',price,attachments:[]})).status,400);
+ assert.equal((await call({operation:'prepare_send',conversation_id:'123',text:'x',price:10,attachments:[]})).status,400);assert.equal(calls.length,0);
+ const free=await call({operation:'prepare_send',conversation_id:'123',text:'x',price:0,attachments:[]});assert.equal(free.status,200);assert.equal(free.body.data.price,0);
+});

@@ -183,3 +183,11 @@ Validación: 100 pruebas de aplicación, 72 comprobaciones PGlite y build correc
 Contrato consultado: https://ofmapi.com/openapi.json y https://ofmapi.com/docs/idempotency .
 
 Cierre de despliegue de esta fase: migración 007 confirmada en Supabase («Success. No rows returned»); función actualizada, flag manual true y clave Read & write guardados. Publicación Sites privada correcta, fuente 7515478d9bb9a39126be1d9052330d76e54cb689. GitHub main ede646821315c588a57e39c080889e2b39cbb3ab; Cloudflare devuelve HTTP 200 con assets index-CXcQ_G5l.js e index-CEUjM-wT.css. QA real pendiente de iniciar sesión nuevamente tras recarga: el usuario debe entrar y abrir modelos, después comprobar baúles de las tres cuentas. No volver a pedir aprobación para esta activación ya autorizada. Ningún mensaje ni archivo real enviado de prueba. No confundir pruebas con mocks y verificación de despliegue con confirmación de envío real.
+
+### 31/10 — Precio PPV y texto acompañante
+
+Verificación autenticada anterior completada: las tres modelos mostraron carpetas y 40 archivos iniciales, y una cuenta paginó de 40 a 80. Controles de envío/subida/baúl visibles en chat real; sin envío real de prueba.
+
+Añadido precio total USD para los adjuntos, con 0 gratuito. Texto acompañante visible sin pagar (lockedText=false); importe y archivos quedan ligados al ticket firmado del envío. Revisión muestra destinatario, texto, lista de archivos, precio total y botón de confirmación con importe. Admite coma o punto decimal, rechaza negativos, fracciones menores que centavos y contenido de pago sin adjuntos. No cambia permisos ni activa IA. Reintentar conserva precio original incluso si el cliente intenta modificarlo después de revisar. typingWpm=200 es compatible con el contrato del proveedor consultado.
+
+102 pruebas y build correctos; QA local de 12,99 USD con mensaje/adjunto/revisión usando datos ficticios, sin envío real. Fixtures retirados antes de publicar. La entrega/compra real PPV requiere prueba del usuario; no se ha afirmado que haya ocurrido. Fuente: https://ofmapi.com/openapi.json .
