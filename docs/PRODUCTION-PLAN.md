@@ -199,3 +199,13 @@ Inspeccionada por petición del usuario la pestaña abierta Inbox de OnlyX y su 
 Filtros Todos/Sin leer y orden operan sobre páginas cargadas, indicado en UI. La ficha solo muestra identidad y actividad disponibles; gastos, suscripción y notas aún no conectados se indican sin cifras ficticias. No hay Telegram, IA activa, traducción, índices de calidad ni atribución de trabajadores simulados. No se afirma paridad funcional con OnlyX.
 
 QA local con dos modelos y datos ficticios: cuatro paneles, adjuntar, precio 15,50 USD, Enter abre revisión sin envío, volver a editar, cambio de modelo limpia fan/adjuntos y formato móvil 390px. Diálogos conservan el ticket firmado y reintentos existentes. Fixtures eliminados. 102 pruebas de aplicación y build correctos; sin cambios de backend/permisos ni mensajes reales enviados.
+
+### 31/10 — Identidad BRUFF y niveles de fans
+
+Logo original aportado por el usuario integrado en acceso y navegación con presentación blanca por CSS, sin modificar el archivo original. Tema compartido grafito, blanco y azul para el espacio real y pantallas demo, equipo, formularios, baúl, analíticas y diálogos. Las demos siguen identificadas y no se convierten en funciones reales por este cambio visual.
+
+Estrellas siempre visibles sobre el avatar, en la cabecera y en la ficha: 1 desde 6 USD; 2 al superar 17; 3 al superar 35; 4 al superar 60; 5 desde 95. Más de 200 USD cambia las cinco a azul diamante. Importes en centavos enteros; desconocido distinto de cero. Regla común, reemplaza el editor demo de umbrales que ya no corresponde al reparto solicitado.
+
+Consulta oficial OFMAPI `/fans/spend?ids=...` por lotes de hasta 20, exclusivamente para IDs devueltos por la página de inbox de la modelo autorizada, máximo 100 por página. Totales históricos con esa modelo, no gasto global en OnlyFans. Se normalizan importes y se descartan datos raw/IDs no solicitados. Falla de gasto conserva chats con nivel pendiente; se revalidan permisos después de la consulta. Sin cambios SQL, concesiones de acceso ni envíos. Fuente: https://ofmapi.com/openapi.json .
+
+106 pruebas y build correctos. QA de navegación de los ocho apartados demo, logo original, niveles cero/desconocido/dorado/diamante y chat móvil de 390px sin desbordamiento. Cambio de modelo elimina hilo y nivel anteriores. La lectura de gasto se ha preparado y desplegado en bruff-live; comprobar datos autenticados tras actualizar frontend. No prueba de compra o envío real.

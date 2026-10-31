@@ -202,3 +202,8 @@ Verificación autenticada 31/10: las tres modelos devuelven bandejas y transacci
 - Baúl real por modelo: carpetas, filtros, búsqueda, previews y selección para mensajes. Sin asignar accesos nuevos a trabajadores.
 - Usuario autoriza Read & write en OFMAPI y activación Supabase; clave actualizada, función actualizada y flag manual guardado. Migración 007 ejecutada, comprobar resultado y QA de publicación.
 - 100 pruebas app + 72 comprobaciones PostgreSQL; build y QA local correctos. Sin mensajes reales de prueba ni bot activado. Detalle y pendientes en PRODUCTION-PLAN.md.
+
+## 31/10 — Identidad y clasificación visual
+- Logo BRUFF del usuario y tema grafito/blanco/azul en navegación, acceso, módulos reales y demo.
+- Cinco estrellas permanentes: 6, >17, >35, >60, ≥95 USD; diamante >200. Gasto histórico por modelo mediante OFMAPI, desconocido sin estimar.
+- 106 pruebas, revisión de navegación y chat móvil; detalle y límites en PRODUCTION-PLAN.md.

@@ -12,3 +12,20 @@ test('analytics uses analytics permission',async()=>{const {handler,calls}=harne
 test('anonymous denied',async()=>{const {handler,calls}=harness();assert.equal((await handler(request({},''))).status,401);assert.equal(calls.length,0)});
 test('rate limit explicit',async()=>{const {handler}=harness({upstreamStatus:429});assert.equal((await handler(request())).status,429)});
 test('missing amount is not converted to zero; raw data excluded',()=>{assert.deepEqual(normalizeLive('transactions',{transactions:[{id:'x',amount:null,raw:{password:'x'}}]}).transactions,[{id:'x',amount:null,user:{}}]);assert.throws(()=>normalizeLive('inbox',{data:[]}))});
+
+test('fan spend is fetched only for inbox ids in DB-bound model; extras and raw stripped',async()=>{
+ const calls=[];let checks=0;
+ const handler=createLiveHandler({url:'https://auth.test',anonKey:'public',providerKey:'secret',fetcher:async(url,options)=>{
+ calls.push(url);
+ if(url.endsWith('/auth/v1/user'))return json({id:'user',email_confirmed_at:'yes'});
+ if(url.includes('bruff_live_authorize')){checks++;return json('acct_safeModel')}
+ if(url.includes('/inbox?'))return json({conversations:[{userId:123,name:'A'},{userId:456,name:'B'}]});
+ assert.match(url,/accounts\/acct_safeModel\/fans\/spend\?ids=123%2C456$/);assert.equal(options.method,undefined);
+ return json({fans:[{fanId:456,available:false,total:999},{fanId:123,available:true,total:200.01,tips:12,raw:{secret:1}},{fanId:789,available:true,total:9999}]});
+ }});
+ const r=await handler(request());assert.equal(r.status,200);const data=(await r.json()).data;
+ assert.equal(data.conversations[0].spend.total,200.01);assert.equal(data.conversations[1].spend.total,null);assert.equal(JSON.stringify(data).includes('secret'),false);assert.equal(checks,2);
+});
+test('spend failure preserves conversations and does not fabricate zero',async()=>{
+ const {handler}=harness();const r=await handler(request());const row=(await r.json()).data.conversations[0];assert.equal(row.spend.available,false);assert.equal(row.spend.total,null);
+});

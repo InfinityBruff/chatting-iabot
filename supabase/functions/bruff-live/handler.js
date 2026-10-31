@@ -2,6 +2,11 @@ import {actionNames,liveAction,mediaView} from './actions.js';
 const origins=new Set(['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site']);
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pick=(obj,keys)=>Object.fromEntries(keys.filter(k=>obj?.[k]!==undefined).map(k=>[k,obj[k]]));
+export function normalizeSpend(row){
+ const amount=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&Number.isSafeInteger(Math.round(v*100))?v:null;
+ const available=row?.available===true;
+ return {available,...Object.fromEntries(['total','subscriptions','tips','messages','posts','streams'].map(k=>[k,available?amount(row[k]):null]))};
+}
 export function normalizeLive(operation,data,binding){
  const page={cursor:typeof data.cursor==='string'?data.cursor:null,hasMore:data.hasMore===true};
  if(operation==='inbox'){
@@ -69,6 +74,21 @@ export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fe
    const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(25000),redirect:'error'});
    if(!response.ok)return reply(response.status===429?429:502,{error:response.status===429?'OFMAPI ha limitado las consultas. Espera antes de actualizar.':'OFMAPI no pudo consultar esta cuenta. Revisa su conexión o inténtalo más tarde.',providerStatus:response.status});
    const data=normalizeLive(input.operation,await response.json(),binding);
+   // Inbox has no spend. Fetch only ids from this authorized model's page,
+   // in provider-supported batches of 20. A failed spend lookup never hides chats.
+   if(input.operation==='inbox'){
+    const ids=[...new Set(data.conversations.map(f=>String(f.userId??f.id)).filter(id=>/^\d{1,24}$/.test(id)))].slice(0,100);
+    const amounts=new Map();
+    await Promise.all(Array.from({length:Math.ceil(ids.length/20)},async(_,index)=>{
+     const batch=ids.slice(index*20,index*20+20);
+     try{
+      const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/fans/spend?'+new URLSearchParams({ids:batch.join(',')}),{headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(10000),redirect:'error'});
+      if(!r.ok)return;const payload=await r.json();
+      if(Array.isArray(payload.fans))for(const row of payload.fans){const fanId=String(row.fanId);if(batch.includes(fanId))amounts.set(fanId,normalizeSpend(row))}
+     }catch{/* Spend remains explicitly unavailable. */}
+    }));
+    data.conversations=data.conversations.map(f=>({...f,spend:amounts.get(String(f.userId??f.id))??normalizeSpend(null)}));
+   }
    // Recheck after provider latency so revoked membership cannot receive a pending result.
    if(await authorize()!==binding)throw Error('access');
    return reply(200,{data,observedAt:new Date().toISOString()});
