@@ -191,3 +191,11 @@ Verificación autenticada anterior completada: las tres modelos mostraron carpet
 Añadido precio total USD para los adjuntos, con 0 gratuito. Texto acompañante visible sin pagar (lockedText=false); importe y archivos quedan ligados al ticket firmado del envío. Revisión muestra destinatario, texto, lista de archivos, precio total y botón de confirmación con importe. Admite coma o punto decimal, rechaza negativos, fracciones menores que centavos y contenido de pago sin adjuntos. No cambia permisos ni activa IA. Reintentar conserva precio original incluso si el cliente intenta modificarlo después de revisar. typingWpm=200 es compatible con el contrato del proveedor consultado.
 
 102 pruebas y build correctos; QA local de 12,99 USD con mensaje/adjunto/revisión usando datos ficticios, sin envío real. Fixtures retirados antes de publicar. La entrega/compra real PPV requiere prueba del usuario; no se ha afirmado que haya ocurrido. Fuente: https://ofmapi.com/openapi.json .
+
+### 31/10 — Distribución de mensajes basada en referencia visual
+
+Inspeccionada por petición del usuario la pestaña abierta Inbox de OnlyX y su selector de adjuntos. Recreada estructura de cuatro columnas en BRUFF: menú, bandeja persistente con selector de modelo/búsqueda/filtros/orden, conversación y ficha lateral Resumen/Actividad. Tema gris oscuro y azul, tarjetas compactas, cabecera del fan y estado IA, fechas separadoras, emojis sobre compositor fijo, baúl y revisión PPV en diálogos accesibles. Se conserva BRUFF y la integración independiente OFMAPI, sin copiar cuentas, mensajes ni código del producto de referencia.
+
+Filtros Todos/Sin leer y orden operan sobre páginas cargadas, indicado en UI. La ficha solo muestra identidad y actividad disponibles; gastos, suscripción y notas aún no conectados se indican sin cifras ficticias. No hay Telegram, IA activa, traducción, índices de calidad ni atribución de trabajadores simulados. No se afirma paridad funcional con OnlyX.
+
+QA local con dos modelos y datos ficticios: cuatro paneles, adjuntar, precio 15,50 USD, Enter abre revisión sin envío, volver a editar, cambio de modelo limpia fan/adjuntos y formato móvil 390px. Diálogos conservan el ticket firmado y reintentos existentes. Fixtures eliminados. 102 pruebas de aplicación y build correctos; sin cambios de backend/permisos ni mensajes reales enviados.
