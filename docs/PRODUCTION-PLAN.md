@@ -95,3 +95,7 @@ Usuario sin alojamiento contratado. Añadidos handler autenticado y adaptador Su
 ### Base Supabase aplicada — 30/10/2026
 
 Proyecto Supabase creado por el usuario. Aplicada la primera estructura PostgreSQL privada: diez tablas, agencia BRUFF pausada, RLS y clientes sin privilegios. 17 comprobaciones SQL locales más 54 pruebas y build. Ver docs/SUPABASE-SETUP.md para evidencia, alcance y migración aplicada manualmente. Falta identidad del propietario y conexión API/interfaz; SMTP pendiente (usuario solo dispone de Gmail). No solicitar crear otro proyecto ni repetir esta migración.
+
+### Acceso propio preparado — 31/10/2026
+
+Propietario real vinculado y verificado. Formulario de acceso/cierre de sesión Supabase, sesiones en memoria, demo separada y pantalla de agencias/rol desde RPC. 57 pruebas de aplicación y 23 comprobaciones PostgreSQL correctas. Migración 202610310002_membership_rpc.sql pendiente de aprobación y aplicación remota; no afirmar permisos conectados hasta completarla. Prueba de contraseña real debe realizarla el usuario en la interfaz. Hosting para trabajadores y SMTP siguen pendientes.

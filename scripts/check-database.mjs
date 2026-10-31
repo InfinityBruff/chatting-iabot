@@ -53,5 +53,19 @@ await db.exec(`reset role`);
 await assert.rejects(db.exec(`insert into bruff_private.fan_notes(workspace_id,creator_id,fan_id,body,updated_by) values ('${w2}','${c1}','same-fan','Cross-agency author','${u1}')`),/foreign key/);checks++;
 await assert.rejects(db.exec(`insert into bruff_private.fan_notes(workspace_id,creator_id,fan_id,body,updated_by) values ('${w1}','${c1}','missing','No fan','${u1}')`),/foreign key/);checks++;
 check(await scalar(`select bool_and(globally_paused) as value from bruff_private.workspaces`),true);
+// Exercise the public RPC without granting direct private-table access.
+await db.exec(`revoke all on schema bruff_private from authenticated;
+revoke all on all tables in schema bruff_private from authenticated;`);
+await db.exec(await readFile(new URL('../supabase/migrations/202610310002_membership_rpc.sql', import.meta.url),'utf8'));
+check(await scalar(`select has_function_privilege('anon','public.bruff_my_workspaces()','execute') as value`),false);
+await db.exec(`set role authenticated;`);
+check((await db.query(`select name,role from public.bruff_my_workspaces()`)).rows,[{name:'Test B',role:'owner'}]);
+await db.exec(`reset role; select set_config('request.jwt.claim.sub','${u1}',false); set role authenticated;`);
+check((await db.query(`select name,role from public.bruff_my_workspaces()`)).rows,[{name:'Test A',role:'viewer'}]);
+await assert.rejects(db.exec(`select * from bruff_private.memberships`),/permission denied/);checks++;
+await db.exec(`reset role; update bruff_private.memberships set status='disabled' where user_id='${u1}'; set role authenticated;`);
+check((await db.query(`select * from public.bruff_my_workspaces()`)).rows,[]);
+await db.exec(`reset role; select set_config('request.jwt.claim.sub','',false); set role authenticated;`);
+check((await db.query(`select * from public.bruff_my_workspaces()`)).rows,[]);
 console.log(`${checks} PostgreSQL checks passed: RLS, grants, identity, cross-agency/account/fan isolation, disabled membership and protected roles.`);
 } finally { await db.close(); }

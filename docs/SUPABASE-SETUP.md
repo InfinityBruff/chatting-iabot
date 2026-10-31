@@ -32,3 +32,13 @@ Faltan repositorio persistente (incluida actualización atómica de versiones), 
 Authentication revisado y actualizado por instrucción del usuario: registro libre cerrado; email y confirmación activados; acceso anónimo desactivado; Secure password change y Require current password when updating activados. SMTP no configurado; URL de retorno aún localhost:3000. No se enviaron invitaciones ni mensajes y no se activó BRUFF.
 
 Referencias: https://supabase.com/docs/guides/database/postgres/row-level-security y https://supabase.com/docs/guides/database/functions .
+
+## Acceso propio — 31/10/2026
+
+Identidad del propietario confirmada y membresía owner/active asignada con aprobación explícita; comprobada en remoto. Sin registrar identificadores personales en este documento.
+
+Añadido formulario Supabase signInWithPassword, cierre de sesión local, sesión solo en memoria y consulta autenticada de agencias. El login no abre la demo: la demostración tiene entrada explícita separada. Sin datos ficticios en el área autenticada. Clave publicable de navegador únicamente; ninguna clave privilegiada incluida.
+
+La migración 202610310002_membership_rpc.sql está PREPARADA, NO APLICADA. Expone solo bruff_my_workspaces(), sin parámetros: auth.uid() determina identidad y cada llamada filtra membresías activas. No permite escribir ni consultar tablas privadas directamente. Requiere aprobación para habilitar este acceso por la interfaz. Hasta aplicarla, login puede verificar identidad pero muestra permisos pendientes. Login con contraseña real pendiente de prueba por el usuario; no se solicitan contraseñas por chat. SMTP y alojamiento independiente para trabajadores continúan pendientes.
+
+Documentación utilizada: https://supabase.com/docs/reference/javascript/auth-signinwithpassword .
