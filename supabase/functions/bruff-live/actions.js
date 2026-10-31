@@ -14,8 +14,9 @@ export function mediaView(item,binding){
   url:item.canView===true?safe(item.downloadUrl):null,preview:item.canView===true?safe(item.downloadUrls?.thumb||item.downloadUrls?.preview):null};
 }
 export const actionNames=['vault_categories','vault_media','prepare_send','send_message','upload'];
-export async function liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled}){
+export async function liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled,screen}){
  const op=input.operation;
+ const inspect=async(fan,text)=>{if(typeof screen!=='function')throw Error('safety');const safety=await screen(fan,text);return safety.allowed?null:reply(423,{error:safety.blocked?'No puedes volver a hablar hasta que el propietario lo considere.':'Mensaje detenido por la lista interna de BRUFF. Corrige el texto antes de enviarlo.',code:'CHAT_SAFETY',safety})};
  const capability=await tickets(providerKey,JSON.stringify([identity.id,input.workspace_id,input.creator_id,binding]));
  const upstream=async(path,options={})=>fetcher(`https://api.ofmapi.com/v1/accounts/${binding}/${path}`,{...options,headers:{Authorization:'Bearer '+providerKey,...options.headers},redirect:'error',signal:AbortSignal.timeout(op==='upload'?90000:25000)});
  const fail=r=>reply(r.status===429?429:502,{error:r.status===403?'OFMAPI no autoriza esta operación. Revisa el permiso de escritura de la clave.':'El proveedor no confirmó la operación. No se reintentará automáticamente.',providerStatus:r.status});
@@ -43,10 +44,12 @@ export async function liveAction({input,identity,binding,providerKey,fetcher,aut
   if(typeof price!=='number'||!Number.isFinite(price)||price<0||!Number.isSafeInteger(Math.round(price*100))||Math.abs(price*100-Math.round(price*100))>0.0000001)return reply(400,{error:'Introduce un precio válido en USD, con un máximo de dos decimales.'});
   if(price>0&&!input.attachments.length)return reply(400,{error:'Adjunta contenido para poner un precio. El texto acompañante será visible sin pagar.'});
   const media=await Promise.all(input.attachments.map(t=>capability.read(t,'attachment')));
+  const stopped=await inspect(input.conversation_id,input.text);if(stopped)return stopped;
   const value={conversation:input.conversation_id,body:{text:input.text,media,price:Math.round(price*100)/100,lockedText:false,typingWpm:200},id:crypto.randomUUID()};
   return reply(200,{data:{ticket:await capability.sign('send',value),price:value.body.price}});
  }
  const send=await capability.read(input.ticket,'send');
+ const stopped=await inspect(send.conversation,send.body.text);if(stopped)return stopped;
  // A reviewed ticket is immutable and expires well before the provider's 24h replay window.
  if(await authorize()!==binding)throw Error('access');
  const r=await upstream(`conversations/${send.conversation}/messages`,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'bruff-'+send.id},body:JSON.stringify(send.body)});

@@ -1,0 +1,1650 @@
+{
+  "version": "bruff-strict-1",
+  "description": "Lista interna literal solicitada por el propietario. No diccionario oficial OnlyFans. Incluye términos ambiguos y no exceptúa negaciones.",
+  "terms": [
+    {
+      "category": "redes",
+      "term": "Telegram"
+    },
+    {
+      "category": "redes",
+      "term": "TG"
+    },
+    {
+      "category": "redes",
+      "term": "TGram"
+    },
+    {
+      "category": "redes",
+      "term": "Tele"
+    },
+    {
+      "category": "redes",
+      "term": "t.me"
+    },
+    {
+      "category": "redes",
+      "term": "telegram.me"
+    },
+    {
+      "category": "redes",
+      "term": "Instagram"
+    },
+    {
+      "category": "redes",
+      "term": "Insta"
+    },
+    {
+      "category": "redes",
+      "term": "IG"
+    },
+    {
+      "category": "redes",
+      "term": "IGram"
+    },
+    {
+      "category": "redes",
+      "term": "instagram.com"
+    },
+    {
+      "category": "redes",
+      "term": "instagr.am"
+    },
+    {
+      "category": "redes",
+      "term": "Snapchat"
+    },
+    {
+      "category": "redes",
+      "term": "Snap"
+    },
+    {
+      "category": "redes",
+      "term": "SC"
+    },
+    {
+      "category": "redes",
+      "term": "snapchat.com"
+    },
+    {
+      "category": "redes",
+      "term": "WhatsApp"
+    },
+    {
+      "category": "redes",
+      "term": "Whats"
+    },
+    {
+      "category": "redes",
+      "term": "WA"
+    },
+    {
+      "category": "redes",
+      "term": "WApp"
+    },
+    {
+      "category": "redes",
+      "term": "WSP"
+    },
+    {
+      "category": "redes",
+      "term": "Wasap"
+    },
+    {
+      "category": "redes",
+      "term": "Guasap"
+    },
+    {
+      "category": "redes",
+      "term": "wa.me"
+    },
+    {
+      "category": "redes",
+      "term": "whatsapp.com"
+    },
+    {
+      "category": "redes",
+      "term": "Facebook"
+    },
+    {
+      "category": "redes",
+      "term": "FB"
+    },
+    {
+      "category": "redes",
+      "term": "Face"
+    },
+    {
+      "category": "redes",
+      "term": "facebook.com"
+    },
+    {
+      "category": "redes",
+      "term": "fb.com"
+    },
+    {
+      "category": "redes",
+      "term": "fb.me"
+    },
+    {
+      "category": "redes",
+      "term": "Messenger"
+    },
+    {
+      "category": "redes",
+      "term": "FB Messenger"
+    },
+    {
+      "category": "redes",
+      "term": "m.me"
+    },
+    {
+      "category": "redes",
+      "term": "messenger.com"
+    },
+    {
+      "category": "redes",
+      "term": "TikTok"
+    },
+    {
+      "category": "redes",
+      "term": "Tik Tok"
+    },
+    {
+      "category": "redes",
+      "term": "TT"
+    },
+    {
+      "category": "redes",
+      "term": "tiktok.com"
+    },
+    {
+      "category": "redes",
+      "term": "Twitter"
+    },
+    {
+      "category": "redes",
+      "term": "X"
+    },
+    {
+      "category": "redes",
+      "term": "TW"
+    },
+    {
+      "category": "redes",
+      "term": "twitter.com"
+    },
+    {
+      "category": "redes",
+      "term": "x.com"
+    },
+    {
+      "category": "redes",
+      "term": "t.co"
+    },
+    {
+      "category": "redes",
+      "term": "Discord"
+    },
+    {
+      "category": "redes",
+      "term": "Disc"
+    },
+    {
+      "category": "redes",
+      "term": "DC"
+    },
+    {
+      "category": "redes",
+      "term": "discord.gg"
+    },
+    {
+      "category": "redes",
+      "term": "discord.com"
+    },
+    {
+      "category": "redes",
+      "term": "YouTube"
+    },
+    {
+      "category": "redes",
+      "term": "YT"
+    },
+    {
+      "category": "redes",
+      "term": "youtube.com"
+    },
+    {
+      "category": "redes",
+      "term": "youtu.be"
+    },
+    {
+      "category": "redes",
+      "term": "Reddit"
+    },
+    {
+      "category": "redes",
+      "term": "reddit.com"
+    },
+    {
+      "category": "redes",
+      "term": "redd.it"
+    },
+    {
+      "category": "redes",
+      "term": "Twitch"
+    },
+    {
+      "category": "redes",
+      "term": "twitch.tv"
+    },
+    {
+      "category": "redes",
+      "term": "Signal"
+    },
+    {
+      "category": "redes",
+      "term": "signal.me"
+    },
+    {
+      "category": "redes",
+      "term": "signal.org"
+    },
+    {
+      "category": "redes",
+      "term": "Skype"
+    },
+    {
+      "category": "redes",
+      "term": "Kik"
+    },
+    {
+      "category": "redes",
+      "term": "LINE"
+    },
+    {
+      "category": "redes",
+      "term": "WeChat"
+    },
+    {
+      "category": "redes",
+      "term": "Viber"
+    },
+    {
+      "category": "plataformas",
+      "term": "OnlyFans"
+    },
+    {
+      "category": "plataformas",
+      "term": "OF"
+    },
+    {
+      "category": "plataformas",
+      "term": "Fansly"
+    },
+    {
+      "category": "plataformas",
+      "term": "Fanvue"
+    },
+    {
+      "category": "plataformas",
+      "term": "Patreon"
+    },
+    {
+      "category": "plataformas",
+      "term": "ManyVids"
+    },
+    {
+      "category": "plataformas",
+      "term": "MV"
+    },
+    {
+      "category": "plataformas",
+      "term": "LoyalFans"
+    },
+    {
+      "category": "plataformas",
+      "term": "LF"
+    },
+    {
+      "category": "plataformas",
+      "term": "JustForFans"
+    },
+    {
+      "category": "plataformas",
+      "term": "JFF"
+    },
+    {
+      "category": "plataformas",
+      "term": "Chaturbate"
+    },
+    {
+      "category": "plataformas",
+      "term": "CB"
+    },
+    {
+      "category": "plataformas",
+      "term": "Stripchat"
+    },
+    {
+      "category": "plataformas",
+      "term": "MyFreeCams"
+    },
+    {
+      "category": "plataformas",
+      "term": "MFC"
+    },
+    {
+      "category": "pagos",
+      "term": "PayPal"
+    },
+    {
+      "category": "pagos",
+      "term": "PP"
+    },
+    {
+      "category": "pagos",
+      "term": "Cash App"
+    },
+    {
+      "category": "pagos",
+      "term": "CashApp"
+    },
+    {
+      "category": "pagos",
+      "term": "Venmo"
+    },
+    {
+      "category": "pagos",
+      "term": "Zelle"
+    },
+    {
+      "category": "pagos",
+      "term": "Bizum"
+    },
+    {
+      "category": "pagos",
+      "term": "Revolut"
+    },
+    {
+      "category": "pagos",
+      "term": "Wise"
+    },
+    {
+      "category": "pagos",
+      "term": "Western Union"
+    },
+    {
+      "category": "pagos",
+      "term": "MoneyGram"
+    },
+    {
+      "category": "pagos",
+      "term": "transferencia"
+    },
+    {
+      "category": "pagos",
+      "term": "transferencia bancaria"
+    },
+    {
+      "category": "pagos",
+      "term": "cuenta bancaria"
+    },
+    {
+      "category": "pagos",
+      "term": "numero de cuenta"
+    },
+    {
+      "category": "pagos",
+      "term": "IBAN"
+    },
+    {
+      "category": "pagos",
+      "term": "SWIFT"
+    },
+    {
+      "category": "pagos",
+      "term": "BIC"
+    },
+    {
+      "category": "pagos",
+      "term": "pago directo"
+    },
+    {
+      "category": "pagos",
+      "term": "efectivo"
+    },
+    {
+      "category": "pagos",
+      "term": "tarjeta regalo"
+    },
+    {
+      "category": "pagos",
+      "term": "gift card"
+    },
+    {
+      "category": "pagos",
+      "term": "bank transfer"
+    },
+    {
+      "category": "pagos",
+      "term": "wire transfer"
+    },
+    {
+      "category": "pagos",
+      "term": "bank account"
+    },
+    {
+      "category": "pagos",
+      "term": "direct payment"
+    },
+    {
+      "category": "pagos",
+      "term": "criptomoneda"
+    },
+    {
+      "category": "pagos",
+      "term": "cripto"
+    },
+    {
+      "category": "pagos",
+      "term": "crypto"
+    },
+    {
+      "category": "pagos",
+      "term": "Bitcoin"
+    },
+    {
+      "category": "pagos",
+      "term": "BTC"
+    },
+    {
+      "category": "pagos",
+      "term": "Ethereum"
+    },
+    {
+      "category": "pagos",
+      "term": "ETH"
+    },
+    {
+      "category": "pagos",
+      "term": "USDT"
+    },
+    {
+      "category": "pagos",
+      "term": "USDC"
+    },
+    {
+      "category": "pagos",
+      "term": "wallet"
+    },
+    {
+      "category": "pagos",
+      "term": "monedero"
+    },
+    {
+      "category": "pagos",
+      "term": "direccion de billetera"
+    },
+    {
+      "category": "contacto",
+      "term": "telefono"
+    },
+    {
+      "category": "contacto",
+      "term": "numero de telefono"
+    },
+    {
+      "category": "contacto",
+      "term": "movil"
+    },
+    {
+      "category": "contacto",
+      "term": "correo"
+    },
+    {
+      "category": "contacto",
+      "term": "email"
+    },
+    {
+      "category": "contacto",
+      "term": "direccion"
+    },
+    {
+      "category": "contacto",
+      "term": "ubicacion"
+    },
+    {
+      "category": "contacto",
+      "term": "domicilio"
+    },
+    {
+      "category": "contacto",
+      "term": "hotel"
+    },
+    {
+      "category": "contacto",
+      "term": "habitacion"
+    },
+    {
+      "category": "contacto",
+      "term": "quedar"
+    },
+    {
+      "category": "contacto",
+      "term": "vernos"
+    },
+    {
+      "category": "contacto",
+      "term": "encuentro"
+    },
+    {
+      "category": "contacto",
+      "term": "cita"
+    },
+    {
+      "category": "contacto",
+      "term": "en persona"
+    },
+    {
+      "category": "contacto",
+      "term": "contacto"
+    },
+    {
+      "category": "contacto",
+      "term": "phone"
+    },
+    {
+      "category": "contacto",
+      "term": "phone number"
+    },
+    {
+      "category": "contacto",
+      "term": "address"
+    },
+    {
+      "category": "contacto",
+      "term": "location"
+    },
+    {
+      "category": "contacto",
+      "term": "room"
+    },
+    {
+      "category": "contacto",
+      "term": "meet"
+    },
+    {
+      "category": "contacto",
+      "term": "meetup"
+    },
+    {
+      "category": "contacto",
+      "term": "meeting"
+    },
+    {
+      "category": "contacto",
+      "term": "date"
+    },
+    {
+      "category": "contacto",
+      "term": "in person"
+    },
+    {
+      "category": "contacto",
+      "term": "contact"
+    },
+    {
+      "category": "menores",
+      "term": "menor"
+    },
+    {
+      "category": "menores",
+      "term": "menores"
+    },
+    {
+      "category": "menores",
+      "term": "menor de edad"
+    },
+    {
+      "category": "menores",
+      "term": "menos de 18"
+    },
+    {
+      "category": "menores",
+      "term": "niño"
+    },
+    {
+      "category": "menores",
+      "term": "niña"
+    },
+    {
+      "category": "menores",
+      "term": "niños"
+    },
+    {
+      "category": "menores",
+      "term": "niñas"
+    },
+    {
+      "category": "menores",
+      "term": "infantil"
+    },
+    {
+      "category": "menores",
+      "term": "infancia"
+    },
+    {
+      "category": "menores",
+      "term": "preadolescente"
+    },
+    {
+      "category": "menores",
+      "term": "adolescente"
+    },
+    {
+      "category": "menores",
+      "term": "colegial"
+    },
+    {
+      "category": "menores",
+      "term": "colegiala"
+    },
+    {
+      "category": "menores",
+      "term": "escolar"
+    },
+    {
+      "category": "menores",
+      "term": "minor"
+    },
+    {
+      "category": "menores",
+      "term": "minors"
+    },
+    {
+      "category": "menores",
+      "term": "underage"
+    },
+    {
+      "category": "menores",
+      "term": "under 18"
+    },
+    {
+      "category": "menores",
+      "term": "child"
+    },
+    {
+      "category": "menores",
+      "term": "children"
+    },
+    {
+      "category": "menores",
+      "term": "kid"
+    },
+    {
+      "category": "menores",
+      "term": "kids"
+    },
+    {
+      "category": "menores",
+      "term": "childhood"
+    },
+    {
+      "category": "menores",
+      "term": "preteen"
+    },
+    {
+      "category": "menores",
+      "term": "teen"
+    },
+    {
+      "category": "menores",
+      "term": "teenager"
+    },
+    {
+      "category": "menores",
+      "term": "schoolgirl"
+    },
+    {
+      "category": "menores",
+      "term": "schoolboy"
+    },
+    {
+      "category": "menores",
+      "term": "tengo 15"
+    },
+    {
+      "category": "menores",
+      "term": "tengo 16"
+    },
+    {
+      "category": "menores",
+      "term": "tengo 17"
+    },
+    {
+      "category": "menores",
+      "term": "soy menor"
+    },
+    {
+      "category": "menores",
+      "term": "todavia no tengo 18"
+    },
+    {
+      "category": "menores",
+      "term": "I am 15"
+    },
+    {
+      "category": "menores",
+      "term": "I am 16"
+    },
+    {
+      "category": "menores",
+      "term": "I am 17"
+    },
+    {
+      "category": "menores",
+      "term": "I’m 15"
+    },
+    {
+      "category": "menores",
+      "term": "I’m 16"
+    },
+    {
+      "category": "menores",
+      "term": "I’m 17"
+    },
+    {
+      "category": "menores",
+      "term": "not yet 18"
+    },
+    {
+      "category": "animales",
+      "term": "animal"
+    },
+    {
+      "category": "animales",
+      "term": "animales"
+    },
+    {
+      "category": "animales",
+      "term": "mascota"
+    },
+    {
+      "category": "animales",
+      "term": "mascotas"
+    },
+    {
+      "category": "animales",
+      "term": "perro"
+    },
+    {
+      "category": "animales",
+      "term": "perra"
+    },
+    {
+      "category": "animales",
+      "term": "cachorro"
+    },
+    {
+      "category": "animales",
+      "term": "gato"
+    },
+    {
+      "category": "animales",
+      "term": "gata"
+    },
+    {
+      "category": "animales",
+      "term": "gatito"
+    },
+    {
+      "category": "animales",
+      "term": "caballo"
+    },
+    {
+      "category": "animales",
+      "term": "yegua"
+    },
+    {
+      "category": "animales",
+      "term": "poni"
+    },
+    {
+      "category": "animales",
+      "term": "burro"
+    },
+    {
+      "category": "animales",
+      "term": "toro"
+    },
+    {
+      "category": "animales",
+      "term": "vaca"
+    },
+    {
+      "category": "animales",
+      "term": "cerdo"
+    },
+    {
+      "category": "animales",
+      "term": "oveja"
+    },
+    {
+      "category": "animales",
+      "term": "cabra"
+    },
+    {
+      "category": "animales",
+      "term": "conejo"
+    },
+    {
+      "category": "animales",
+      "term": "animals"
+    },
+    {
+      "category": "animales",
+      "term": "pet"
+    },
+    {
+      "category": "animales",
+      "term": "pets"
+    },
+    {
+      "category": "animales",
+      "term": "dog"
+    },
+    {
+      "category": "animales",
+      "term": "puppy"
+    },
+    {
+      "category": "animales",
+      "term": "cat"
+    },
+    {
+      "category": "animales",
+      "term": "kitten"
+    },
+    {
+      "category": "animales",
+      "term": "horse"
+    },
+    {
+      "category": "animales",
+      "term": "mare"
+    },
+    {
+      "category": "animales",
+      "term": "pony"
+    },
+    {
+      "category": "animales",
+      "term": "donkey"
+    },
+    {
+      "category": "animales",
+      "term": "bull"
+    },
+    {
+      "category": "animales",
+      "term": "cow"
+    },
+    {
+      "category": "animales",
+      "term": "pig"
+    },
+    {
+      "category": "animales",
+      "term": "sheep"
+    },
+    {
+      "category": "animales",
+      "term": "goat"
+    },
+    {
+      "category": "animales",
+      "term": "rabbit"
+    },
+    {
+      "category": "animales",
+      "term": "bestialidad"
+    },
+    {
+      "category": "animales",
+      "term": "zoofilia"
+    },
+    {
+      "category": "animales",
+      "term": "bestiality"
+    },
+    {
+      "category": "animales",
+      "term": "zoophilia"
+    },
+    {
+      "category": "coercion",
+      "term": "violacion"
+    },
+    {
+      "category": "coercion",
+      "term": "violar"
+    },
+    {
+      "category": "coercion",
+      "term": "sin consentimiento"
+    },
+    {
+      "category": "coercion",
+      "term": "no consentido"
+    },
+    {
+      "category": "coercion",
+      "term": "contra su voluntad"
+    },
+    {
+      "category": "coercion",
+      "term": "obligar"
+    },
+    {
+      "category": "coercion",
+      "term": "obligado"
+    },
+    {
+      "category": "coercion",
+      "term": "obligada"
+    },
+    {
+      "category": "coercion",
+      "term": "forzar"
+    },
+    {
+      "category": "coercion",
+      "term": "forzado"
+    },
+    {
+      "category": "coercion",
+      "term": "forzada"
+    },
+    {
+      "category": "coercion",
+      "term": "coaccion"
+    },
+    {
+      "category": "coercion",
+      "term": "amenaza"
+    },
+    {
+      "category": "coercion",
+      "term": "chantaje"
+    },
+    {
+      "category": "coercion",
+      "term": "extorsion"
+    },
+    {
+      "category": "coercion",
+      "term": "secuestro"
+    },
+    {
+      "category": "coercion",
+      "term": "abuso sexual"
+    },
+    {
+      "category": "coercion",
+      "term": "agresion sexual"
+    },
+    {
+      "category": "coercion",
+      "term": "rape"
+    },
+    {
+      "category": "coercion",
+      "term": "non-consensual"
+    },
+    {
+      "category": "coercion",
+      "term": "without consent"
+    },
+    {
+      "category": "coercion",
+      "term": "against their will"
+    },
+    {
+      "category": "coercion",
+      "term": "forced"
+    },
+    {
+      "category": "coercion",
+      "term": "coercion"
+    },
+    {
+      "category": "coercion",
+      "term": "threat"
+    },
+    {
+      "category": "coercion",
+      "term": "blackmail"
+    },
+    {
+      "category": "coercion",
+      "term": "extortion"
+    },
+    {
+      "category": "coercion",
+      "term": "kidnapping"
+    },
+    {
+      "category": "coercion",
+      "term": "sexual assault"
+    },
+    {
+      "category": "coercion",
+      "term": "sexual abuse"
+    },
+    {
+      "category": "capacidad",
+      "term": "inconsciente"
+    },
+    {
+      "category": "capacidad",
+      "term": "desmayado"
+    },
+    {
+      "category": "capacidad",
+      "term": "desmayada"
+    },
+    {
+      "category": "capacidad",
+      "term": "dormido"
+    },
+    {
+      "category": "capacidad",
+      "term": "dormida"
+    },
+    {
+      "category": "capacidad",
+      "term": "sedado"
+    },
+    {
+      "category": "capacidad",
+      "term": "sedada"
+    },
+    {
+      "category": "capacidad",
+      "term": "drogado"
+    },
+    {
+      "category": "capacidad",
+      "term": "drogada"
+    },
+    {
+      "category": "capacidad",
+      "term": "intoxicado"
+    },
+    {
+      "category": "capacidad",
+      "term": "intoxicada"
+    },
+    {
+      "category": "capacidad",
+      "term": "borracho"
+    },
+    {
+      "category": "capacidad",
+      "term": "borracha"
+    },
+    {
+      "category": "capacidad",
+      "term": "hipnosis"
+    },
+    {
+      "category": "capacidad",
+      "term": "hipnotizado"
+    },
+    {
+      "category": "capacidad",
+      "term": "unconscious"
+    },
+    {
+      "category": "capacidad",
+      "term": "passed out"
+    },
+    {
+      "category": "capacidad",
+      "term": "asleep"
+    },
+    {
+      "category": "capacidad",
+      "term": "sleeping"
+    },
+    {
+      "category": "capacidad",
+      "term": "sedated"
+    },
+    {
+      "category": "capacidad",
+      "term": "drugged"
+    },
+    {
+      "category": "capacidad",
+      "term": "intoxicated"
+    },
+    {
+      "category": "capacidad",
+      "term": "drunk"
+    },
+    {
+      "category": "capacidad",
+      "term": "hypnosis"
+    },
+    {
+      "category": "capacidad",
+      "term": "hypnotized"
+    },
+    {
+      "category": "parentesco",
+      "term": "incesto"
+    },
+    {
+      "category": "parentesco",
+      "term": "padre"
+    },
+    {
+      "category": "parentesco",
+      "term": "madre"
+    },
+    {
+      "category": "parentesco",
+      "term": "papa"
+    },
+    {
+      "category": "parentesco",
+      "term": "mama"
+    },
+    {
+      "category": "parentesco",
+      "term": "hermano"
+    },
+    {
+      "category": "parentesco",
+      "term": "hermana"
+    },
+    {
+      "category": "parentesco",
+      "term": "hijo"
+    },
+    {
+      "category": "parentesco",
+      "term": "hija"
+    },
+    {
+      "category": "parentesco",
+      "term": "abuelo"
+    },
+    {
+      "category": "parentesco",
+      "term": "abuela"
+    },
+    {
+      "category": "parentesco",
+      "term": "tio"
+    },
+    {
+      "category": "parentesco",
+      "term": "tia"
+    },
+    {
+      "category": "parentesco",
+      "term": "primo"
+    },
+    {
+      "category": "parentesco",
+      "term": "prima"
+    },
+    {
+      "category": "parentesco",
+      "term": "padrastro"
+    },
+    {
+      "category": "parentesco",
+      "term": "madrastra"
+    },
+    {
+      "category": "parentesco",
+      "term": "hermanastro"
+    },
+    {
+      "category": "parentesco",
+      "term": "hermanastra"
+    },
+    {
+      "category": "parentesco",
+      "term": "incest"
+    },
+    {
+      "category": "parentesco",
+      "term": "father"
+    },
+    {
+      "category": "parentesco",
+      "term": "mother"
+    },
+    {
+      "category": "parentesco",
+      "term": "dad"
+    },
+    {
+      "category": "parentesco",
+      "term": "mom"
+    },
+    {
+      "category": "parentesco",
+      "term": "brother"
+    },
+    {
+      "category": "parentesco",
+      "term": "sister"
+    },
+    {
+      "category": "parentesco",
+      "term": "son"
+    },
+    {
+      "category": "parentesco",
+      "term": "daughter"
+    },
+    {
+      "category": "parentesco",
+      "term": "grandfather"
+    },
+    {
+      "category": "parentesco",
+      "term": "grandmother"
+    },
+    {
+      "category": "parentesco",
+      "term": "uncle"
+    },
+    {
+      "category": "parentesco",
+      "term": "aunt"
+    },
+    {
+      "category": "parentesco",
+      "term": "cousin"
+    },
+    {
+      "category": "parentesco",
+      "term": "stepfather"
+    },
+    {
+      "category": "parentesco",
+      "term": "stepmother"
+    },
+    {
+      "category": "parentesco",
+      "term": "stepbrother"
+    },
+    {
+      "category": "parentesco",
+      "term": "stepsister"
+    },
+    {
+      "category": "parentesco",
+      "term": "daddy"
+    },
+    {
+      "category": "parentesco",
+      "term": "mommy"
+    },
+    {
+      "category": "daño",
+      "term": "tortura"
+    },
+    {
+      "category": "daño",
+      "term": "mutilacion"
+    },
+    {
+      "category": "daño",
+      "term": "estrangular"
+    },
+    {
+      "category": "daño",
+      "term": "estrangulacion"
+    },
+    {
+      "category": "daño",
+      "term": "asfixiar"
+    },
+    {
+      "category": "daño",
+      "term": "asfixia"
+    },
+    {
+      "category": "daño",
+      "term": "ahorcar"
+    },
+    {
+      "category": "daño",
+      "term": "herida"
+    },
+    {
+      "category": "daño",
+      "term": "lesion"
+    },
+    {
+      "category": "daño",
+      "term": "sangrado"
+    },
+    {
+      "category": "daño",
+      "term": "sangre"
+    },
+    {
+      "category": "daño",
+      "term": "asesinato"
+    },
+    {
+      "category": "daño",
+      "term": "matar"
+    },
+    {
+      "category": "daño",
+      "term": "cadaver"
+    },
+    {
+      "category": "daño",
+      "term": "necrofilia"
+    },
+    {
+      "category": "daño",
+      "term": "autolesion"
+    },
+    {
+      "category": "daño",
+      "term": "suicidio"
+    },
+    {
+      "category": "daño",
+      "term": "torture"
+    },
+    {
+      "category": "daño",
+      "term": "mutilation"
+    },
+    {
+      "category": "daño",
+      "term": "strangulation"
+    },
+    {
+      "category": "daño",
+      "term": "suffocation"
+    },
+    {
+      "category": "daño",
+      "term": "hanging"
+    },
+    {
+      "category": "daño",
+      "term": "injury"
+    },
+    {
+      "category": "daño",
+      "term": "wound"
+    },
+    {
+      "category": "daño",
+      "term": "bleeding"
+    },
+    {
+      "category": "daño",
+      "term": "blood"
+    },
+    {
+      "category": "daño",
+      "term": "murder"
+    },
+    {
+      "category": "daño",
+      "term": "kill"
+    },
+    {
+      "category": "daño",
+      "term": "corpse"
+    },
+    {
+      "category": "daño",
+      "term": "necrophilia"
+    },
+    {
+      "category": "daño",
+      "term": "self-harm"
+    },
+    {
+      "category": "daño",
+      "term": "suicide"
+    },
+    {
+      "category": "sustancias",
+      "term": "drogas"
+    },
+    {
+      "category": "sustancias",
+      "term": "cocaina"
+    },
+    {
+      "category": "sustancias",
+      "term": "heroina"
+    },
+    {
+      "category": "sustancias",
+      "term": "metanfetamina"
+    },
+    {
+      "category": "sustancias",
+      "term": "extasis"
+    },
+    {
+      "category": "sustancias",
+      "term": "MDMA"
+    },
+    {
+      "category": "sustancias",
+      "term": "ketamina"
+    },
+    {
+      "category": "sustancias",
+      "term": "GHB"
+    },
+    {
+      "category": "sustancias",
+      "term": "cannabis"
+    },
+    {
+      "category": "sustancias",
+      "term": "marihuana"
+    },
+    {
+      "category": "sustancias",
+      "term": "sedantes"
+    },
+    {
+      "category": "sustancias",
+      "term": "somniferos"
+    },
+    {
+      "category": "sustancias",
+      "term": "narcoticos"
+    },
+    {
+      "category": "sustancias",
+      "term": "drugs"
+    },
+    {
+      "category": "sustancias",
+      "term": "cocaine"
+    },
+    {
+      "category": "sustancias",
+      "term": "heroin"
+    },
+    {
+      "category": "sustancias",
+      "term": "methamphetamine"
+    },
+    {
+      "category": "sustancias",
+      "term": "meth"
+    },
+    {
+      "category": "sustancias",
+      "term": "ecstasy"
+    },
+    {
+      "category": "sustancias",
+      "term": "ketamine"
+    },
+    {
+      "category": "sustancias",
+      "term": "marijuana"
+    },
+    {
+      "category": "sustancias",
+      "term": "sedatives"
+    },
+    {
+      "category": "sustancias",
+      "term": "sleeping pills"
+    },
+    {
+      "category": "sustancias",
+      "term": "narcotics"
+    },
+    {
+      "category": "escatologia",
+      "term": "orina"
+    },
+    {
+      "category": "escatologia",
+      "term": "orinar"
+    },
+    {
+      "category": "escatologia",
+      "term": "pis"
+    },
+    {
+      "category": "escatologia",
+      "term": "heces"
+    },
+    {
+      "category": "escatologia",
+      "term": "excrementos"
+    },
+    {
+      "category": "escatologia",
+      "term": "defecar"
+    },
+    {
+      "category": "escatologia",
+      "term": "materia fecal"
+    },
+    {
+      "category": "escatologia",
+      "term": "escatologia"
+    },
+    {
+      "category": "escatologia",
+      "term": "urine"
+    },
+    {
+      "category": "escatologia",
+      "term": "urination"
+    },
+    {
+      "category": "escatologia",
+      "term": "pee"
+    },
+    {
+      "category": "escatologia",
+      "term": "piss"
+    },
+    {
+      "category": "escatologia",
+      "term": "feces"
+    },
+    {
+      "category": "escatologia",
+      "term": "faeces"
+    },
+    {
+      "category": "escatologia",
+      "term": "excrement"
+    },
+    {
+      "category": "escatologia",
+      "term": "scat"
+    },
+    {
+      "category": "explotacion",
+      "term": "trata sexual"
+    },
+    {
+      "category": "explotacion",
+      "term": "trafico sexual"
+    },
+    {
+      "category": "explotacion",
+      "term": "explotacion sexual"
+    },
+    {
+      "category": "explotacion",
+      "term": "prostitucion"
+    },
+    {
+      "category": "explotacion",
+      "term": "proxeneta"
+    },
+    {
+      "category": "explotacion",
+      "term": "servicios sexuales"
+    },
+    {
+      "category": "explotacion",
+      "term": "encuentro sexual pagado"
+    },
+    {
+      "category": "explotacion",
+      "term": "sexo por dinero"
+    },
+    {
+      "category": "explotacion",
+      "term": "sex trafficking"
+    },
+    {
+      "category": "explotacion",
+      "term": "sexual exploitation"
+    },
+    {
+      "category": "explotacion",
+      "term": "prostitution"
+    },
+    {
+      "category": "explotacion",
+      "term": "pimp"
+    },
+    {
+      "category": "explotacion",
+      "term": "escort services"
+    },
+    {
+      "category": "explotacion",
+      "term": "paid sex"
+    },
+    {
+      "category": "explotacion",
+      "term": "sexual services"
+    }
+  ]
+}

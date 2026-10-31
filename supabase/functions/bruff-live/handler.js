@@ -53,12 +53,12 @@ export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fe
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
    if(!input||!uuid.test(input.workspace_id)||!['accounts','profile','inbox','messages','transactions','earnings',...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price'].includes(k)))return reply(400,{error:'Consulta no válida'});
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('access');return r.json()};
-   if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id}),writeEnabled});
+   if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id}),writeEnabled,chatSafety:await rpc('bruff_chat_status',{w:input.workspace_id})});
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
    const permission=['transactions','earnings'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
    const authorize=()=>rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p:permission});
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
-   if(actionNames.includes(input.operation))return await liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled});
+   if(actionNames.includes(input.operation))return await liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled,screen:async(fan,body)=>{const result=await rpc('bruff_chat_screen',{w:input.workspace_id,c:input.creator_id,fan,body});if(typeof result?.allowed!=='boolean'||typeof result?.blocked!=='boolean')throw Error('safety');return result}});
    const params=new URLSearchParams();let path;
    if(['inbox','messages','transactions'].includes(input.operation)){params.set('pages','1');if(input.cursor!=null){if(typeof input.cursor!=='string'||input.cursor.length>2048)return reply(400,{error:'Cursor inválido'});params.set('cursor',input.cursor)}}
    if(input.operation==='messages'){if(typeof input.conversation_id!=='string'||!/^\d{1,24}$/.test(input.conversation_id))return reply(400,{error:'Conversación inválida'});path='conversations/'+input.conversation_id;}

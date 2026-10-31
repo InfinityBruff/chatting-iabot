@@ -1,3 +1,4 @@
+import {ChatSafetyNotice} from './ChatSafety.jsx';
 import React,{useEffect,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
 import {liveRequest,usePage,More} from './LiveWorkspace.jsx';
@@ -17,9 +18,12 @@ function ComposerDialog({title,busy,onClose,children}){
  const ref=useRef(null);useEffect(()=>{ref.current?.showModal()},[]);
  return <dialog ref={ref} className="chat-content-dialog" onCancel={e=>{e.preventDefault();if(!busy)onClose()}} aria-label={title}><header><h2>{title}</h2><button type="button" aria-label="Cerrar ventana" disabled={busy} onClick={onClose}>×</button></header><div className="chat-dialog-body">{children}</div></dialog>;
 }
-export function Composer({workspace,account,fan,canVault,enabled,onSent,compact=false}){
+export function Composer({workspace,account,fan,canVault,enabled,onSent,compact=false,blocked=false}){
+ const [safety,setSafety]=useState(null);
+ useEffect(()=>{if(blocked)setSafety({blocked:true});else setSafety(previous=>previous?.blocked?null:previous)},[blocked]);
+ enabled=enabled&&!blocked&&!safety?.blocked;
  const [text,setText]=useState(''),[price,setPrice]=useState('0'),[attachments,setAttachments]=useState([]),[vault,setVault]=useState(false),[review,setReview]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState(''),[attempted,setAttempted]=useState(false);const lock=useRef(false),fileInput=useRef(null);
- async function run(fn){if(lock.current)return;lock.current=true;setBusy(true);setError('');setSent('');try{await fn()}catch(e){setError(e.message)}finally{lock.current=false;setBusy(false)}}
+ async function run(fn){if(lock.current)return;lock.current=true;setBusy(true);setError('');setSent('');try{await fn()}catch(e){setError(e.message);if(e.safety){setReview(null);setAttempted(false);setSafety(e.safety)}}finally{lock.current=false;setBusy(false)}}
  const amount=Number(price.replace(',','.'));const priceValid=/^\d+(?:[.,]\d{1,2})?$/.test(price)&&Number.isSafeInteger(Math.round(amount*100));
  const formatPrice=n=>new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n);
  const select=item=>{setAttachments(a=>a.some(x=>x.id===item.id)?a:[...a,item].slice(0,10));setVault(false)};
@@ -29,7 +33,8 @@ export function Composer({workspace,account,fan,canVault,enabled,onSent,compact=
  const cancelReview=()=>{if(attempted&&!window.confirm('El mensaje podría haberse enviado. Comprueba el historial antes de crear otro. ¿Cerrar esta revisión?'))return;setReview(null);setAttempted(false)};
  const priceField=<label className="live-price">Precio total del contenido (USD)<input aria-label="Precio total del contenido (USD)" inputMode="decimal" value={price} maxLength={12} disabled={busy||!enabled||!!review} onChange={e=>setPrice(e.target.value)} placeholder="0,00"/><small>0 = gratuito · Precio del conjunto. El texto acompañante queda visible.</small></label>;
  return <section className={`live-composer ${compact?'chat-composer':''}`} aria-label="Redactar mensaje">
-  {!enabled&&<p role="status">El conector está en modo de lectura.</p>}{error&&<p role="alert">{error}</p>}{sent&&<p role="status" className="chat-send-success">{sent}</p>}
+  {safety&&<ChatSafetyNotice safety={safety} onClose={()=>setSafety(previous=>previous?.blocked?{...previous,dismissed:true}:null)}/>}
+  {!enabled&&<p role="status">{blocked||safety?.blocked?'Envío suspendido. Solo el propietario puede habilitarlo desde Equipo.':'El conector está en modo de lectura.'}</p>}{error&&<p role="alert">{error}</p>}{sent&&<p role="status" className="chat-send-success">{sent}</p>}
   <div className="live-emoji" aria-label="Emojis frecuentes">{['😘','😍','🥰','😏','😈','🤤','🔥','💦','🍑','👀','💕','❤️','😉','😂','🙈','🥵'].map(e=><button type="button" key={e} aria-label={'Insertar '+e} disabled={busy||!enabled||!!review} onClick={()=>setText(t=>(t+e).slice(0,10000))}>{e}</button>)}</div>
   {(attachments.length>0||price!=='0')&&<div className="chat-selected-attachments"><div>{attachments.map(a=><span className="chat-attachment-chip" key={a.id}>{a.name}<button aria-label={'Quitar '+a.name} disabled={busy||!!review} onClick={()=>setAttachments(v=>v.filter(x=>x.id!==a.id))}>×</button></span>)}</div>{priceField}</div>}
   <div className="chat-compose-line"><button className="chat-attach-button" aria-label="Adjuntar contenido del baúl o subir archivo" title="Adjuntar contenido" disabled={busy||!enabled||!!review||attachments.length>=10} onClick={()=>setVault(true)}>▧<span>＋</span></button><textarea aria-label="Escribir mensaje" placeholder="Mensaje para este fan…" maxLength={10000} disabled={busy||!enabled||!!review} value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!reviewDisabled)prepare()}}}/><button className="chat-review-button" title="Revisar mensaje antes de enviar" aria-label="Revisar mensaje" disabled={reviewDisabled||!!review} onClick={prepare}>{busy?'…':'↑'}</button></div>

@@ -207,3 +207,21 @@ Verificación autenticada 31/10: las tres modelos devuelven bandejas y transacci
 - Logo BRUFF del usuario y tema grafito/blanco/azul en navegación, acceso, módulos reales y demo.
 - Cinco estrellas permanentes: 6, >17, >35, >60, ≥95 USD; diamante >200. Gasto histórico por modelo mediante OFMAPI, desconocido sin estimar.
 - 106 pruebas, revisión de navegación y chat móvil; detalle y límites en PRODUCTION-PLAN.md.
+
+## 31/10 — Próxima entrega acordada (pendiente de implementación)
+1. Analíticas: resumen de ingresos/neto/operaciones, evolución visual, desglose por origen y explicación de indicadores. Distinguir totales de período de páginas parciales; no estimar datos ausentes.
+2. Estrellas: más pequeñas, centradas encima del avatar y separadas del nombre; conservar los umbrales y colores acordados.
+3. Baúl: selección múltiple de fotos/vídeos, marcas visuales, contador, quitar selecciones y botón «Añadir al mensaje · X archivos»; máximo actual 10 adjuntos.
+4. Compositor: vistas previas de todos los adjuntos, identificación de vídeos, quitar individualmente, precio total o «Gratis» y mensaje acompañante editable.
+5. Confirmación: modelo, fan, texto, archivos y precio juntos; añadir desde baúl no envía. Mantener confirmación explícita e idempotencia.
+6. Investigar normas oficiales de OnlyFans y preparar términos/contextos de revisión para mensajes. No presentar una lista interna de BRUFF como lista oficial exhaustiva ni habilitar un filtro sin acordar su comportamiento.
+
+El usuario ha pedido guardar la lista y añadir requisitos antes de implementar esta entrega.
+
+## 31/10 — Protección previa de mensajes salientes
+- Lista interna estricta BRUFF: 411 entradas; no es un diccionario oficial de OnlyFans. Se comprueban palabras/frases completas normalizadas. Puede producir falsos positivos.
+- Solo mensajes salientes de propietario/trabajadores. Los mensajes recibidos de fans no activan alertas ni suspensiones.
+- Servidor revisa al preparar y nuevamente al confirmar, antes de llamar a OFMAPI. Deniega el intento y registra actor, modelo, fan ID, texto, términos y hora. Fallos de validación impiden enviar.
+- Trabajador suspendido en toda su agencia hasta revisión del propietario en Equipo. Propietario registra alerta y no envía ese texto, pero puede corregir sin suspensión. Solo propietario puede ver registros y levantar suspensión.
+- No cancela solicitudes ya despachadas, no analiza imágenes/audio ni clientes externos. Notificación dentro de Equipo, no correo.
+- Migración 008 aplicada; función bruff-live actualizada. 109 pruebas de aplicación y 102 comprobaciones PostgreSQL; alerta y desbloqueo comprobados con datos locales ficticios, sin enviar a fans reales.

@@ -209,3 +209,11 @@ Estrellas siempre visibles sobre el avatar, en la cabecera y en la ficha: 1 desd
 Consulta oficial OFMAPI `/fans/spend?ids=...` por lotes de hasta 20, exclusivamente para IDs devueltos por la página de inbox de la modelo autorizada, máximo 100 por página. Totales históricos con esa modelo, no gasto global en OnlyFans. Se normalizan importes y se descartan datos raw/IDs no solicitados. Falla de gasto conserva chats con nivel pendiente; se revalidan permisos después de la consulta. Sin cambios SQL, concesiones de acceso ni envíos. Fuente: https://ofmapi.com/openapi.json .
 
 106 pruebas y build correctos. QA de navegación de los ocho apartados demo, logo original, niveles cero/desconocido/dorado/diamante y chat móvil de 390px sin desbordamiento. Cambio de modelo elimina hilo y nivel anteriores. La lectura de gasto se ha preparado y desplegado en bruff-live; comprobar datos autenticados tras actualizar frontend. No prueba de compra o envío real.
+
+## 31/10 — Protección previa de mensajes salientes
+- Lista interna estricta BRUFF: 411 entradas; no es un diccionario oficial de OnlyFans. Se comprueban palabras/frases completas normalizadas. Puede producir falsos positivos.
+- Solo mensajes salientes de propietario/trabajadores. Los mensajes recibidos de fans no activan alertas ni suspensiones.
+- Servidor revisa al preparar y nuevamente al confirmar, antes de llamar a OFMAPI. Deniega el intento y registra actor, modelo, fan ID, texto, términos y hora. Fallos de validación impiden enviar.
+- Trabajador suspendido en toda su agencia hasta revisión del propietario en Equipo. Propietario registra alerta y no envía ese texto, pero puede corregir sin suspensión. Solo propietario puede ver registros y levantar suspensión.
+- No cancela solicitudes ya despachadas, no analiza imágenes/audio ni clientes externos. Notificación dentro de Equipo, no correo.
+- Migración 008 aplicada; función bruff-live actualizada. 109 pruebas de aplicación y 102 comprobaciones PostgreSQL; alerta y desbloqueo comprobados con datos locales ficticios, sin enviar a fans reales.

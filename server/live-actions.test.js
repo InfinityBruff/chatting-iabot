@@ -4,10 +4,12 @@ import {createLiveHandler} from '../supabase/functions/bruff-live/handler.js';
 import {tickets,mediaView} from '../supabase/functions/bruff-live/actions.js';
 const w='00000000-0000-0000-0000-000000000001',c='00000000-0000-0000-0000-000000000002',other='00000000-0000-0000-0000-000000000003';
 const response=(data,status=200)=>new Response(JSON.stringify(data),{status});
-function setup({enabled=true,denied=false,revoke=false}={}){
+function setup({enabled=true,denied=false,revoke=false,safetyBlocked=false,screenFail=false}={}){
  let checks=0;const calls=[];
  const handler=createLiveHandler({url:'https://auth.test',anonKey:'public',providerKey:'private-test-key',writeEnabled:enabled,fetcher:async(url,options)=>{
   if(url.endsWith('/auth/v1/user'))return response({id:'actor',email_confirmed_at:'yes'});
+  if(url.includes('/rpc/bruff_chat_screen'))return screenFail?response({},503):response(safetyBlocked?{allowed:false,blocked:true,event_id:'event'}:{allowed:true,blocked:false});
+  if(url.includes('/rpc/bruff_chat_status'))return response({blocked:safetyBlocked});
   if(url.includes('/rpc/')){checks++;if(denied||(revoke&&checks>1))return response({},403);return response(JSON.parse(options.body).c===other?'acct_other':'acct_one')}
   calls.push({url,options});
   if(url.includes('/vault/media'))return response({media:[{id:'42',type:'photo',canView:true,isReady:true,downloadUrl:'https://api.ofmapi.com/v1/accounts/acct_one/media/download?token=test'}]});
@@ -59,3 +61,7 @@ test('invalid prices and paid text-only messages are rejected without sending',a
  assert.equal((await call({operation:'prepare_send',conversation_id:'123',text:'x',price:10,attachments:[]})).status,400);assert.equal(calls.length,0);
  const free=await call({operation:'prepare_send',conversation_id:'123',text:'x',price:0,attachments:[]});assert.equal(free.status,200);assert.equal(free.body.data.price,0);
 });
+
+test('safety denial stops preparation before any provider request',async()=>{const {call,calls}=setup({safetyBlocked:true});const r=await call({operation:'prepare_send',conversation_id:'123',text:'TG',attachments:[]});assert.equal(r.status,423);assert.equal(r.body.code,'CHAT_SAFETY');assert.equal(calls.length,0)});
+test('preexisting reviewed ticket is screened again before provider send',async()=>{const first=setup();const p=await first.call({operation:'prepare_send',conversation_id:'123',text:'Hola',attachments:[]});const locked=setup({safetyBlocked:true});const r=await locked.call({operation:'send_message',ticket:p.body.data.ticket});assert.equal(r.status,423);assert.equal(locked.calls.length,0)});
+test('safety service unavailable fails closed on prepare and send',async()=>{const first=setup();const p=await first.call({operation:'prepare_send',conversation_id:'123',text:'Hola',attachments:[]});const broken=setup({screenFail:true});assert.equal((await broken.call({operation:'prepare_send',conversation_id:'123',text:'Hola',attachments:[]})).status,403);assert.equal((await broken.call({operation:'send_message',ticket:p.body.data.ticket})).status,403);assert.equal(broken.calls.length,0)});
