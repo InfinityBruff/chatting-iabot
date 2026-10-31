@@ -217,3 +217,12 @@ Consulta oficial OFMAPI `/fans/spend?ids=...` por lotes de hasta 20, exclusivame
 - Trabajador suspendido en toda su agencia hasta revisión del propietario en Equipo. Propietario registra alerta y no envía ese texto, pero puede corregir sin suspensión. Solo propietario puede ver registros y levantar suspensión.
 - No cancela solicitudes ya despachadas, no analiza imágenes/audio ni clientes externos. Notificación dentro de Equipo, no correo.
 - Migración 008 aplicada; función bruff-live actualizada. 109 pruebas de aplicación y 102 comprobaciones PostgreSQL; alerta y desbloqueo comprobados con datos locales ficticios, sin enviar a fans reales.
+
+## 31/10 — Entrega de las siete mejoras
+- Analíticas reales: evolución SVG accesible por categoría, mínimo/máximo y tabla exacta; totales de proveedor separados de subtotales paginados. Ausencias no estimadas; no llamar neto al total no tipado.
+- Estrellas compactas de 9 px encima del avatar, separadas del nombre. Umbrales sin cambios.
+- Baúl: selección múltiple entre páginas/filtros, marcas, contador, exclusión de adjuntos ya presentes, máximo conjunto 10 y añadir explícito.
+- Compositor y revisión: vistas previas foto/vídeo/audio según disponibilidad, quitar individualmente, precio conjunto/Gratis, texto, modelo y fan. Idempotencia y doble validación de seguridad conservadas.
+- BRUFF: preferencias persistentes por agencia/modelo, apagado/seleccionados/todos (incluye futuros), excepciones manual/BRUFF/heredar por fan, solo propietario/manager editan. Apagar conserva selecciones. Versionado rechaza escrituras obsoletas. Migración 009 aplicada en Supabase.
+- Motor NO conectado: los interruptores guardan preferencias; no inician automatización ni envían mensajes. Conectar y verificar el motor es trabajo posterior.
+- QA local con datos ficticios: dos adjuntos, pago y gratis, confirmación, dos modelos independientes, fan individual. 110 pruebas aplicación y 121 comprobaciones PostgreSQL. No se enviaron mensajes reales ni se cambiaron preferencias de modelos reales durante QA.
