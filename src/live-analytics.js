@@ -7,3 +7,15 @@ export function earningsCategories(series){
  points:Array.isArray(v.chartAmount)?v.chartAmount.map((p,i)=>({label:typeof p.date==='string'?p.date:typeof p.datetime==='string'?p.datetime:`Punto ${i+1}`,amount:typeof p.count==='number'&&Number.isFinite(p.count)?p.count:null,operations:typeof v.chartCount?.[i]?.count==='number'?v.chartCount[i].count:null})):[]
  })).filter(v=>v.gross!==null||v.total!==null||v.points.length);
 }
+export function analyticsRange(preset,now=new Date()){
+ const end=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()));let start=new Date(end);
+ if(preset==='last-month'){start=new Date(Date.UTC(end.getUTCFullYear(),end.getUTCMonth()-1,1));end.setUTCDate(0)}
+ else if(preset==='month')start.setUTCDate(1);
+ else start.setUTCDate(start.getUTCDate()-29);
+ return {start:start.toISOString().slice(0,10),end:end.toISOString().slice(0,10)};
+}
+export function historicalSum(months,key){
+ if(!Array.isArray(months)||!months.length||months.some(x=>!x.label||!Number.isFinite(x[key])))return null;
+ if(new Set(months.map(x=>x.label)).size!==months.length)return null;
+ return months.reduce((sum,x)=>sum+Math.round(x[key]*100),0)/100;
+}
