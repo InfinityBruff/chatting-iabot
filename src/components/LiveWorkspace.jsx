@@ -1,3 +1,4 @@
+import {FanDirectory} from './FanDirectory.jsx';
 import {useNotifications,NotificationToasts,NotificationsPage,CollectionsPage} from './Community.jsx';
 import {useLivePage} from './useLivePage.js';
 import {readSession,writeSession,sessionKey} from '../chat-sync.js';
@@ -57,7 +58,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const activeSection=sections.find(s=>s.id===view);
  const selectView=(next,id)=>{if(id)setSelected(id);setTab(next);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
  const pageKey=workspace.id+':'+(account?.id||'agency')+':'+view+':'+account?.chat+':'+account?.analytics+':'+account?.send+':'+account?.vault;
- return <ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
+ return <FanDirectory user={currentUserId} workspace={workspace.id} accounts={available} role={workspace.role}><ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
   <WorkspaceNavigation unread={notifications.count} sections={sections} active={view} onSelect={selectView} collapsed={collapsed} onBack={onBack} workspace={workspace}/>
   <div className="live-main workspace-main">
    <header className="workspace-topbar"><button aria-label={collapsed?'Expandir menú':'Contraer menú'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><WorkspaceIcon name="menu"/></button><Brand/><div className="workspace-breadcrumb"><span>{activeSection?.group}</span><b>/</b><strong>{activeSection?.label}</strong></div><span className="workspace-user">{teamRoles[workspace.role]}<span className="workspace-user-avatar">{workspace.name?.slice(0,1)||'B'}</span></span></header>
@@ -76,5 +77,5 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
    </div>}
   </div>
  <NotificationToasts feed={notifications} accounts={available} onOpen={selectView}/>
- </main></ModelProfiles>
+ </main></ModelProfiles></FanDirectory>
 }
