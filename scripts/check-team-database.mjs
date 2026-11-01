@@ -191,6 +191,7 @@ await reject(`select public.bruff_bot_scope('${w}','${model}')`);
 await reject(`select public.bruff_bot_update('${w}','${secondModel}',2,'all')`);
 await db.exec('reset role');
 await db.exec(await readFile(new URL('../supabase/migrations/202611010010_fan_notes.sql',import.meta.url),'utf8'));
+await db.exec(await readFile(new URL('../supabase/migrations/202611010013_note_author.sql',import.meta.url),'utf8'));
 await db.exec(`select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
 check((await scalar(`select public.bruff_fan_note_save('${w}','${model}','123','Primera',0) as value`)).version,1);
 check((await scalar(`select public.bruff_fan_note('${w}','${secondModel}','123') as value`)).body,'');

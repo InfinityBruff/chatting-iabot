@@ -15,3 +15,9 @@ export function fanHistory(data,fan){
  const events=(source||[]).slice(0,500).map(r=>({date:date(r?.date??r?.createdAt??r?.subscribeDate),end:date(r?.expireDate??r?.expiredAt),amount:amount(r?.price??r?.amount),type:['subscribe','subscription','renew','renewal','expire','expired','lapse'].includes(r?.type)?r.type:null})).filter(r=>r.date||r.end||r.amount!==null||r.type);
  return {since:date(h.subscribeDate??h.subscribedAt),expires:date(h.expireDate??h.expiredAt),renew:bool(h.isRenew??h.renew),price:amount(h.price),events,recognized:source!==null,truncated:(source?.length||0)>500,hasMore:h.hasMore===true};
 }
+
+export function fanActivity(data,fan,start){
+ if(!Array.isArray(data?.transactions)||typeof data.hasMore!=='boolean')throw Error('schema');
+ const transactions=data.transactions.filter(r=>String(r?.user?.id)===fan&&date(r.createdAt)&&Date.parse(r.createdAt)>=Date.parse(start+'T00:00:00Z')).map(r=>({id:text(r.id),type:['message','post','tip','new_subscription','recurring_subscription','stream'].includes(r.type)?r.type:'other',amount:amount(r.amount),createdAt:date(r.createdAt),status:text(r.status)}));
+ return {transactions,hasMore:data.hasMore,cursor:text(data.cursor),scanned:data.transactions.length};
+}

@@ -1,0 +1,3 @@
+export function activityKey(row){return row.id?String(row.id):null}
+export function mergeActivity(previous,rows){const map=new Map(previous.filter(activityKey).map(r=>[activityKey(r),r]));for(const row of rows)if(activityKey(row))map.set(activityKey(row),row);return [...map.values()].sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt))}
+export function activityStats(rows){const known=rows.filter(r=>typeof r.amount==='number'&&Number.isFinite(r.amount)&&r.amount>=0);const sum=known.reduce((v,r)=>v+Math.round(r.amount*100),0)/100;return {count:rows.length,total:known.length===rows.length?sum:null,average:known.length===rows.length&&rows.length?sum/rows.length:null,max:known.length===rows.length&&rows.length?Math.max(...known.map(r=>r.amount)):null}}

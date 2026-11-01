@@ -348,3 +348,11 @@ Precarga automática progresiva hasta 60 conversaciones por modelo/búsqueda y s
 - Separadores arrastrables para menú, lista de conversaciones y ficha; la conversación ocupa el espacio restante.
 - Anchos guardados por usuario/espacio en este navegador, con límites y adaptación a pantalla. Doble clic o Inicio restaura cada ancho; flechas ajustan con teclado. Móvil conserva distribución actual.
 - Cambio exclusivamente visual, sin alterar consultas, permisos, cuentas o mensajes.
+
+### Ficha del fan · notas arriba e historial real · 01/11
+- Notas elevadas, autor/hora mediante migración 013, protección de texto en edición y versiones concurrentes. No guardado automático de borradores.
+- Gasto histórico por fan actualizado cada 30 s, incluso fuera de la primera página del inbox; consultas de perfil/suscripción/notas con datos conservados durante refresco.
+- OFMAPI /transactions paginado, filtrado en servidor por fan exacto y modelo vinculado en BD, autorización antes/después. Sin datos de terceros ni raw. Períodos 30/90/365 días y desde 2016, recorrido automático, nuevas páginas cada segundo, reintentos con backoff; primera página cada 30 s y recorrido completo cada 5 min visibles.
+- Compras (message/post), tips y pagos de suscripción separados, miniestadísticas de los registros cargados con importe/media/mayor, barras relativas e indicadores de parcialidad. No miniaturas inventadas: el contrato no ofrece vínculo de contenido en transacciones. IDs ausentes excluidos de estadísticas para evitar duplicación.
+- Historial de suscripción no admite cursor en contrato público; si el proveedor lo marca parcial, se indica. Campos ausentes no se infieren de registros históricos.
+- Fuente oficial consultada: https://ofmapi.com/openapi.json. Pendiente terminar QA productiva de las tres modelos antes de declarar verificación real.

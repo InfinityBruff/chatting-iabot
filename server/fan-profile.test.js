@@ -25,3 +25,20 @@ test('profile and history use DB-bound model and reject results after permission
  const r=await handler(new Request('https://app.test',{method:'POST',headers:{Authorization:'Bearer session'},body:JSON.stringify({workspace_id:'00000000-0000-0000-0000-000000000001',creator_id:'00000000-0000-0000-0000-000000000002',operation,conversation_id:'123'})}));assert.equal(r.status,revoke?403:200);
  }
 });
+
+test('fan activity only returns this fan, bounded fields and real valid amounts',async()=>{
+ const {fanActivity}=await import('../supabase/functions/bruff-live/fan-profile.js');
+ const r=fanActivity({hasMore:true,cursor:'next',transactions:[{id:'a',user:{id:123},type:'tip',amount:0,createdAt:'2026-10-30',raw:{secret:'x'}},{id:'b',user:{id:456},type:'tip',amount:999,createdAt:'2026-10-30'},{id:'c',user:{id:123},amount:-5,createdAt:'2026-10-30'},{id:'d',user:{id:123},amount:10,createdAt:'2025-01-01'}]},'123','2026-10-01');
+ assert.equal(r.transactions.length,2);assert.equal(r.transactions[0].amount,0);assert.equal(r.transactions[1].amount,null);assert.equal(JSON.stringify(r).includes('secret'),false);assert.equal(r.hasMore,true);
+});
+test('fan activity binds the model on server and rejects revoked or invalid requests',async()=>{
+ for(const revoke of [false,true]){let checks=0;const json=(v,status=200)=>new Response(JSON.stringify(v),{status});
+ const handler=createLiveHandler({url:'https://auth.test',anonKey:'p',providerKey:'s',fetcher:async(url,o)=>{
+ if(url.endsWith('/auth/v1/user'))return json({id:'u',email_confirmed_at:'yes'});
+ if(url.includes('/rpc/'))return json('acct_safe',revoke&&++checks===2?403:200);
+ assert.equal(url,'https://api.ofmapi.com/v1/accounts/acct_safe/transactions?pages=1&start=2026-10-01T00%3A00%3A00Z');
+ return json({hasMore:false,transactions:[{id:'a',user:{id:123},type:'tip',amount:4,createdAt:'2026-10-30'},{id:'b',user:{id:456},amount:100,createdAt:'2026-10-30'}]});
+ }});
+ const r=await handler(new Request('https://app.test',{method:'POST',headers:{Authorization:'Bearer session'},body:JSON.stringify({workspace_id:'00000000-0000-0000-0000-000000000001',creator_id:'00000000-0000-0000-0000-000000000002',operation:'fan_activity',conversation_id:'123',start:'2026-10-01'})}));assert.equal(r.status,revoke?403:200);if(!revoke)assert.equal((await r.json()).data.transactions.length,1);
+ }
+});
