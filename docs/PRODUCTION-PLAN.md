@@ -260,3 +260,7 @@ Corrección tras prueba real: pages=-1 no devolvió presencia utilizable; se sus
 
 ## 01/11 — Envío manual directo solicitado por el propietario
 Eliminado el diálogo de confirmación adicional. Pulsar ENVIAR o Enter prepara y envía en una sola acción; Mayús+Enter añade línea. Se mantienen vistas previas y precio en compositor, validación de permisos, pantalla de palabras y ticket idempotente en servidor. Un error ambiguo conserva el ticket y bloquea edición hasta reintentar el mismo envío o descartar tras advertencia. No se enviaron mensajes reales durante validación.
+
+## 01/11 — Directorio profesional de trabajadores
+Tabla con nombre/correo, rol, estado, modelos y acciones; indicadores, búsqueda y filtros. Alta desde cero y edición en diálogo accesible con permisos por modelo. Eliminar usa bruff_team_update existente: membership disabled, grants vacíos, versión esperada y registro de auditoría. No borra Auth ni historial; oculta de activos y permite reincorporar. Propietario y propia cuenta protegidos. Roles/expulsiones se aplican a nuevas peticiones desde el commit; pantalla del trabajador conserva refresco de 5s. No se promete borrar datos ya recibidos ni cancelar peticiones consumadas. No migración ni nuevos permisos.
+QA local con trabajadores ficticios: cambiar Chatter a Manager, eliminar (desaparece del equipo activo), consultar Sin acceso, abrir reincorporación/alta. Ningún trabajador real modificado ni correo enviado. 129 pruebas y build correctos; captura /private/tmp/bruff-trabajadores-prueba.png.
