@@ -42,7 +42,9 @@ export function normalizeLive(operation,data,binding){
  }
  if(operation==='profile'){
   if(!data.data?.id)throw Error('schema');
-  return pick(data.data,['id','name','username','isPerformer']);
+  const profile=pick(data.data,['id','name','username','isPerformer']);
+  try{const u=new URL(data.data.avatar);profile.avatar=u.protocol==='https:'&&!u.username&&!u.password?u.href:null}catch{profile.avatar=null}
+  return profile;
  }
  throw Error('operation');
 }
@@ -71,7 +73,11 @@ export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fe
    if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id}),writeEnabled,chatSafety:await rpc('bruff_chat_status',{w:input.workspace_id})});
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
    const permission=['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
-   const authorize=()=>rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p:permission});
+   const authorize=async()=>{
+    let p=permission;
+    if(input.operation==='profile'){const accounts=await rpc('bruff_live_accounts',{w:input.workspace_id});const a=accounts.find(a=>a.id===input.creator_id);if(!a)throw Error('access');p=a.chat?'read':a.analytics?'analytics':a.vault?'vault':null;if(!p)throw Error('access')}
+    return rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p});
+   };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
    if(input.operation==='presence'){
     if(input.cursor!=null&&(typeof input.cursor!=='string'||input.cursor.length>2048))return reply(400,{error:'Cursor inválido'});

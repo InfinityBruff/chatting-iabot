@@ -38,3 +38,21 @@ test('presence pages remain authorized and strips private data; revoked users re
 
 import {readOnlinePresence} from '../supabase/functions/bruff-live/handler.js';
 test('presence follows encoded cursors without leaking raw data or claiming partial coverage',async()=>{const data=await readOnlinePresence({binding:'acct_modelB',providerKey:'key',cursor:'next&other=bad',fetcher:async(url)=>{const u=new URL(url);assert.equal(u.pathname,'/v1/accounts/acct_modelB/followings');assert.equal(u.searchParams.get('cursor'),'next&other=bad');assert.equal(u.searchParams.has('other'),false);return json({followings:[{id:9,raw:{secret:1}}],hasMore:true,cursor:'last'})}});assert.equal(data.complete,false);assert.equal(data.cursor,'last');assert.deepEqual(data.onlineIds,['9']);assert.equal(JSON.stringify(data).includes('secret'),false)});
+
+test('profile exposes only minimal identity and safe HTTPS avatar',()=>{
+ const data={id:123,name:'Modelo',avatar:'https://cdn.example.com/avatar.jpg',email:'private@example.com',raw:{secret:1}};
+ assert.deepEqual(normalizeLive('profile',{data}),{id:123,name:'Modelo',avatar:data.avatar});
+ for(const avatar of ['javascript:alert(1)','http://example.com/a','https://user:secret@example.com/a',null])assert.equal(normalizeLive('profile',{data:{...data,avatar}}).avatar,null);
+});
+test('profile uses authorized model permissions, including analyst; revocation discards profile',async()=>{
+ for(const revoke of [false,true]){let lists=0;const permissions=[];
+ const handler=createLiveHandler({url:'https://auth.test',anonKey:'public',providerKey:'secret',fetcher:async(url,options)=>{
+ if(url.endsWith('/auth/v1/user'))return json({id:'user',email_confirmed_at:'yes'});
+ if(url.includes('bruff_live_accounts'))return json(++lists===2&&revoke?[]:[{id:c,analytics:true,chat:false}]);
+ if(url.includes('bruff_live_authorize')){permissions.push(JSON.parse(options.body).p);return json('acct_modelA')}
+ assert.match(url,/accounts\/acct_modelA\/me/);return json({data:{id:123,name:'A',avatar:'https://cdn.example.com/a.jpg'}});
+ }});
+ const r=await handler(request({operation:'profile'}));assert.equal(r.status,revoke?403:200);assert.ok(permissions.every(p=>p==='analytics'));
+ if(revoke)assert.equal((await r.text()).includes('cdn.example'),false);
+ }
+});
