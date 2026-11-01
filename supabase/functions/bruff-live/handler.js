@@ -108,13 +108,8 @@ export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fe
       if(Array.isArray(payload.fans))for(const row of payload.fans){const fanId=String(row.fanId);if(batch.includes(fanId))amounts.set(fanId,normalizeSpend(row))}
      }catch{/* Spend remains explicitly unavailable. */}
     }));
-    // Positive matches only. All provider pages; non-followed fans remain unknown.
-    const onlineIds=new Set();let checkedAt=null;
-    if(ids.length)try{
-     const presence=await readOnlinePresence({binding,providerKey,fetcher});checkedAt=presence.checkedAt;
-     for(const key of presence.onlineIds)if(ids.includes(key))onlineIds.add(key);
-    }catch{/* Do not infer presence from activity or preserve stale green badges. */}
-    data.conversations=data.conversations.map(f=>({...f,presence:{online:onlineIds.has(String(f.userId??f.id))?true:null,checkedAt},spend:amounts.get(String(f.userId??f.id))??normalizeSpend(null)}));
+    // Presence is queried separately so a provider-wide scan never blocks inbox.
+    data.conversations=data.conversations.map(f=>({...f,spend:amounts.get(String(f.userId??f.id))??normalizeSpend(null)}));
    }
    // Recheck after provider latency so revoked membership cannot receive a pending result.
    if(await authorize()!==binding)throw Error('access');
