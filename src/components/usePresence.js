@@ -8,7 +8,16 @@ export default function usePresence(workspace,accounts){
   let active=true;const inflight=new Set();setResults({});
   async function refresh(){if(document.visibilityState==='hidden')return;
    await Promise.all(JSON.parse(scope).map(async id=>{if(inflight.has(id))return;inflight.add(id);
-    try{const r=await liveRequest(workspace,'presence',{creator_id:id});if(active)setResults(old=>({...old,[id]:r.data}))}
+    try{let cursor;const seen=new Set(),confirmations={};
+     do{const r=await liveRequest(workspace,'presence',{creator_id:id,...(cursor?{cursor}:{})});if(!active)return;
+      const data=r.data;if(data.unavailable){setResults(old=>({...old,[id]:{...data,confirmations}}));break}
+      for(const fan of data.onlineIds||[])confirmations[fan]=data.checkedAt;
+      setResults(old=>({...old,[id]:{...data,confirmations:{...confirmations}}}));
+      if(!data.hasMore)break;
+      if(!data.cursor||seen.has(data.cursor)){setResults(old=>({...old,[id]:{...old[id],complete:false,unavailable:true}}));break}
+      seen.add(data.cursor);cursor=data.cursor;
+     }while(active&&document.visibilityState!=='hidden');
+    }
     catch{if(active)setResults(old=>({...old,[id]:{unavailable:true,onlineIds:[],checkedAt:null}}))}
     finally{inflight.delete(id)}
    }));

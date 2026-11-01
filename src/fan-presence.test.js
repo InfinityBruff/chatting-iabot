@@ -3,3 +3,5 @@ test('presence requires a recent explicit confirmation, never last message or tr
 
 import {applyPresence} from './fan-presence.js';
 test('presence refresh replaces old badges and matches only this model result',()=>{const fans=[{userId:1,presence:{online:true}},{userId:2}];assert.equal(applyPresence(fans,{onlineIds:['2'],checkedAt:new Date().toISOString()})[0].presence.online,null);assert.equal(applyPresence(fans,{onlineIds:['2'],checkedAt:new Date().toISOString()})[1].presence.online,true);assert.equal(applyPresence(fans,{unavailable:true})[0].presence.online,null)});
+
+test('later pages do not refresh stale confirmations from earlier pages',()=>{const now=Date.now();const rows=applyPresence([{id:1},{id:2}],{onlineIds:['2'],checkedAt:new Date(now).toISOString(),confirmations:{'1':new Date(now-61000).toISOString(),'2':new Date(now).toISOString()}});assert.equal(isFanOnline(rows[0],now),false);assert.equal(isFanOnline(rows[1],now),true)});

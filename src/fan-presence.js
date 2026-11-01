@@ -6,5 +6,5 @@ export function isFanOnline(fan,now=Date.now()){
 
 export function applyPresence(fans,presence){
  if(!presence)return fans;const ids=new Set(presence.onlineIds||[]);
- return fans.map(f=>({...f,presence:{online:ids.has(String(f.userId??f.id))?true:null,checkedAt:presence.checkedAt}}));
+ return fans.map(f=>{const key=String(f.userId??f.id),stamp=presence.confirmations?.[key];return {...f,presence:{online:stamp||ids.has(key)?true:null,checkedAt:stamp||presence.checkedAt}}});
 }
