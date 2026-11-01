@@ -50,7 +50,8 @@ export function useNotifications(user,workspace,accounts,role){
 export function NotificationToasts({feed,accounts,onOpen}){return <aside className="community-toasts" aria-label="Avisos nuevos" aria-live="polite">{feed.toasts.map(n=><article key={n.model+':'+n.id}><button className="community-toast-close" aria-label="Cerrar avisos" onClick={feed.dismiss}>×</button><span className="community-dot"/><small>{accounts.find(a=>a.id===n.model)?.name} · {notificationLabels[notificationCategory(n)]||'Actividad'}</small><strong>{n.name||n.username||'Nueva notificación'}</strong>{notificationAmountLabel(n)&&<b className="notification-amount">{notificationAmountLabel(n)}</b>}<p>{n.text||'Hay nueva actividad en esta cuenta.'}</p><button onClick={()=>{onOpen('notifications',n.model);feed.dismiss()}}>Ver notificaciones</button></article>)}</aside>}
 export function NotificationsPage({feed,accounts,onChat,workspace}){
  const [model,setModel]=useState(''),[type,setType]=useState(''),[query,setQuery]=useState('');
- useEffect(()=>{feed.visit('sidebar')},[]);
+ const enteredModels=useRef(new Set());
+ useEffect(()=>{for(const [id,m] of Object.entries(feed.models)){if(m.checked&&!enteredModels.current.has(id)){enteredModels.current.add(id);feed.visit('sidebar',id)}}},[feed.models]);
  const chooseType=value=>{setType(value);feed.visit(value||'all',model)};
  const categoryFeed=useNotificationCategory(liveRequest,workspace,accounts.filter(a=>a.chat&&(!model||a.id===model)).map(a=>a.id).sort(),type);
  const shownModels=type?categoryFeed.models:feed.models;const loadShown=type?categoryFeed.load:feed.load;
