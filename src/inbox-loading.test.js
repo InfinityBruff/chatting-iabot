@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {inboxNextPage} from './inbox-loading.js';
+const opts=(count=10)=>({page:{conversations:Array(count).fill({}),hasMore:true,cursor:'next'},seen:new Set(),busy:false,error:''});
+test('preloads sixty chats then continues only when approaching list end',()=>{assert.equal(inboxNextPage(opts()),'next');assert.equal(inboxNextPage(opts(59)),'next');assert.equal(inboxNextPage(opts(60)),null);assert.equal(inboxNextPage({...opts(60),nearEnd:true}),'next')});
+test('pagination does not loop on repeated cursors or errors and bounds empty initial pages',()=>{for(const extra of [{busy:true},{error:'failed'},{seen:new Set(['next'])},{initialPages:8},{page:{hasMore:false,cursor:'next'}},{page:{hasMore:true,cursor:null}}])assert.equal(inboxNextPage({...opts(),...extra}),null)});
