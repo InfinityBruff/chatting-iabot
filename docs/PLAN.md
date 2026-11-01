@@ -287,3 +287,6 @@ Identidad visual común con foto OnlyFans, recorte circular y tamaños por conte
 
 ## Selector de modelos sin recortes · 01/11/2026
 Las tres modelos y sus fotos están confirmadas en producción (Cuentas, opciones de Analíticas y Mensajes). Corregido recorte visual de Valen en Mensajes: overflow:auto del contenedor de controles ocultaba la tercera opción aunque existía en DOM. El contenedor permite el solapamiento solo mientras el selector está abierto y recupera el scroll al cerrar. QA local con estilos completos: tercera opción visible y seleccionable. No cambia cuentas ni permisos.
+
+## Fotos reales de fans · 01/11/2026
+Inbox conserva avatar HTTPS del proveedor en cada fan autorizado. Componente común para lista, ficha y mayor gasto, con object-fit:cover, iniciales ante imagen ausente/rota, y aro/punto verde según presencia confirmada vigente. Estrellas permanecen fuera del avatar. No se modifica origen de presencia ni permisos. 132 pruebas y compilación correctas; pendiente inspección autenticada tras publicar.

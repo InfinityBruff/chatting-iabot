@@ -19,7 +19,7 @@ export function normalizeLive(operation,data,binding){
  const page={cursor:typeof data.cursor==='string'?data.cursor:null,hasMore:data.hasMore===true};
  if(operation==='inbox'){
   if(!Array.isArray(data.conversations))throw Error('schema');
-  return {...page,conversations:data.conversations.map(x=>pick(x,['id','userId','username','name','lastMessage','lastMessageTime','unreadCount','lastMessageIsFromMe']))};
+  return {...page,conversations:data.conversations.map(x=>{const fan=pick(x,['id','userId','username','name','lastMessage','lastMessageTime','unreadCount','lastMessageIsFromMe']);try{const u=new URL(x.avatar);if(u.protocol==='https:'&&!u.username&&!u.password)fan.avatar=u.href}catch{}return fan})};
  }
  if(operation==='messages'){
   if(!Array.isArray(data.messages))throw Error('schema');

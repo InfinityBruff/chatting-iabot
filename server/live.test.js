@@ -56,3 +56,11 @@ test('profile uses authorized model permissions, including analyst; revocation d
  if(revoke)assert.equal((await r.text()).includes('cdn.example'),false);
  }
 });
+
+test('inbox keeps each real avatar with its fan and rejects unsafe URLs',()=>{
+ const conversations=[{id:'1',avatar:'https://cdn.example.com/a.jpg'},{id:'2',avatar:'https://cdn.example.com/b.jpg'},{id:'3',avatar:'javascript:alert(1)'},{id:'4',avatar:'https://user:password@example.com/a'},{id:'5'}];
+ const fans=normalizeLive('inbox',{conversations}).conversations;
+ assert.equal(fans[0].avatar,conversations[0].avatar);assert.equal(fans[1].avatar,conversations[1].avatar);
+ for(const fan of fans.slice(2))assert.equal(fan.avatar,undefined);
+ assert.deepEqual(fans.map(f=>f.id),['1','2','3','4','5']);
+});
