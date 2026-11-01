@@ -1,3 +1,4 @@
+import {runAutomationTick} from './automation-worker.js';
 import {communityNames,communityAction} from './community.js';
 import {fanProfile,fanHistory,fanActivity} from './fan-profile.js';
 import {actionNames,liveAction,mediaView} from './actions.js';
@@ -70,6 +71,11 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
   if(request.method!=='POST')return reply(405,{error:'Método no permitido'});
   if(!url||!anonKey||!providerKey)return reply(503,{error:'Conector no configurado'});
+  if(request.headers.has('x-bruff-automation-secret')){
+   if(origin||!serviceKey)return reply(403,{error:'No autorizado'});
+   const adminRpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('No autorizado');return r.json()};
+   try{return reply(200,await runAutomationTick({token:request.headers.get('x-bruff-automation-secret'),rpc:adminRpc,providerKey,fetcher,writeEnabled}))}catch{return reply(403,{error:'No autorizado'})}
+  }
   const authorization=request.headers.get('authorization')||'';
   if(!/^Bearer \S+$/.test(authorization))return reply(401,{error:'Vuelve a iniciar sesión'});
   try{

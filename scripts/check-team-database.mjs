@@ -229,5 +229,120 @@ await reject(`select public.bruff_message_authors('${w}','${model}','123',array[
 await reject(`select public.bruff_message_begin('${w}','${model}','123','${sendId}')`);
 await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
 check((await scalar(`select public.bruff_message_authors('${w}','${model}','123',array['999']) as value`))['999'],'Pedro');
+// Automation cloud/worker invariants; no HTTP/provider writes in database tests.
+await db.exec(`reset role`);
+await db.exec(await readFile(new URL('../supabase/migrations/202611010014_automations.sql',import.meta.url),'utf8'));
+await db.exec(`update bruff_private.automation_runtime set secret_hash=md5('test-only-secret'),last_tick=now();select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+const config=JSON.stringify({type:'mass',name:'Prueba',text:'Hola 😊',audience:'selected',recipients:['123'],schedule:'manual',at:'',cooldown:24,limit:1,skipRecent:true});
+const saved=await scalar(`select public.bruff_automations('${w}','${model}','save',null,null,'${config}') as value`);
+const aid=saved.savedId;
+check(saved.rows[0].status,'draft');
+check((await scalar(`select public.bruff_automations('${w}','${secondModel}') as value`)).rows,[]);
+await reject(`select public.bruff_automations('${other}','${foreign}')`);
+await reject(`select public.bruff_automations('${w}','${secondModel}','activate','${aid}',1)`);
+await reject(`select public.bruff_automations('${w}','${model}','activate','${aid}',9)`);
+await reject(`select public.bruff_automation_worker('claim','test-only-secret')`);
+await db.exec(`reset role;set role service_role`);
+check(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`),[]);
+await reject(`select public.bruff_automation_worker('claim','wrong')`);
+await db.exec(`reset role;set role authenticated`);
+check((await scalar(`select public.bruff_automations('${w}','${model}','activate','${aid}',1) as value`)).rows[0].status,'active');
+await reject(`select public.bruff_automations('${w}','${model}','save','${aid}',2,'${config}')`);
+await db.exec(`reset role;set role service_role`);
+const claimed=await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`);
+check(claimed.length,1);const lease=claimed[0].lease;
+check(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`),[]);
+await db.exec(`select public.bruff_automation_worker('page',null,'${aid}','${lease}','{"fans":[{"id":"123"},{"id":"123"}],"done":true}')`);
+const delivery=await scalar(`select public.bruff_automation_worker('next',null,'${aid}','${lease}') as value`);
+check(delivery.fan_id,'123');
+check(await scalar(`select public.bruff_automation_worker('next',null,'${aid}','${lease}') as value`),null);
+await db.exec(`select public.bruff_automation_worker('finish',null,'${aid}','${lease}','{"id":"${delivery.id}","messageId":"9999"}');select public.bruff_automation_worker('release',null,'${aid}','${lease}')`);
+await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+const finished=await scalar(`select public.bruff_automations('${w}','${model}') as value`);
+check(finished.rows[0].status,'completed');check(finished.rows[0].counts.sent,1);
+await reject(`select public.bruff_automations('${w}','${model}','activate','${aid}',2)`);
+await db.exec(`reset role;select set_config('request.jwt.claim.sub','${worker}',false);set role authenticated`);
+await reject(`select public.bruff_automations('${w}','${model}')`);
+await db.exec(`reset role`);
+check(await scalar(`select has_function_privilege('anon','public.bruff_automations(uuid,uuid,text,uuid,bigint,jsonb)','execute') as value`),false);
+check(await scalar(`select has_table_privilege('authenticated','bruff_private.automations','select') as value`),false);
+// Pausing, policy and connection revocation hold even after the worker claims work.
+await db.exec(`update bruff_private.creator_accounts set provider='ofmapi',external_id='acct_second',connection_status='connected' where id='${secondModel}'`);
+await db.exec(`select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+const secondRule=await scalar(`select public.bruff_automations('${w}','${secondModel}','save',null,null,'${config}') as value`);
+const rid=secondRule.savedId;
+await db.exec(`select public.bruff_automations('${w}','${secondModel}','activate','${rid}',1);reset role;set role service_role`);
+const lease2=(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`))[0].lease;
+await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated;select public.bruff_automations('${w}','${secondModel}','pause','${rid}',2);reset role;set role service_role`);
+check(await scalar(`select public.bruff_automation_worker('page',null,'${rid}','${lease2}','{"fans":[{"id":"123"}],"done":true}') as value`),null);
+await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated;select public.bruff_automations('${w}','${secondModel}','activate','${rid}',3);reset role;set role service_role`);
+const lease3=(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`))[0].lease;
+await db.exec(`reset role;update bruff_private.creator_accounts set connection_status='disconnected' where id='${secondModel}';set role service_role`);
+check(await scalar(`select public.bruff_automation_worker('next',null,'${rid}','${lease3}') as value`),null);
+await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+check((await scalar(`select public.bruff_automations('${w}','${secondModel}') as value`)).rows[0].status,'paused');
+const bad=await scalar(`select public.bruff_automations('${w}','${model}','save',null,null,'${config.replace('Hola 😊','telegram')}') as value`);
+await reject(`select public.bruff_automations('${w}','${model}','activate','${bad.savedId}',1)`);
+await db.exec(`reset role;update bruff_private.memberships set status='active',role='admin' where user_id='${worker}' and workspace_id='${w}';select set_config('request.jwt.claim.sub','${worker}',false);set role authenticated`);
+check((await scalar(`select public.bruff_automations('${w}','${model}') as value`)).rows.length,2);
+await reject(`select public.bruff_automations('${w}','${model}','activate','${bad.savedId}',1)`);
+await db.exec(`reset role;update bruff_private.memberships set role='operator' where user_id='${worker}' and workspace_id='${w}';set role authenticated`);
+await reject(`select public.bruff_automations('${w}','${model}')`);
+// Full state matrix: three kinds across three independent model bindings.
+const thirdModel='20000000-0000-0000-0000-000000000010';
+await db.exec(`reset role;update bruff_private.creator_accounts set connection_status='connected' where id='${secondModel}';insert into bruff_private.creator_accounts(workspace_id,id,display_name,provider,external_id,connection_status) values('${w}','${thirdModel}','Third','ofmapi','acct_third','connected');select set_config('request.jwt.claim.sub','${owner}',false)`);
+for(const kind of ['mass','welcome','online'])for(const creator of [model,secondModel,thirdModel]){
+ await db.exec('set role authenticated');
+ const cfg=JSON.stringify({...JSON.parse(config),type:kind,name:kind+' matrix'});
+ let result=await scalar(`select public.bruff_automations('${w}','${creator}','save',null,null,'${cfg}') as value`);
+ const id=result.savedId;check(result.rows.find(x=>x.id===id).status,'draft');
+ if(kind==='welcome')await reject(`select public.bruff_automations('${w}','${creator}','activate','${id}',1)`);
+ result=await scalar(`select public.bruff_automations('${w}','${creator}','activate','${id}',1,'{"welcomeReviewed":true}') as value`);
+ check(result.rows.find(x=>x.id===id).status,'active');
+ await db.exec('reset role;set role service_role');
+ const lease=(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`)).find(x=>x.id===id).lease;
+ await db.exec(`select public.bruff_automation_worker('page',null,'${id}','${lease}','{"fans":[{"id":"777"}],"done":true}')`);
+ const receipt=await scalar(`select public.bruff_automation_worker('next',null,'${id}','${lease}') as value`);
+ check(receipt.fan_id,'777');
+ await db.exec(`select public.bruff_automation_worker('finish',null,'${id}','${lease}','{"id":"${receipt.id}","messageId":"${kind==='mass'?'10001':kind==='welcome'?'10002':'10003'}"}');select public.bruff_automation_worker('release',null,'${id}','${lease}')`);
+ await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+ result=await scalar(`select public.bruff_automations('${w}','${creator}') as value`);
+ check(result.rows.find(x=>x.id===id).counts.sent,1);
+ check(result.rows.find(x=>x.id===id).status,kind==='mass'?'completed':'active');
+ if(kind==='mass'){
+  await reject(`select public.bruff_automations('${w}','${creator}','pause','${id}',2)`);
+ }else{
+  result=await scalar(`select public.bruff_automations('${w}','${creator}','pause','${id}',2) as value`);
+  check(result.rows.find(x=>x.id===id).status,'paused');
+  await db.exec(`select public.bruff_automations('${w}','${creator}','activate','${id}',3,'{"welcomeReviewed":true}');reset role;set role service_role`);
+  const resumed=(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`)).find(x=>x.id===id);
+  await db.exec(`select public.bruff_automation_worker('page',null,'${id}','${resumed.lease}','{"fans":[{"id":"777"}],"done":true}')`);
+  check(await scalar(`select public.bruff_automation_worker('next',null,'${id}','${resumed.lease}') as value`),null);
+  await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated;select public.bruff_automations('${w}','${creator}','pause','${id}',4)`);
+ }
+ await db.exec('reset role');
+}
+// Uncertain outcomes must stop every automation kind, not look active/healthy.
+for(const kind of ['mass','welcome','online']){
+ await db.exec(`select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+ const cfg=JSON.stringify({...JSON.parse(config),type:kind,name:'Uncertain '+kind});
+ const saved=await scalar(`select public.bruff_automations('${w}','${model}','save',null,null,'${cfg}') as value`),id=saved.savedId;
+ await db.exec(`select public.bruff_automations('${w}','${model}','activate','${id}',1,'{"welcomeReviewed":true}');reset role;set role service_role`);
+ const lease=(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`)).find(x=>x.id===id).lease;
+ await db.exec(`select public.bruff_automation_worker('page',null,'${id}','${lease}','{"fans":[{"id":"999"},{"id":"998"}],"done":true}')`);
+ const receipt=await scalar(`select public.bruff_automation_worker('next',null,'${id}','${lease}') as value`);
+ await db.exec(`select public.bruff_automation_worker('finish',null,'${id}','${lease}','{"id":"${receipt.id}","detail":"test timeout"}')`);
+ check(await scalar(`select public.bruff_automation_worker('next',null,'${id}','${lease}') as value`),null);
+ await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+ const result=(await scalar(`select public.bruff_automations('${w}','${model}') as value`)).rows.find(x=>x.id===id);
+ check(result.status,'error');check(result.counts.uncertain,1);check(result.counts.pending,1);
+ await reject(`select public.bruff_automations('${w}','${model}','activate','${id}',${result.version})`);
+ await db.exec('reset role');
+}
+await db.exec(`select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+const future=JSON.stringify({...JSON.parse(config),schedule:'scheduled',at:new Date(Date.now()+86400000).toISOString()});
+const scheduled=await scalar(`select public.bruff_automations('${w}','${model}','save',null,null,'${future}') as value`);
+await db.exec(`select public.bruff_automations('${w}','${model}','activate','${scheduled.savedId}',1);reset role;set role service_role`);
+check(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`),[]);
 console.log(`${checks} team PostgreSQL checks passed: owner-only, scope, role changes, revocation, versions, invitation identity, service-only finalization and audit.`);
 }finally{await db.close()}
