@@ -14,7 +14,7 @@ export function mediaView(item,binding){
   url:item.canView===true?safe(item.downloadUrl):null,preview:item.canView===true?safe(item.downloadUrls?.thumb||item.downloadUrls?.preview):null};
 }
 export const actionNames=['vault_categories','vault_media','prepare_send','send_message','upload'];
-export async function liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled,screen}){
+export async function liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled,screen,beginSend,finishSend}){
  const op=input.operation;
  const inspect=async(fan,text)=>{if(typeof screen!=='function')throw Error('safety');const safety=await screen(fan,text);return safety.allowed?null:reply(423,{error:safety.blocked?'No puedes volver a hablar hasta que el propietario lo considere.':'Mensaje detenido por la lista interna de BRUFF. Corrige el texto antes de enviarlo.',code:'CHAT_SAFETY',safety})};
  const capability=await tickets(providerKey,JSON.stringify([identity.id,input.workspace_id,input.creator_id,binding]));
@@ -50,9 +50,14 @@ export async function liveAction({input,identity,binding,providerKey,fetcher,aut
  }
  const send=await capability.read(input.ticket,'send');
  const stopped=await inspect(send.conversation,send.body.text);if(stopped)return stopped;
+ if(typeof beginSend!=='function'||typeof finishSend!=='function')throw Error('attribution');
+ const author=await beginSend(send.conversation,send.id);
+ if(!author||typeof author.name!=='string')throw Error('attribution');
+ if(author.messageId)return reply(200,{data:{id:author.messageId,status:'sent',sentBy:author.name}});
  // A reviewed ticket is immutable and expires well before the provider's 24h replay window.
  if(await authorize()!==binding)throw Error('access');
  const r=await upstream(`conversations/${send.conversation}/messages`,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'bruff-'+send.id},body:JSON.stringify(send.body)});
  if(!r.ok)return fail(r);const data=await r.json();if(!data.id)return reply(502,{error:'El proveedor no confirmó un ID de mensaje. Revisa el historial antes de redactar otro.'});
- return reply(200,{data:{id:data.id,createdAt:data.createdAt,status:'sent'}});
+ await finishSend(send.conversation,send.id,String(data.id));
+ return reply(200,{data:{id:data.id,createdAt:data.createdAt,status:'sent',sentBy:author.name}});
 }

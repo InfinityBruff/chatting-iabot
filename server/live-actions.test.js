@@ -6,7 +6,9 @@ const w='00000000-0000-0000-0000-000000000001',c='00000000-0000-0000-0000-000000
 const response=(data,status=200)=>new Response(JSON.stringify(data),{status});
 function setup({enabled=true,denied=false,revoke=false,safetyBlocked=false,screenFail=false}={}){
  let checks=0;const calls=[];
- const handler=createLiveHandler({url:'https://auth.test',anonKey:'public',providerKey:'private-test-key',writeEnabled:enabled,fetcher:async(url,options)=>{
+ const handler=createLiveHandler({url:'https://auth.test',anonKey:'public',providerKey:'private-test-key',serviceKey:'server-only',writeEnabled:enabled,fetcher:async(url,options)=>{
+  if(url.includes('/rpc/bruff_message_begin'))return response({name:'Pedro',messageId:null});
+  if(url.includes('/rpc/bruff_message_finish')){assert.equal(options.headers.Authorization,'Bearer server-only');return response(null)}
   if(url.endsWith('/auth/v1/user'))return response({id:'actor',email_confirmed_at:'yes'});
   if(url.includes('/rpc/bruff_chat_screen'))return screenFail?response({},503):response(safetyBlocked?{allowed:false,blocked:true,event_id:'event'}:{allowed:true,blocked:false});
   if(url.includes('/rpc/bruff_chat_status'))return response({blocked:safetyBlocked});

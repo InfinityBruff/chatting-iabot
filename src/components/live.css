@@ -40,3 +40,5 @@
 .chat-thread-scroll>.live-messages{justify-content:flex-start}.chat-day{display:flex;align-items:center;gap:15px;width:100%;font-size:10px;color:#777;margin:0 0 8px}.chat-day::before,.chat-day::after{content:"";height:1px;background:#242424;flex:1}
 
 .live-shell .chat-content-dialog .live-price{display:grid;font-size:12px}.live-shell .chat-content-dialog .live-price small{display:block}.live-shell .chat-content-dialog .live-price input{width:160px;padding:9px;font-size:14px}
+
+.live-messages .chat-message-author{display:block;text-align:right;color:#a9a9b2;font-size:10px;line-height:1.4;margin-top:4px;overflow-wrap:anywhere}

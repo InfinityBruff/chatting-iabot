@@ -49,7 +49,7 @@ export function normalizeLive(operation,data,binding){
  }
  throw Error('operation');
 }
-export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fetcher=fetch}){
+export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabled=false,fetcher=fetch}){
  return async request=>{
   const origin=request.headers.get('origin');
   const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'}:{})};
@@ -86,7 +86,9 @@ export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fe
     if(await authorize()!==binding)throw Error('access');
     return reply(200,{data});
    }
-   if(actionNames.includes(input.operation))return await liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled,screen:async(fan,body)=>{const result=await rpc('bruff_chat_screen',{w:input.workspace_id,c:input.creator_id,fan,body});if(typeof result?.allowed!=='boolean'||typeof result?.blocked!=='boolean')throw Error('safety');return result}});
+   if(actionNames.includes(input.operation))return await liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled,beginSend:async(fan,request_id)=>{if(!serviceKey)throw Error('attribution');return rpc('bruff_message_begin',{w:input.workspace_id,c:input.creator_id,fan,request_id})},finishSend:async(fan,request_id,message_id)=>{
+     const r=await fetcher(url+'/rest/v1/rpc/bruff_message_finish',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,fan,request_id,actor:identity.id,message_id}),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('attribution');
+    },screen:async(fan,body)=>{const result=await rpc('bruff_chat_screen',{w:input.workspace_id,c:input.creator_id,fan,body});if(typeof result?.allowed!=='boolean'||typeof result?.blocked!=='boolean')throw Error('safety');return result}});
    const params=new URLSearchParams();let path;
    if(['inbox','messages','transactions'].includes(input.operation)){params.set('pages','1');if(input.cursor!=null){if(typeof input.cursor!=='string'||input.cursor.length>2048)return reply(400,{error:'Cursor inválido'});params.set('cursor',input.cursor)}}
    if(['messages','fan_profile','fan_history'].includes(input.operation)){if(typeof input.conversation_id!=='string'||!/^\d{1,24}$/.test(input.conversation_id))return reply(400,{error:'Conversación inválida'});path=input.operation==='fan_profile'?'user/'+input.conversation_id:input.operation==='fan_history'?'fans/'+input.conversation_id+'/subscription-history':'conversations/'+input.conversation_id;}
@@ -120,6 +122,12 @@ export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fe
     }));
     // Presence is queried separately so a provider-wide scan never blocks inbox.
     data.conversations=data.conversations.map(f=>({...f,spend:amounts.get(String(f.userId??f.id))??normalizeSpend(null)}));
+   }
+   if(input.operation==='messages'){
+    const ids=data.messages.filter(m=>m.isFromMe===true).map(m=>String(m.id)).filter(id=>/^\d{1,24}$/.test(id));
+    let authors={},available=true;
+    try{for(let i=0;i<ids.length;i+=500)Object.assign(authors,await rpc('bruff_message_authors',{w:input.workspace_id,c:input.creator_id,fan:input.conversation_id,ids:ids.slice(i,i+500)}))}catch{available=false}
+    data.messages=data.messages.map(m=>({...m,...(m.isFromMe===true?{sentBy:available&&typeof authors[String(m.id)]==='string'?authors[String(m.id)]:null,attributionAvailable:available}:{})}));
    }
    // Recheck after provider latency so revoked membership cannot receive a pending result.
    if(await authorize()!==binding)throw Error('access');

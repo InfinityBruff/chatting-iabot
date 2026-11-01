@@ -207,5 +207,26 @@ check((await scalar(`select public.bruff_fan_note('${w}','${model}','123') as va
 await db.exec(`reset role;update bruff_private.memberships set status='disabled' where user_id='${worker}' and workspace_id='${w}';set role authenticated`);
 await reject(`select public.bruff_fan_note('${w}','${model}','123')`);
 await reject(`select public.bruff_fan_note_save('${w}','${secondModel}','123','Revocado',1)`);
+
+await db.exec('reset role');
+await db.exec(await readFile(new URL('../supabase/migrations/202611010011_message_authorship.sql',import.meta.url),'utf8'));
+const sendId='90000000-0000-0000-0000-000000000001';
+await db.exec(`update bruff_private.memberships set display_name='Pedro',role='admin',status='active' where user_id='${worker}' and workspace_id='${w}';select set_config('request.jwt.claim.sub','${worker}',false);set role authenticated`);
+check((await scalar(`select public.bruff_message_begin('${w}','${model}','123','${sendId}') as value`)).name,'Pedro');
+await reject(`select public.bruff_message_begin('${w}','${model}','456','${sendId}')`);
+await reject(`select public.bruff_message_finish('${w}','${model}','123','${sendId}','${worker}','999')`);
+await db.exec(`reset role;set role service_role;select public.bruff_message_finish('${w}','${model}','123','${sendId}','${worker}','999');reset role;set role authenticated`);
+check((await scalar(`select public.bruff_message_authors('${w}','${model}','123',array['999']) as value`))['999'],'Pedro');
+check(await scalar(`select public.bruff_message_authors('${w}','${secondModel}','123',array['999']) as value`),{});
+check(await scalar(`select public.bruff_message_authors('${w}','${model}','456',array['999']) as value`),{});
+await reject(`select public.bruff_message_authors('${other}','${foreign}','123',array['999'])`);
+await db.exec(`reset role;update bruff_private.memberships set display_name='Nuevo nombre' where user_id='${worker}' and workspace_id='${w}';set role authenticated`);
+check((await scalar(`select public.bruff_message_begin('${w}','${model}','123','${sendId}') as value`)).name,'Pedro');
+check((await scalar(`select public.bruff_message_begin('${w}','${model}','123','${sendId}') as value`)).messageId,'999');
+await db.exec(`reset role;update bruff_private.memberships set status='disabled' where user_id='${worker}' and workspace_id='${w}';set role authenticated`);
+await reject(`select public.bruff_message_authors('${w}','${model}','123',array['999'])`);
+await reject(`select public.bruff_message_begin('${w}','${model}','123','${sendId}')`);
+await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+check((await scalar(`select public.bruff_message_authors('${w}','${model}','123',array['999']) as value`))['999'],'Pedro');
 console.log(`${checks} team PostgreSQL checks passed: owner-only, scope, role changes, revocation, versions, invitation identity, service-only finalization and audit.`);
 }finally{await db.close()}
