@@ -15,6 +15,8 @@ export default function AccessGate(){
  const [teamWorkspace,setTeamWorkspace]=useState(null);
  const [liveWorkspace,setLiveWorkspace]=useState(null);
  const generation=useRef(0);
+ const autoEntered=useRef(false);
+ useEffect(()=>{if(!session){autoEntered.current=false;setLiveWorkspace(null)}else if(!flow&&workspaces?.length===1&&!autoEntered.current){autoEntered.current=true;setLiveWorkspace(workspaces[0].id)}},[session,flow,workspaces]);
  useEffect(()=>{const {data}=authClient.auth.onAuthStateChange((_event,next)=>{generation.current++;setSession(next);setWorkspaces(null);setError('');});return ()=>data.subscription.unsubscribe();},[]);
  useEffect(()=>{
   if(!session||flow)return;

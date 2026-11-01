@@ -1,9 +1,11 @@
+import usePresence from './usePresence.js';
+import Brand from './Brand.jsx';
 import FinanceOverview from './FinanceOverview.jsx';
 import EarningsChart from './EarningsChart.jsx';
 import WorkspaceNavigation,{WorkspaceIcon} from './WorkspaceNavigation.jsx';
 import {AccountsPage,BotPage,RolesPage} from './WorkspacePages.jsx';
 import LiveTeam from './LiveTeam.jsx';
-import {visibleSections,resolveSection,sectionAccount} from '../workspace-navigation.js';
+import {navigationSections,resolveSection,sectionAccount} from '../workspace-navigation.js';
 import {teamRoles} from '../team.js';
 import {LiveVault} from './LiveMedia.jsx';
 import LiveInbox from './LiveInbox.jsx';
@@ -44,18 +46,19 @@ function Analytics({workspace,account,accounts,onAccount,overview=false}){
  return <section><div className="analytics-model-card"><div><h2>Analíticas · Datos reales</h2><p>Selecciona la modelo. Todos los importes y gráficos pertenecen exclusivamente a esa cuenta.</p></div><label>Modelo de las estadísticas<select aria-label="Modelo de las estadísticas" value={account} onChange={e=>onAccount(e.target.value)}>{accounts.filter(a=>a.analytics).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label></div>{overview?<FinanceOverview workspace={workspace} account={account}/>:<><h3>Explorar un período</h3><div className="analytics-presets">{[["last-month","Último mes completo"],["30days","Últimos 30 días"],["month","Este mes"]].map(([preset,label])=><button key={preset} onClick={()=>{const range=analyticsRange(preset);setDates(range);setApplied(range)}}>{label}</button>)}</div><form className="live-search" onSubmit={e=>{e.preventDefault();setApplied({...dates})}}><label>Desde<input type="date" required value={dates.start} max={dates.end} onChange={e=>setDates({...dates,start:e.target.value})}/></label><label>Hasta<input type="date" required value={dates.end} min={dates.start} max={today} onChange={e=>setDates({...dates,end:e.target.value})}/></label><button>Consultar</button></form><div className="analytics-explainer"><strong>Cómo leer tus resultados</strong><p>El resumen del proveedor corresponde al período consultado en UTC. Debajo puedes auditar los movimientos cargados: importe, comisión y neto son campos distintos; no rellenamos cifras que falten.</p></div><Series key={'series'+JSON.stringify(applied)} workspace={workspace} account={account} {...applied}/><h3>Detalle de movimientos</h3><p className="live-muted">Carga más páginas para ampliar los subtotales. Neto es lo que informa cada movimiento tras sus deducciones; no equivale a saldo retirable.</p><Transactions key={JSON.stringify(applied)} workspace={workspace} account={account} {...applied}/></>}</section>
 }
 export default function LiveWorkspace({workspace,onBack,currentUserId}){
- const [accounts,setAccounts]=useState(null),[selected,setSelected]=useState(''),[tab,setTab]=useState('chat'),[collapsed,setCollapsed]=useState(true),[writeEnabled,setWriteEnabled]=useState(false),[chatBlocked,setChatBlocked]=useState(false),[error,setError]=useState('');
+ const [accounts,setAccounts]=useState(null),[selected,setSelected]=useState(''),[tab,setTab]=useState('chat'),[collapsed,setCollapsed]=useState(false),[writeEnabled,setWriteEnabled]=useState(false),[chatBlocked,setChatBlocked]=useState(false),[error,setError]=useState('');
  useEffect(()=>{let active=true,inflight=false;async function check(){if(inflight)return;inflight=true;try{const r=await liveRequest(workspace.id,'accounts');if(active){setAccounts(r.accounts);setWriteEnabled(r.writeEnabled===true);setChatBlocked(r.chatSafety?.blocked===true);setError('')}}catch(e){if(active){setAccounts(null);setError(e.message)}}finally{inflight=false}}check();const timer=setInterval(check,5000);const visible=()=>{if(document.visibilityState==='visible')check()};document.addEventListener('visibilitychange',visible);return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible)}},[workspace.id]);
  const available=accounts||[];
- const sections=visibleSections(workspace.role,available),view=resolveSection(tab,workspace.role,available);
+ const presence=usePresence(workspace.id,available);
+ const sections=navigationSections(workspace.role,available),view=resolveSection(tab,workspace.role,available);
  const account=sectionAccount(view,available,selected);
  const activeSection=sections.find(s=>s.id===view);
- const selectView=(next,id)=>{if(id)setSelected(id);setTab(next);if(next==='chat')setCollapsed(true);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
+ const selectView=(next,id)=>{if(id)setSelected(id);setTab(next);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
  const pageKey=workspace.id+':'+(account?.id||'agency')+':'+view+':'+account?.chat+':'+account?.analytics+':'+account?.send+':'+account?.vault;
  return <main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
   <WorkspaceNavigation sections={sections} active={view} onSelect={selectView} collapsed={collapsed} onBack={onBack} workspace={workspace}/>
   <div className="live-main workspace-main">
-   <header className="workspace-topbar"><button aria-label={collapsed?'Expandir menú':'Contraer menú'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><WorkspaceIcon name="menu"/></button><div className="workspace-breadcrumb"><span>{activeSection?.group}</span><b>/</b><strong>{activeSection?.label}</strong></div><span className="workspace-user">{teamRoles[workspace.role]}<span className="workspace-user-avatar">{workspace.name?.slice(0,1)||'B'}</span></span></header>
+   <header className="workspace-topbar"><button aria-label={collapsed?'Expandir menú':'Contraer menú'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><WorkspaceIcon name="menu"/></button><Brand/><div className="workspace-breadcrumb"><span>{activeSection?.group}</span><b>/</b><strong>{activeSection?.label}</strong></div><span className="workspace-user">{teamRoles[workspace.role]}<span className="workspace-user-avatar">{workspace.name?.slice(0,1)||'B'}</span></span></header>
    {error&&<p role="alert">{error}</p>}{!accounts&&!error&&<p role="status">Verificando acceso a las modelos…</p>}
    {accounts&&<div key={pageKey} className={'live-content workspace-content '+(view==='chat'?'workspace-chat-content':'')}>
     {account&&['vault','bot'].includes(view)&&<div className="workspace-context-bar"><span className="workspace-provider">OnlyFans</span><label>Modelo<select aria-label="Modelo activa" value={account.id} onChange={e=>setSelected(e.target.value)}>{available.filter(a=>a[activeSection.permission]).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label><small>{view==='bot'?'Preferencias guardadas · motor pendiente':'Datos reales · Acceso por modelo'}</small></div>}
@@ -63,7 +66,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
     {view==='team'&&<LiveTeam workspace={workspace} currentUserId={currentUserId}/>}
     {view==='roles'&&<RolesPage onTeam={()=>setTab('team')}/>}
     {account&&view==='bot'&&<BotPage workspace={workspace.id} account={account} onChat={()=>setTab('chat')}/>}
-    {account&&view==='chat'&&<LiveInbox workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
+    {account&&view==='chat'&&<LiveInbox presence={presence[account.id]} workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
     {account&&view==='vault'&&<LiveVault workspace={workspace.id} account={account.id}/>}
     {account&&['dashboard','analytics'].includes(view)&&<Analytics workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} overview={view==='dashboard'}/>}
    </div>}

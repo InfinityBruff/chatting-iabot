@@ -1,0 +1,31 @@
+/* BRUFF black/red identity. Green presence and gold/diamond tiers are semantic. */
+:root{--bruff-bg:#050505;--bruff-surface:#101010;--bruff-raised:#191919;--bruff-border:#303030;--bruff-blue:#ef454b;--bruff-focus:#ff767b}
+body,.access-page,.live-shell.workspace-shell,.workspace-shell .workspace-main,.live-shell .workspace-content{background:#050505}
+.live-shell .workspace-nav,.live-shell .workspace-topbar,.live-chat-shell .workspace-nav,.live-chat-shell .chat-inbox-panel,.live-chat-shell .chat-thread,.live-chat-shell .chat-thread-head,.live-chat-shell .chat-thread-scroll,.live-chat-shell .chat-inbox-controls,.live-chat-shell .chat-composer,.live-chat-shell .chat-fan-entry>.chat-fan-row{background:#090909;border-color:#272727}
+.live-chat-shell .chat-workspace,.live-chat-shell .chat-fan-panel{background:#050505}
+.live-chat-shell .chat-compose-line textarea{background:#090909!important}
+.live-chat-shell .chat-thread-scroll .live-messages article{background:#202020;border-color:#2c2c2c}
+.live-chat-shell .chat-thread-scroll .live-messages article.own{background:#351318;border-color:#54232a}
+.live-chat-shell .chat-fan-entry>.chat-fan-row{border-left-color:transparent}
+.live-chat-shell .chat-fan-entry>.chat-fan-row:hover{background:#161111}
+.live-chat-shell .chat-fan-entry>.chat-fan-row.selected{background:#241115;border-left-color:#ef454b}
+.live-shell .workspace-nav button[aria-current]{color:#ff8a8e;background:#321317;border-left:2px solid #ef454b}
+.live-shell .chat-filter-pills button[aria-pressed=true]{background:#44191d;color:#ffe6e7}
+.live-shell .chat-filter-pills b,.live-shell .reference-compose-toolbar .chat-review-button,.live-shell .reference-insight button{background:#cb3038;color:#fff}
+.reference-fan-card{background:#101010;border-color:#292929;color:#dedede}
+.reference-profile-fields dt,.reference-card-subhead,.reference-activity>div{background:#202020}
+.live-shell .reference-topic-select{background:#171717;border-color:#333}
+.live-chat-shell .workspace-topbar{display:flex;height:52px;flex:0 0 52px}
+.workspace-topbar>.bruff-brand{padding:0;gap:0}.workspace-topbar .bruff-logo-crop{width:105px}.workspace-topbar .bruff-brand-caption{display:none}
+.workspace-collapsed .workspace-brand .bruff-logo-crop{width:43px}.workspace-collapsed .workspace-brand .bruff-brand-caption{display:none}
+.live-shell .workspace-nav button{position:relative;height:auto;min-height:40px}
+.live-shell .workspace-nav button:disabled{opacity:1;color:#777;background:transparent;cursor:not-allowed}
+.nav-lock{display:inline-block;font-size:11px;margin-right:6px;vertical-align:middle}
+.workspace-collapsed .nav-lock{position:absolute;top:0;right:0;margin:0;font-size:12px}
+.live-chat-shell .chat-avatar-tier .live-avatar.fan-online-ring{border:2px solid #37e98a;box-shadow:0 0 0 2px #0a2516,0 0 11px #24d87788}
+.fan-online-dot{background:#24d877;border-color:#090909}
+.fan-tier.diamond svg.filled{fill:#61c7ff;stroke:#b0e5ff;filter:drop-shadow(0 0 3px #37adff55)}
+.spend-diamond{color:#87d7ff!important;background:#1c3442!important}
+@media(max-width:800px){.workspace-breadcrumb{display:none}.live-chat-shell .workspace-nav{top:52px}.live-chat-shell .chat-fan-panel{top:52px}}
+
+@media(min-width:1150px) and (max-width:1499px){.live-chat-shell .chat-workspace.has-thread.show-details{grid-template-columns:300px minmax(280px,1fr) 300px}.live-chat-shell .chat-fan-scroll{padding:0 8px 16px}.live-chat-shell .chat-thread-scroll{padding:14px}}
