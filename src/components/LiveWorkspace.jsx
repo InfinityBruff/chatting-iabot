@@ -1,3 +1,4 @@
+import Automations from './Automations.jsx';
 import {PanelLayout} from './PanelResize.jsx';
 import {FanDirectory} from './FanDirectory.jsx';
 import {useNotifications,NotificationToasts,NotificationsPage,CollectionsPage} from './Community.jsx';
@@ -71,6 +72,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
     {view==='accounts'&&<AccountsPage accounts={available} onOpen={selectView}/>}
     {view==='team'&&<LiveTeam workspace={workspace} currentUserId={currentUserId}/>}
     {view==='roles'&&<RolesPage onTeam={()=>setTab('team')}/>}
+    {account&&view==='automations'&&<Automations key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={setSelected} presence={presence[account.id]}/>}
     {account&&view==='bot'&&<BotPage workspace={workspace.id} account={account} onChat={()=>setTab('chat')}/>}
     {account&&view==='chat'&&<LiveInbox currentUserId={currentUserId} presence={presence[account.id]} workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
     {account&&view==='vault'&&<LiveVault workspace={workspace.id} account={account.id}/>}

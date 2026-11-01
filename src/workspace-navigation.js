@@ -9,6 +9,7 @@ export const workspaceSections = [
  {id:'accounts',label:'Cuentas',group:'Organización',icon:'accounts'},
  {id:'team',label:'Equipo y permisos por modelo',group:'Trabajadores',icon:'team',management:true},
  {id:'roles',label:'Roles y funciones',group:'Trabajadores',icon:'shield',management:true},
+ {id:'automations',label:'Centro de automatizaciones',group:'Automatizaciones',icon:'bot',management:true,permission:'chat'},
  {id:'bot',label:'Alcance por modelo',group:'BRUFF IA',icon:'bot',management:true,permission:'chat'},
 ];
 export const isManager = role => ['owner','admin'].includes(role);

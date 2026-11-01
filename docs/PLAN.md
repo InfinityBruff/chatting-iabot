@@ -363,3 +363,9 @@ Precarga automática progresiva hasta 60 conversaciones por modelo/búsqueda y s
 - Cada modelo tiene su ciclo independiente de 20 s tras completar la consulta. Deduplicación por ID del proveedor; carga inicial silenciosa, reintentos automáticos y descarte al cerrar sesión o perder permisos.
 - Se mantienen avisos visuales y sonido optativo. Funciona mientras BRUFF está abierto y visible; no son notificaciones push con el navegador cerrado.
 - 193 pruebas y build correctos; pruebas específicas de categorías ausentes del feed general, duplicados, fallos parciales, revocación y aislamiento de ciclos de las tres cuentas. No se han generado pagos ni enviado mensajes reales para probar avisos.
+
+### 01/11 · Centro de automatizaciones — preparación
+- Nuevo grupo lateral con selector real de modelo, tres flujos (masivos, bienvenida, en línea), editor guiado, vista previa y revisión sin envío. Conserva la interfaz existente.
+- Borradores editables y archivables por usuario/agencia/modelo en este navegador. No sincronizados en nube; no hay activación ni programación real. Audiencia de masivos basada en directorio real (incluye caducados); en línea cruza fans con confirmaciones recientes, sin inventar cobertura total.
+- Pendiente para ejecución: persistencia compartida, endpoints autenticados de campaña/bienvenida, preflight de palabras y permisos por destinatario, idempotencia, comprobación de bienvenida existente, cola/ejecutor y auditoría/recibos. No usar este editor como motor operativo.
+- Fuente oficial revisada 01/11: https://ofmapi.com/openapi.json ofrece POST mass-messages con recipients o users_list_id y schedule_at; PUT profile/welcome-message reemplaza el existente; enable/disable separados. No se han llamado estas mutaciones.
