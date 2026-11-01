@@ -276,3 +276,5 @@ Conexión OFMAPI de lectura y gestión explícita de listas añadida a bruff-liv
 
 ### Corrección de categorías · 01/11
 Compras paided_message comprobadas con importes reales (Val 45 USD, Valen 15 USD, Lana 10 USD). Propinas reales verificadas en las tres; suscripciones consultadas por separado. Filtros de proveedor conectados con paginación aislada y sondeo visible. El importe viene del texto del aviso porque NotificationResponse no tiene campo monetario tipado. No utilizar para sumas financieras ni sustituir el resumen financiero. No se enviaron mensajes ni se generaron eventos reales de prueba.
+
+01/11: Colecciones incorpora selección de fans paginada desde OFMAPI, búsqueda y carga completa explícita, fotos y hasta 100 selecciones por operación. Mantiene permisos owner/admin por agencia/modelo y capacidades de listas. El detalle del proveedor puede mostrar solo una vista previa de miembros, señalada en pantalla.
