@@ -274,3 +274,6 @@ QA local con datos ficticios: aro visible en fan 1 de modelo A y fan 2 de modelo
 Ajuste de latencia: consulta de presencia exclusivamente en segundo plano; inbox no espera a todas las páginas. Frontend publicado en Sites privado y código actualizado en GitHub. Edge ampliado desplegado; ninguna garantía de presencia fuera de usuarios seguidos.
 
 Corrección tras prueba real: pages=-1 no devolvió presencia utilizable; se sustituye por recorrido de cursores sin límite de una página, peticiones individuales autorizadas y resultados progresivos con fecha por fan. Se detectan cursores repetidos/ausentes y errores sin afirmar cobertura completa. El recorrido continúa hasta hasMore=false. Pendiente confirmar presencia real disponible del proveedor.
+
+## 01/11 — Envío manual directo solicitado por el propietario
+Eliminado el diálogo de confirmación adicional. Pulsar ENVIAR o Enter prepara y envía en una sola acción; Mayús+Enter añade línea. Se mantienen vistas previas y precio en compositor, validación de permisos, pantalla de palabras y ticket idempotente en servidor. Un error ambiguo conserva el ticket y bloquea edición hasta reintentar el mismo envío o descartar tras advertencia. No se enviaron mensajes reales durante validación.
