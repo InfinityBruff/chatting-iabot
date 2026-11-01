@@ -1,0 +1,94 @@
+/* Finishing layer: preserve layout, control sizes and semantic status colors. */
+:root {
+  --bruff-border: #2d2d31;
+  --bruff-muted: #aaaab3;
+  --bruff-focus: #ff858b;
+}
+.live-shell, .access-page, .app-shell {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.live-shell :is(input, textarea, select), .access-card input {
+  background-color: #111113;
+  border-color: #39393f;
+  caret-color: #ff858b;
+  box-shadow: inset 0 1px 2px #0002;
+}
+.live-shell :is(input, textarea)::placeholder, .access-card input::placeholder {
+  color: #93939e;
+  opacity: 1;
+}
+.live-shell :is(input, textarea, select):hover:not(:disabled), .access-card input:hover {
+  border-color: #595960;
+}
+.live-shell :is(button, input, select, textarea, summary, a):focus-visible,
+.access-card :focus-visible {
+  outline: 2px solid var(--bruff-focus) !important;
+  outline-offset: 3px;
+}
+.live-shell button:not([aria-current]):hover:not(:disabled) {
+  border-color: #705056;
+}
+.live-shell button:disabled { cursor: not-allowed; }
+.live-shell :is(button, a, summary) { -webkit-tap-highlight-color: #ef454b25; }
+.live-shell :is(h1, h2, h3), .access-card h1 { text-wrap: balance; }
+.live-shell :is(.finance-metrics, .finance-source-grid, .live-series, .reference-spend-grid, table) {
+  font-variant-numeric: tabular-nums;
+}
+.live-shell :is(.workspace-panel, .live-team, .analytics-model-card, .finance-overview,
+  .workspace-role-grid article, .workspace-explanation, .workspace-info-grid article,
+  .finance-metrics > article, .finance-source-grid > article, .live-series > article,
+  .analytics-explainer, .reference-fan-card) {
+  border-color: #2d2d31;
+  box-shadow: 0 2px 8px #0002, inset 0 1px 0 #ffffff03;
+}
+.live-shell .workspace-topbar { box-shadow: 0 1px 0 #ffffff03; }
+.live-shell .workspace-nav button { transition: color .15s, background-color .15s, border-color .15s; }
+.live-shell .workspace-nav button:hover:not(:disabled):not([aria-current]) {
+  background: #191719;
+  color: #fafafa;
+}
+.live-shell .workspace-nav button[aria-current] {
+  box-shadow: inset 0 1px 0 #ffffff04;
+  color: #ff969b;
+}
+.live-shell table { border-collapse: collapse; }
+.live-shell th { color: #b9b9c1; font-weight: 600; }
+.live-shell :is(th, td) { border-color: #29292e; }
+.live-shell tbody tr { transition: background-color .15s; }
+.live-shell tbody tr:hover { background-color: #ffffff03; }
+.live-shell .chat-fan-entry { border-bottom-color: #252529; }
+.live-shell .chat-thread-scroll .live-messages article { box-shadow: 0 1px 3px #0002; }
+.live-shell .chat-thread-scroll .live-messages article.own {
+  background: #301216;
+  border-color: #512229;
+}
+.live-shell .chat-compose-line textarea { box-shadow: none; }
+.live-shell .chat-message-author { color: #a9a9b3; }
+.live-shell .fan-record-section dt { color: #aaaab3; }
+.live-shell .fan-record-section summary:hover { color: #ff969b; }
+.live-shell .fan-record-section textarea { line-height: 1.6; }
+.live-shell dialog, .team-editor {
+  border-color: #414147;
+  box-shadow: 0 24px 80px #0009, 0 0 0 1px #ffffff03;
+}
+dialog::backdrop { background: #000b; backdrop-filter: blur(4px); }
+.access-card {
+  background: #111113;
+  border-color: #333338;
+  box-shadow: 0 24px 80px #0007, inset 0 1px 0 #ffffff05;
+}
+.access-card .access-primary { background: #d93640; color: #fff; border-color: #ed5059; }
+.access-card .access-primary:hover:not(:disabled) { background: #e3424c; }
+.access-card button:not(.access-primary) { background: #1d1d21; border-color: #39393f; }
+.access-card button:not(.access-primary):hover:not(:disabled) { background: #29292f; border-color: #62626c; }
+.access-card .access-divider { border-color: #303035; }
+.access-card .access-muted { color: #aaaab3; }
+.live-shell *, .access-page { scrollbar-width: thin; scrollbar-color: #49494f #101012; }
+@media (prefers-reduced-motion: reduce) {
+  .live-shell *, .access-page *, .app-shell * {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}

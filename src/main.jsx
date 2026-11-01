@@ -10,3 +10,4 @@ import "./workspace-shell.css";
 import "./chat-reference.css";
 
 import "./bruff-red.css";
+import "./bruff-polish.css";
