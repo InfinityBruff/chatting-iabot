@@ -1,6 +1,8 @@
 // Navigation is a presentation filter; server authorization remains mandatory.
 export const workspaceSections = [
  {id:'chat',label:'Mensajes',group:'Mensajes',icon:'chat',permission:'chat'},
+ {id:'notifications',label:'Notificaciones',group:'Actividad',icon:'bell',management:true,permission:'chat'},
+ {id:'collections',label:'Colecciones',group:'Contenido',icon:'vault',management:true,permission:'chat'},
  {id:'dashboard',label:'Resumen financiero',group:'Analíticas',icon:'chart',permission:'analytics'},
  {id:'analytics',label:'Ingresos y movimientos',group:'Analíticas',icon:'chart',permission:'analytics'},
  {id:'vault',label:'Baúl de contenido',group:'Contenido',icon:'vault',permission:'vault'},

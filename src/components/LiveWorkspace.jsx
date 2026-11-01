@@ -1,3 +1,4 @@
+import {useNotifications,NotificationToasts,NotificationsPage,CollectionsPage} from './Community.jsx';
 import {useLivePage} from './useLivePage.js';
 import {readSession,writeSession,sessionKey} from '../chat-sync.js';
 import {ModelProfiles,ModelSelect} from './ModelIdentity.jsx';
@@ -49,6 +50,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  useEffect(()=>{let active=true,inflight=false;async function check(){if(inflight)return;inflight=true;try{const r=await liveRequest(workspace.id,'accounts');if(active){setAccounts(r.accounts);setWriteEnabled(r.writeEnabled===true);setChatBlocked(r.chatSafety?.blocked===true);setError('')}}catch(e){if(active){setAccounts(null);setError(e.message)}}finally{inflight=false}}check();const timer=setInterval(check,5000);const visible=()=>{if(document.visibilityState==='visible')check()};document.addEventListener('visibilitychange',visible);return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible)}},[workspace.id]);
  const available=accounts||[];
  const presence=usePresence(workspace.id,available);
+ const notifications=useNotifications(currentUserId,workspace.id,available,workspace.role);
  const sections=navigationSections(workspace.role,available),view=resolveSection(tab,workspace.role,available);
  const account=sectionAccount(view,available,selected);
  useEffect(()=>{if(accounts)writeSession(viewKey,{account:account?.id||selected,tab:view,collapsed})},[viewKey,accounts,account?.id,selected,view,collapsed]);
@@ -56,12 +58,14 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const selectView=(next,id)=>{if(id)setSelected(id);setTab(next);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
  const pageKey=workspace.id+':'+(account?.id||'agency')+':'+view+':'+account?.chat+':'+account?.analytics+':'+account?.send+':'+account?.vault;
  return <ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
-  <WorkspaceNavigation sections={sections} active={view} onSelect={selectView} collapsed={collapsed} onBack={onBack} workspace={workspace}/>
+  <WorkspaceNavigation unread={notifications.count} sections={sections} active={view} onSelect={selectView} collapsed={collapsed} onBack={onBack} workspace={workspace}/>
   <div className="live-main workspace-main">
    <header className="workspace-topbar"><button aria-label={collapsed?'Expandir menú':'Contraer menú'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><WorkspaceIcon name="menu"/></button><Brand/><div className="workspace-breadcrumb"><span>{activeSection?.group}</span><b>/</b><strong>{activeSection?.label}</strong></div><span className="workspace-user">{teamRoles[workspace.role]}<span className="workspace-user-avatar">{workspace.name?.slice(0,1)||'B'}</span></span></header>
    {error&&<p role="alert">{error}</p>}{!accounts&&!error&&<p role="status">Verificando acceso a las modelos…</p>}
    {accounts&&<div key={pageKey} className={'live-content workspace-content '+(view==='chat'?'workspace-chat-content':'')}>
-    {account&&['vault','bot'].includes(view)&&<div className="workspace-context-bar"><span className="workspace-provider">OnlyFans</span><label>Modelo<ModelSelect label="Modelo activa" value={account.id} onChange={setSelected} accounts={available.filter(a=>a[activeSection.permission])}/></label><small>{view==='bot'?'Preferencias guardadas · motor pendiente':'Datos reales · Acceso por modelo'}</small></div>}
+    {account&&['vault','bot','collections'].includes(view)&&<div className="workspace-context-bar"><span className="workspace-provider">OnlyFans</span><label>Modelo<ModelSelect label="Modelo activa" value={account.id} onChange={setSelected} accounts={available.filter(a=>a[activeSection.permission])}/></label><small>{view==='bot'?'Preferencias guardadas · motor pendiente':'Datos reales · Acceso por modelo'}</small></div>}
+    {view==='notifications'&&<NotificationsPage feed={notifications} accounts={available}/>}
+    {account&&view==='collections'&&<CollectionsPage workspace={workspace.id} account={account.id} enabled={writeEnabled}/>}
     {view==='accounts'&&<AccountsPage accounts={available} onOpen={selectView}/>}
     {view==='team'&&<LiveTeam workspace={workspace} currentUserId={currentUserId}/>}
     {view==='roles'&&<RolesPage onTeam={()=>setTab('team')}/>}
@@ -71,5 +75,6 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
     {account&&['dashboard','analytics'].includes(view)&&<Analytics workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} overview={view==='dashboard'}/>}
    </div>}
   </div>
+ <NotificationToasts feed={notifications} accounts={available} onOpen={selectView}/>
  </main></ModelProfiles>
 }

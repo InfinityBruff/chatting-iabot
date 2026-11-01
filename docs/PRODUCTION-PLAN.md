@@ -270,3 +270,6 @@ Identidad visual común con foto OnlyFans, recorte circular y tamaños por conte
 
 ### Continuidad de sesión y chats · 01/11/2026
 Por petición del propietario, persistSession pasa a true; sustituye el comportamiento histórico de sesión solo en memoria. Renovación del mismo usuario conserva la interfaz; permisos se siguen verificando en servidor y cada 5 s. Borrador, navegación y ticket incierto quedan aislados por usuario/agencia/modelo/fan en la pestaña, con borrado al cerrar sesión. Historial no se vacía al refrescar, sondeo visible 5 s chat / 12 s lista y backoff ante fallos. UI distingue envío pendiente de confirmado; mantiene moderación y ticket idempotente. Pruebas locales ficticias no equivalen a enviar a fans reales ni a verificación de sesión productiva.
+
+### Notificaciones y colecciones · 01/11
+Conexión OFMAPI de lectura y gestión explícita de listas añadida a bruff-live con autorización owner/admin y revalidación por modelo. Frontend conserva funcionalidades existentes. Revisión de avisos local por trabajador/modelo; activar sonido una vez por sesión. No se ofrecen notificaciones push con app cerrada ni tiempo real garantizado. Publicaciones guardadas: solo lectura, texto y cantidad de medios; gestión de marcadores y previews quedan pendientes. Validación de escritura con fixtures; no probar mutaciones sobre fans reales.
