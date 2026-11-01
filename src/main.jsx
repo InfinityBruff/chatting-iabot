@@ -6,3 +6,5 @@ import './bruff-theme.css';
 createRoot(document.getElementById('root')).render(<React.StrictMode><AccessGate /></React.StrictMode>);
 
 import "./workspace-shell.css";
+
+import "./chat-reference.css";
