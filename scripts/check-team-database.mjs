@@ -189,5 +189,23 @@ check((await scalar(`select public.bruff_bot_scope('${w}','${model}') as value`)
 await db.exec(`reset role;update bruff_private.memberships set status='disabled' where workspace_id='${w}' and user_id='${worker}';set role authenticated`);
 await reject(`select public.bruff_bot_scope('${w}','${model}')`);
 await reject(`select public.bruff_bot_update('${w}','${secondModel}',2,'all')`);
+await db.exec('reset role');
+await db.exec(await readFile(new URL('../supabase/migrations/202611010010_fan_notes.sql',import.meta.url),'utf8'));
+await db.exec(`select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+check((await scalar(`select public.bruff_fan_note_save('${w}','${model}','123','Primera',0) as value`)).version,1);
+check((await scalar(`select public.bruff_fan_note('${w}','${secondModel}','123') as value`)).body,'');
+check((await scalar(`select public.bruff_fan_note('${w}','${model}','456') as value`)).body,'');
+await reject(`select public.bruff_fan_note_save('${w}','${model}','123','Obsoleta',0)`);
+await reject(`select public.bruff_fan_note_save('${other}','${foreign}','123','Ajena',0)`);
+check((await scalar(`select public.bruff_fan_note_save('${w}','${model}','123','Editada',1) as value`)).body,'Editada');
+await db.exec(`reset role;update bruff_private.memberships set role='operator',status='active' where user_id='${worker}' and workspace_id='${w}';select set_config('request.jwt.claim.sub','${worker}',false);set role authenticated`);
+check((await scalar(`select public.bruff_fan_note('${w}','${model}','123') as value`)).allowed,false);
+await reject(`select public.bruff_fan_note_save('${w}','${model}','123','No autorizado',2)`);
+await db.exec(`reset role;update bruff_private.memberships set role='admin' where user_id='${worker}' and workspace_id='${w}';set role authenticated`);
+check((await scalar(`select public.bruff_fan_note_save('${w}','${secondModel}','123','Otra modelo',0) as value`)).body,'Otra modelo');
+check((await scalar(`select public.bruff_fan_note('${w}','${model}','123') as value`)).body,'Editada');
+await db.exec(`reset role;update bruff_private.memberships set status='disabled' where user_id='${worker}' and workspace_id='${w}';set role authenticated`);
+await reject(`select public.bruff_fan_note('${w}','${model}','123')`);
+await reject(`select public.bruff_fan_note_save('${w}','${secondModel}','123','Revocado',1)`);
 console.log(`${checks} team PostgreSQL checks passed: owner-only, scope, role changes, revocation, versions, invitation identity, service-only finalization and audit.`);
 }finally{await db.close()}
