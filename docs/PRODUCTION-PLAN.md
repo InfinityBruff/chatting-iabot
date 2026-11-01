@@ -273,3 +273,6 @@ Por petición del propietario, persistSession pasa a true; sustituye el comporta
 
 ### Notificaciones y colecciones · 01/11
 Conexión OFMAPI de lectura y gestión explícita de listas añadida a bruff-live con autorización owner/admin y revalidación por modelo. Frontend conserva funcionalidades existentes. Revisión de avisos local por trabajador/modelo; activar sonido una vez por sesión. No se ofrecen notificaciones push con app cerrada ni tiempo real garantizado. Publicaciones guardadas: solo lectura, texto y cantidad de medios; gestión de marcadores y previews quedan pendientes. Validación de escritura con fixtures; no probar mutaciones sobre fans reales.
+
+### Corrección de categorías · 01/11
+Compras paided_message comprobadas con importes reales (Val 45 USD, Valen 15 USD, Lana 10 USD). Propinas reales verificadas en las tres; suscripciones consultadas por separado. Filtros de proveedor conectados con paginación aislada y sondeo visible. El importe viene del texto del aviso porque NotificationResponse no tiene campo monetario tipado. No utilizar para sumas financieras ni sustituir el resumen financiero. No se enviaron mensajes ni se generaron eventos reales de prueba.

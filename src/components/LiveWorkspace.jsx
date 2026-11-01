@@ -64,7 +64,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
    {error&&<p role="alert">{error}</p>}{!accounts&&!error&&<p role="status">Verificando acceso a las modelos…</p>}
    {accounts&&<div key={pageKey} className={'live-content workspace-content '+(view==='chat'?'workspace-chat-content':'')}>
     {account&&['vault','bot','collections'].includes(view)&&<div className="workspace-context-bar"><span className="workspace-provider">OnlyFans</span><label>Modelo<ModelSelect label="Modelo activa" value={account.id} onChange={setSelected} accounts={available.filter(a=>a[activeSection.permission])}/></label><small>{view==='bot'?'Preferencias guardadas · motor pendiente':'Datos reales · Acceso por modelo'}</small></div>}
-    {view==='notifications'&&<NotificationsPage feed={notifications} accounts={available} onChat={(model,fan)=>{writeSession(sessionKey(currentUserId,workspace.id,model,'','fan'),fan);selectView('chat',model)}}/>}
+    {view==='notifications'&&<NotificationsPage workspace={workspace.id} feed={notifications} accounts={available} onChat={(model,fan)=>{writeSession(sessionKey(currentUserId,workspace.id,model,'','fan'),fan);selectView('chat',model)}}/>}
     {account&&view==='collections'&&<CollectionsPage workspace={workspace.id} account={account.id} enabled={writeEnabled}/>}
     {view==='accounts'&&<AccountsPage accounts={available} onOpen={selectView}/>}
     {view==='team'&&<LiveTeam workspace={workspace} currentUserId={currentUserId}/>}
