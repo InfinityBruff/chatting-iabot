@@ -1,0 +1,22 @@
+.panel-layout{display:contents}
+.panel-resize{display:none}
+@media(min-width:801px){
+ .workspace-shell .workspace-nav,.live-chat-shell .chat-inbox-panel,.live-chat-shell .chat-fan-panel{position:relative}
+ .live-shell .workspace-nav{overflow:visible;min-width:0}
+ .workspace-nav .workspace-brand,.workspace-nav footer{overflow:hidden}
+ .panel-resize{display:block;position:absolute;top:0;bottom:0;right:-4px;width:9px;z-index:30;cursor:col-resize;touch-action:none;outline:none}
+ .panel-resize>span{position:absolute;top:0;bottom:0;left:4px;width:2px;background:transparent;transition:background .15s}
+ .panel-resize:hover>span,.panel-resize:focus-visible>span,.panel-resize.dragging>span{background:#e35060;box-shadow:0 0 7px #e3506055}
+ .panel-resize-fan{right:auto;left:-4px}
+ .panel-layout:has(.dragging),.panel-layout:has(.dragging) *{cursor:col-resize!important;user-select:none!important}
+ .workspace-collapsed .panel-resize-nav{display:none}
+ .panel-layout[data-nav-sized=true] .live-shell.workspace-shell:not(.workspace-collapsed){grid-template-columns:var(--panel-nav) minmax(0,1fr)}
+ .panel-layout[data-chat-sized=true] .live-chat-shell .chat-workspace{grid-template-columns:clamp(230px,var(--panel-inbox,300px),40%) minmax(0,1fr)}
+ .panel-layout[data-chat-sized=true] .live-chat-shell .chat-fan-scroll{max-width:none}
+}
+@media(min-width:1251px){
+ .panel-layout[data-chat-sized=true] .live-chat-shell .chat-workspace.has-thread.show-details{grid-template-columns:clamp(230px,var(--panel-inbox,300px),35%) minmax(260px,1fr) clamp(260px,var(--panel-fan,300px),30%)}
+}
+@media(min-width:801px) and (max-width:1250px){
+ .live-chat-shell .chat-fan-panel{position:fixed;width:min(var(--panel-fan,330px),60vw)}
+}

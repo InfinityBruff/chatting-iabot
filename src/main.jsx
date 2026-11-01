@@ -13,3 +13,5 @@ import "./bruff-red.css";
 import "./bruff-polish.css";
 
 import "./bruff-mobile.css";
+
+import "./components/panel-resize.css";

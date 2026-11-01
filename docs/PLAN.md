@@ -343,3 +343,8 @@ Migración 012 aplicada: tabla privada notification_reviews con RLS y sin acceso
 
 ## 01/11 — Lista de chats ampliada
 Precarga automática progresiva hasta 60 conversaciones por modelo/búsqueda y siguientes páginas al acercarse a 500px del final del scroll. Usa el paginador existente con exclusión de solicitudes simultáneas y conserva historial, selección y filas ya cargadas. Resetea cursores al cambiar modelo/búsqueda; evita bucles de cursor repetido, frena ante error y limita páginas iniciales vacías. Mantiene Cargar más como recuperación manual y añade total cargado. Sin cambios backend, permisos, envío ni notificaciones. 185 tests/build; pruebas de objetivo 60, scroll, cursores repetidos, errores y páginas incompletas.
+
+### Columnas ajustables · 2026-11-01
+- Separadores arrastrables para menú, lista de conversaciones y ficha; la conversación ocupa el espacio restante.
+- Anchos guardados por usuario/espacio en este navegador, con límites y adaptación a pantalla. Doble clic o Inicio restaura cada ancho; flechas ajustan con teclado. Móvil conserva distribución actual.
+- Cambio exclusivamente visual, sin alterar consultas, permisos, cuentas o mensajes.
