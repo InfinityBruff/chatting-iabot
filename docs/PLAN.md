@@ -357,3 +357,9 @@ Precarga automática progresiva hasta 60 conversaciones por modelo/búsqueda y s
 - Historial de suscripción no admite cursor en contrato público; si el proveedor lo marca parcial, se indica. Campos ausentes no se infieren de registros históricos.
 - Fuente oficial consultada: https://ofmapi.com/openapi.json. Pendiente terminar QA productiva de las tres modelos antes de declarar verificación real.
 - QA productiva parcial: Val/Tigermbs muestra 8 compras (296 USD en movimientos, 236,80 USD en resumen de gasto del proveedor; no equiparar bases); Valen/Miguel muestra compra de 100 USD en 30 días. Valen/Lim devuelve compras y un pago de alta de 3 USD al ampliar histórico. Notas arriba; borrador temporal conservado durante refresco y retirado sin guardarlo. Migración 013 aplicada y Edge desplegado; 189 tests + build y 145 comprobaciones PostgreSQL correctos.
+
+### 2026-11-01 · Avisos financieros globales
+- El monitor de LiveWorkspace consulta general, compras y propinas por modelo desde cualquier apartado; conserva estilos, permisos y revisión independiente por trabajador/modelo.
+- Cada modelo tiene su ciclo independiente de 20 s tras completar la consulta. Deduplicación por ID del proveedor; carga inicial silenciosa, reintentos automáticos y descarte al cerrar sesión o perder permisos.
+- Se mantienen avisos visuales y sonido optativo. Funciona mientras BRUFF está abierto y visible; no son notificaciones push con el navegador cerrado.
+- 193 pruebas y build correctos; pruebas específicas de categorías ausentes del feed general, duplicados, fallos parciales, revocación y aislamiento de ciclos de las tres cuentas. No se han generado pagos ni enviado mensajes reales para probar avisos.
