@@ -17,3 +17,7 @@
 .live-chat-shell .chat-fan-entry>.chat-fan-row{min-height:101px}
 .live-chat-shell .chat-compose-line textarea{background:#111313!important;border:0!important}
 .live-chat-shell .reference-fan-identity .chat-fan-avatar{flex:none}
+.live-chat-shell .chat-avatar-tier .live-avatar{position:relative}
+.fan-online-dot{position:absolute;right:-2px;bottom:1px;width:10px;height:10px;background:#24d877;border:2px solid #111313;border-radius:50%;box-shadow:0 0 0 1px #12452b}
+.live-shell .fan-online-label{display:inline-block;color:#37d782!important;font-size:9px!important;font-weight:500;margin-left:7px;white-space:nowrap}
+.reference-spender .fan-online-label{display:block;margin:2px 0 0}

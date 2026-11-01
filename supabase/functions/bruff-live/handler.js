@@ -96,7 +96,14 @@ export function createLiveHandler({url,anonKey,providerKey,writeEnabled=false,fe
       if(Array.isArray(payload.fans))for(const row of payload.fans){const fanId=String(row.fanId);if(batch.includes(fanId))amounts.set(fanId,normalizeSpend(row))}
      }catch{/* Spend remains explicitly unavailable. */}
     }));
-    data.conversations=data.conversations.map(f=>({...f,spend:amounts.get(String(f.userId??f.id))??normalizeSpend(null)}));
+    // A positive match in all_online verifies presence. The limited page cannot
+    // prove anyone else offline, including fans this model does not follow.
+    const onlineIds=new Set();let checkedAt=null;
+    if(ids.length)try{
+     const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/followings?filter=all_online&pages=1',{headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(8000),redirect:'error'});
+     if(r.ok){const payload=await r.json();if(Array.isArray(payload.followings)){checkedAt=new Date().toISOString();for(const f of payload.followings){const key=String(f.id);if(ids.includes(key))onlineIds.add(key)}}}
+    }catch{/* Do not infer presence from activity or preserve stale green badges. */}
+    data.conversations=data.conversations.map(f=>({...f,presence:{online:onlineIds.has(String(f.userId??f.id))?true:null,checkedAt},spend:amounts.get(String(f.userId??f.id))??normalizeSpend(null)}));
    }
    // Recheck after provider latency so revoked membership cannot receive a pending result.
    if(await authorize()!==binding)throw Error('access');
