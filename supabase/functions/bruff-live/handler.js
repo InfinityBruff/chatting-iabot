@@ -16,6 +16,16 @@ export function normalizeSpend(row){
  const available=row?.available===true;
  return {available,...Object.fromEntries(['total','subscriptions','tips','messages','posts','streams'].map(k=>[k,available?amount(row[k]):null]))};
 }
+const earningsKeys=['total','messages','tips','subscriptions','posts','streams','referrals'];
+export function categorySeries(part,category){
+ if(part.filter!=null&&part.filter!==category)throw Error('category');
+ const series=part.series;if(!series||typeof series!=='object'||Array.isArray(series))throw Error('category');
+ const values=Object.values(series).filter(v=>v&&typeof v==='object'&&!Array.isArray(v)&&(['gross','total'].some(k=>typeof v[k]==='number'&&Number.isFinite(v[k]))||Array.isArray(v.chartAmount)));
+ const v=series[category]??(values.length===1?values[0]:null);if(!v||typeof v!=='object'||Array.isArray(v))throw Error('category');
+ const n=x=>typeof x==='number'&&Number.isFinite(x)?x:null;
+ const points=xs=>Array.isArray(xs)?xs.map(x=>({date:typeof x.date==='string'?x.date:typeof x.datetime==='string'?x.datetime:null,count:n(x.count)})):[];
+ return {gross:n(v.gross),total:n(v.total),chartAmount:points(v.chartAmount),chartCount:points(v.chartCount)};
+}
 export function normalizeLive(operation,data,binding){
  const page={cursor:typeof data.cursor==='string'?data.cursor:null,hasMore:data.hasMore===true};
  if(operation==='inbox'){
@@ -34,12 +44,13 @@ export function normalizeLive(operation,data,binding){
  if(operation==='monthly'){
   if(!Array.isArray(data.months))throw Error('schema');
   const number=(row,keys)=>{for(const k of keys)if(typeof row[k]==='number'&&Number.isFinite(row[k]))return row[k];return null};
-  return {months:data.months.map(row=>({label:typeof row.date==='string'?row.date:row.year&&row.month?String(row.year)+'-'+String(row.month).padStart(2,'0'):typeof row.month==='string'?row.month:null,gross:number(row,['gross','grossAmount']),net:number(row,['net','netAmount']),total:number(row,['total','amount'])})),currency:'USD'};
+  const rows=data.months.flatMap(row=>Array.isArray(row?.monthlyTotal)?row.monthlyTotal:[row]);
+  return {months:rows.map(row=>({label:typeof row.date==='string'?row.date:row.year&&row.month?String(row.year)+'-'+String(row.month).padStart(2,'0'):typeof row.month==='string'?row.month:null,gross:number(row,['gross','grossAmount']),net:number(row,['net','netAmount']),total:number(row,['total','amount'])})),currency:'USD'};
  }
  if(operation==='earnings'){
 
   if(!data.series||typeof data.series!=='object'||Array.isArray(data.series))throw Error('schema');
-  return {startDate:data.startDate,endDate:data.endDate,series:data.series,currency:'USD'};
+  return {startDate:data.startDate,endDate:data.endDate,series:data.series,unavailableCategories:Array.isArray(data.unavailableCategories)?data.unavailableCategories.filter(k=>earningsKeys.includes(k)):[],currency:'USD'};
  }
  if(operation==='profile'){
   if(!data.data?.id)throw Error('schema');
@@ -99,13 +110,24 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
    else{
     if(typeof input.start!=='string'||typeof input.end!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(input.start)||!/^\d{4}-\d{2}-\d{2}$/.test(input.end))return reply(400,{error:'Fechas inválidas'});
     const start=Date.parse(input.start+'T00:00:00Z'),end=Date.parse(input.end+'T23:59:59.999Z');
-    if(!Number.isFinite(start)||!Number.isFinite(end)||end<start||end-start>367*86400000)return reply(400,{error:'Elige un intervalo de hasta un año'});
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<start||end-start>(input.operation==='earnings'?20*366:367)*86400000||start<Date.parse('2016-01-01T00:00:00Z'))return reply(400,{error:'Intervalo no permitido: movimientos hasta un año; gráficos desde 2016, hasta 20 años'});
     params.set('start',new Date(start).toISOString());
     path=input.operation==='earnings'?'earnings/chart':'transactions';if(input.operation==='earnings')params.set('end',new Date(end).toISOString());
    }
    const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(25000),redirect:'error'});
    if(!response.ok)return reply(response.status===429?429:502,{error:response.status===429?'OFMAPI ha limitado las consultas. Espera antes de actualizar.':'OFMAPI no pudo consultar esta cuenta. Revisa su conexión o inténtalo más tarde.',providerStatus:response.status});
    const payload=await response.json();
+   if(input.operation==='earnings'){
+    // The provider defaults to total. Each other category must be requested explicitly.
+    const series={...payload.series},unavailableCategories=[];
+    for(let i=1;i<earningsKeys.length;i+=2)await Promise.all(earningsKeys.slice(i,i+2).map(async category=>{
+     const query=new URLSearchParams(params);query.set('filter',category);
+     try{const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/earnings/chart?'+query,{headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(25000),redirect:'error'});
+      if(!r.ok)throw Error('category');const part=await r.json();
+      series[category]=categorySeries(part,category);
+     }catch{delete series[category];unavailableCategories.push(category)}
+    }));payload.series=series;payload.unavailableCategories=unavailableCategories;
+   }
    const data=input.operation==='fan_profile'?fanProfile(payload,input.conversation_id):input.operation==='fan_history'?fanHistory(payload,input.conversation_id):normalizeLive(input.operation,payload,binding);
    // Inbox has no spend. Fetch only ids from this authorized model's page,
    // in provider-supported batches of 20. A failed spend lookup never hides chats.

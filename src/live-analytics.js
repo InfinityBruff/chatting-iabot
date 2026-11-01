@@ -19,3 +19,10 @@ export function historicalSum(months,key){
  if(new Set(months.map(x=>x.label)).size!==months.length)return null;
  return months.reduce((sum,x)=>sum+Math.round(x[key]*100),0)/100;
 }
+export function historicalRange(months,now=new Date()){
+ if(!Array.isArray(months)||!months.length)return null;
+ const labels=months.map(m=>typeof m.label==='string'?m.label.slice(0,7):'');
+ if(labels.some(m=>!/^20\d{2}-(0[1-9]|1[0-2])$/.test(m))||new Set(labels).size!==labels.length)return null;
+ const start=labels.sort()[0]+'-01',end=now.toISOString().slice(0,10);
+ return start<='2016-01-01'||start>end?null:{start,end};
+}

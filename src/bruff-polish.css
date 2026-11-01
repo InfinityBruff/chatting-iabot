@@ -92,3 +92,4 @@ dialog::backdrop { background: #000b; backdrop-filter: blur(4px); }
     scroll-behavior: auto !important;
   }
 }
+.finance-scope{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.live-shell .finance-scope button[aria-pressed=true]{background:#351318;border-color:#ab3b46;color:#fff}.finance-source-grid strong{font-variant-numeric:tabular-nums}

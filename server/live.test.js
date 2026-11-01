@@ -64,3 +64,27 @@ test('inbox keeps each real avatar with its fan and rejects unsafe URLs',()=>{
  for(const fan of fans.slice(2))assert.equal(fan.avatar,undefined);
  assert.deepEqual(fans.map(f=>f.id),['1','2','3','4','5']);
 });
+
+test('monthlyTotal wrapper is expanded without mixing totals or raw metadata',()=>{
+ const data=normalizeLive('monthly',{months:[{monthlyTotal:[{date:'2026-09',gross:10,net:8},{date:'2026-10',gross:0,net:0}],total:999,raw:{secret:1}}]});
+ assert.equal(data.months.length,2);assert.deepEqual(data.months[0],{label:'2026-09',gross:10,net:8,total:null});assert.equal(data.months[1].net,0);assert.equal(JSON.stringify(data).includes('secret'),false);
+});
+test('earnings requests explicit model-bound categories and retains partial failures',async()=>{
+ const calls=[];const handler=createLiveHandler({url:'https://auth.test',anonKey:'public',providerKey:'secret',fetcher:async(url,o)=>{
+ if(url.endsWith('/auth/v1/user'))return json({id:'u',email_confirmed_at:'yes'});
+ if(url.includes('bruff_live_authorize')){assert.equal(JSON.parse(o.body).p,'analytics');return json('acct_safeModel')}
+ const u=new URL(url);calls.push(u);assert.equal(u.pathname,'/v1/accounts/acct_safeModel/earnings/chart');
+ const category=u.searchParams.get('filter')||'total';if(category==='posts')return json({},429);
+ return json({series:{[category]:{gross:category==='messages'?25:0,total:category==='messages'?20:0}}});
+ }});
+ const r=await handler(request({operation:'earnings',start:'2026-10-01',end:'2026-10-31'}));assert.equal(r.status,200);const d=(await r.json()).data;
+ assert.equal(calls.length,7);assert.equal(d.series.messages.total,20);assert.equal(d.series.tips.total,0);assert.deepEqual(d.unavailableCategories,['posts']);assert.equal(d.series.posts,undefined);
+});
+import {categorySeries} from '../supabase/functions/bruff-live/handler.js';
+test('explicit filters normalize upstream aliases without guessing or exposing raw fields',()=>{
+ assert.equal(categorySeries({filter:'messages',series:{chat_messages:{gross:25,total:20,raw:'secret'}}},'messages').total,20);
+ assert.equal(categorySeries({series:{subscribes:{gross:0,total:0}}},'subscriptions').gross,0);
+ assert.equal(JSON.stringify(categorySeries({series:{post:{total:4,raw:'secret'}}},'posts')).includes('secret'),false);
+ assert.throws(()=>categorySeries({filter:'tips',series:{total:{total:99}}},'messages'));
+ assert.throws(()=>categorySeries({series:{first:{total:1},second:{total:2}}},'messages'));
+});
