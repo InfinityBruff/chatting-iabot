@@ -16,7 +16,7 @@ import './live.css';
 import {analyticsRange,earningsCategories} from '../live-analytics.js';
 export async function liveRequest(workspace,operation,extra={}){
  const {data,error}=await authClient.functions.invoke('bruff-live',{body:{workspace_id:workspace,operation,...extra}});
- if(error){let payload;try{payload=await error.context.json()}catch{}const failure=Error(payload?.error||'No se pudieron consultar los datos reales.');if(payload?.code==='CHAT_SAFETY')failure.safety=payload.safety;throw failure;}
+ if(error){let payload;try{payload=await error.context.json()}catch{}const failure=Error(payload?.error||'No se pudieron consultar los datos reales.');failure.status=error.context?.status;if(payload?.code==='CHAT_SAFETY')failure.safety=payload.safety;throw failure;}
  if(data?.error)throw Error(data.error);return data;
 }
 const money=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n):'No disponible';

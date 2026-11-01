@@ -1,29 +1,35 @@
 import {useEffect,useState} from 'react';
 import {liveRequest} from './LiveWorkspace.jsx';
-// Refresh each authorized model independently. Never retain results after scope changes.
+import {startPresenceScan,acceptPresencePage,failPresenceScan} from '../presence-scan.js';
+// Round-robin across all authorized models: one request at a time, independent cursors.
 export default function usePresence(workspace,accounts){
- const [results,setResults]=useState({});
  const scope=JSON.stringify(accounts.filter(a=>a.chat===true).map(a=>a.id).sort());
+ const key=workspace+':'+scope;
+ const [snapshot,setSnapshot]=useState({key:null,results:{}});
  useEffect(()=>{
-  let active=true;const inflight=new Set();setResults({});
-  async function refresh(){if(document.visibilityState==='hidden')return;
-   await Promise.all(JSON.parse(scope).map(async id=>{if(inflight.has(id))return;inflight.add(id);
-    try{let cursor;const seen=new Set(),confirmations={};
-     do{const r=await liveRequest(workspace,'presence',{creator_id:id,...(cursor?{cursor}:{})});if(!active)return;
-      const data=r.data;if(data.unavailable){setResults(old=>({...old,[id]:{...data,confirmations}}));break}
-      for(const fan of data.onlineIds||[])confirmations[fan]=data.checkedAt;
-      setResults(old=>({...old,[id]:{...data,confirmations:{...confirmations}}}));
-      if(!data.hasMore)break;
-      if(!data.cursor||seen.has(data.cursor)){setResults(old=>({...old,[id]:{...old[id],complete:false,unavailable:true}}));break}
-      seen.add(data.cursor);cursor=data.cursor;
-     }while(active&&document.visibilityState!=='hidden');
-    }
-    catch{if(active)setResults(old=>({...old,[id]:{unavailable:true,onlineIds:[],checkedAt:null}}))}
-    finally{inflight.delete(id)}
-   }));
+  let active=true,timer,inflight=false;
+  const ids=JSON.parse(scope),states=Object.fromEntries(ids.map(id=>[id,startPresenceScan()]));
+  setSnapshot({key,results:{}});
+  const publish=()=>{if(active)setSnapshot({key,results:{...states}})};
+  const schedule=()=>{if(active)timer=setTimeout(tick,350)};
+  async function tick(){
+   if(!active||inflight)return;
+   if(document.visibilityState==='hidden'){schedule();return}
+   const now=Date.now(),id=ids.filter(id=>states[id].nextAt<=now).sort((a,b)=>states[a].nextAt-states[b].nextAt)[0];
+   if(!id){schedule();return}
+   inflight=true;
+   if(!states[id].scanning)states[id]=startPresenceScan(states[id],now);
+   const current=states[id];
+   try{
+    const r=await liveRequest(workspace,'presence',{creator_id:id,...(current.cursor?{cursor:current.cursor}:{})});
+    if(!active)return;
+    states[id]=acceptPresencePage(current,r.data,Date.now());
+   }catch(e){if(active)states[id]=failPresenceScan(current,{status:e.status},Date.now())}
+   finally{inflight=false;if(active){publish();schedule()}}
   }
-  refresh();const timer=setInterval(refresh,45000);document.addEventListener('visibilitychange',refresh);
-  return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',refresh)};
- },[workspace,scope]);
- return results;
+  const visible=()=>{if(document.visibilityState==='visible'&&!inflight){clearTimeout(timer);tick()}};
+  tick();document.addEventListener('visibilitychange',visible);
+  return()=>{active=false;clearTimeout(timer);document.removeEventListener('visibilitychange',visible)};
+ },[workspace,scope,key]);
+ return snapshot.key===key?snapshot.results:{};
 }

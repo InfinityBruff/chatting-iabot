@@ -2,3 +2,5 @@
 .fan-photo-avatar>img{display:block;width:100%;height:100%;max-width:none;object-fit:cover;object-position:center;border-radius:inherit}
 .live-chat-shell .fan-photo-avatar.fan-online-ring{border:2px solid #37e98a;box-shadow:0 0 0 2px #0a2516,0 0 11px #24d87788}
 .fan-photo-avatar>.fan-online-dot{z-index:2}
+/* Outline stays outside the photo and never changes avatar dimensions. */
+.live-chat-shell .fan-photo-avatar.fan-online-ring{outline:2px solid #35e58b;outline-offset:2px;box-shadow:0 0 10px #24d87766}

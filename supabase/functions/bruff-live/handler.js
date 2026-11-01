@@ -5,10 +5,10 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pick=(obj,keys)=>Object.fromEntries(keys.filter(k=>obj?.[k]!==undefined).map(k=>[k,obj[k]]));
 export async function readOnlinePresence({binding,providerKey,fetcher,cursor}){
  // Bounded pages; the client follows all cursors without delaying inbox loading.
- const params=new URLSearchParams({filter:'all_online',pages:'1'});if(cursor)params.set('cursor',cursor);
+ const params=new URLSearchParams({filter:'all_online',type:'all',pages:'1'});if(cursor)params.set('cursor',cursor);
  const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/followings?'+params,{headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(25000),redirect:'error'});
- if(!r.ok)throw Object.assign(Error('presence'),{providerStatus:r.status});
- const payload=await r.json();if(!Array.isArray(payload.followings))throw Error('schema');
+ if(!r.ok){const retry=Number(r.headers.get('Retry-After'));throw Object.assign(Error('presence'),{providerStatus:r.status,retryAfter:Number.isFinite(retry)&&retry>0?Math.min(retry,120):null})}
+ const payload=await r.json();if(!Array.isArray(payload.followings)||typeof payload.hasMore!=='boolean')throw Error('schema');
  return {onlineIds:[...new Set(payload.followings.map(f=>String(f.id)).filter(id=>/^\d{1,24}$/.test(id)))],checkedAt:new Date().toISOString(),complete:payload.hasMore===false,scope:'followings',cursor:typeof payload.cursor==='string'?payload.cursor:null,hasMore:payload.hasMore===true};
 }
 export function normalizeSpend(row){
@@ -93,7 +93,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
    if(input.operation==='presence'){
     if(input.cursor!=null&&(typeof input.cursor!=='string'||input.cursor.length>2048))return reply(400,{error:'Cursor inválido'});
-    let data;try{data=await readOnlinePresence({binding,providerKey,fetcher,cursor:input.cursor})}catch(e){data={onlineIds:[],checkedAt:null,complete:false,scope:'followings',unavailable:true,providerStatus:e.providerStatus||null}}
+    let data;try{data=await readOnlinePresence({binding,providerKey,fetcher,cursor:input.cursor})}catch(e){data={onlineIds:[],checkedAt:null,complete:false,scope:'followings',unavailable:true,providerStatus:e.providerStatus||null,retryAfter:e.retryAfter||null}}
     if(await authorize()!==binding)throw Error('access');
     return reply(200,{data});
    }
