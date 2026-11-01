@@ -6,11 +6,11 @@ export function CollectionFans({workspace,account,list,onClose,onAdded}){
  useEffect(()=>()=>{active.current=false;generation.current++;stop.current=true},[]);
  async function load(next=null,all=false){
   if(running.current)return;running.current=true;stop.current=false;const version=generation.current;setBusy(true);setError('');
-  try{let current=next;do{const r=await liveRequest(workspace,'collection_fans',{creator_id:account,type:'all',query:search,...(current?{cursor:current}:{})});if(version!==generation.current||!active.current)return;
+  try{let current=next;do{let r;for(let attempt=0;attempt<3;attempt++){try{r=await liveRequest(workspace,'collection_fans',{creator_id:account,type:'all',query:search,...(current?{cursor:current}:{})});break}catch(e){if(![429,503].includes(e.status)||attempt===2)throw e;await new Promise(resolve=>setTimeout(resolve,2000*(attempt+1)));if(stop.current||version!==generation.current||!active.current)return}}if(version!==generation.current||!active.current)return;
    const d=r.data;setRows(old=>[...new Map([...(current?old:[]),...d.fans].map(f=>[f.id,f])).values()]);
    if(d.hasMore&&(!d.cursor||seen.current.has(d.cursor)))throw Error('El proveedor repitió una página. No podemos confirmar que se hayan cargado todos los fans.');
-   if(d.cursor)seen.current.add(d.cursor);setCursor(d.cursor);setMore(d.hasMore);current=d.hasMore?d.cursor:null;
-  }while(all&&current&&!stop.current)}catch(e){if(version===generation.current&&active.current){setError(e.message);if(e.status===401||e.status===403){setRows([]);setSelected({});setMore(false)}}}finally{running.current=false;if(version===generation.current&&active.current)setBusy(false)}
+   if(d.cursor)seen.current.add(d.cursor);setCursor(d.cursor);setMore(d.hasMore);current=d.hasMore?d.cursor:null;if(all&&current&&!stop.current)await new Promise(resolve=>setTimeout(resolve,1000));
+  }while(all&&current&&!stop.current)}catch(e){if(version===generation.current&&active.current){setError([429,503].includes(e.status)?'El proveedor ha interrumpido la carga. Los fans y la selección se conservan; pulsa Cargar más fans para continuar desde esta página.':e.message);if(e.status===401||e.status===403){setRows([]);setSelected({});setMore(false)}}}finally{running.current=false;if(version===generation.current&&active.current)setBusy(false)}
  }
  useEffect(()=>{generation.current++;seen.current=new Set();setRows([]);setCursor(null);setMore(false);load()},[search]);
  const chosen=Object.values(selected),known=new Set(list.users.map(u=>u.id));
