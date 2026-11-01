@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 // Public browser configuration. Never place service-role or secret keys here.
 export const authClient = createClient('https://lejxenmswcaddrnspxuf.supabase.co',
   'sb_publishable_Mf3v5e2otxlFF4YggnjAjQ_-_2Iwd9F', {
-    auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
   });
 export async function loadMemberships(client = authClient) {
   const {data: identity, error: identityError} = await client.auth.getUser();

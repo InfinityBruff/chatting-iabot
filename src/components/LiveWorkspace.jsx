@@ -1,3 +1,5 @@
+import {useLivePage} from './useLivePage.js';
+import {readSession,writeSession,sessionKey} from '../chat-sync.js';
 import {ModelProfiles,ModelSelect} from './ModelIdentity.jsx';
 import usePresence from './usePresence.js';
 import Brand from './Brand.jsx';
@@ -22,13 +24,7 @@ export async function liveRequest(workspace,operation,extra={}){
 const money=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n):'No disponible';
 const date=d=>d&&!Number.isNaN(Date.parse(d))?new Date(d).toLocaleString('es-ES'):'Fecha no disponible';
 export function More({page,busy,load}){return page?.hasMore?<button disabled={busy||!page.cursor} onClick={()=>load(page.cursor)}>{busy?'Cargando…':page.cursor?'Cargar más':'El proveedor no entregó cursor; no se puede continuar'}</button>:null}
-export function usePage(workspace,account,operation,args,field){
- const [result,setResult]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);const version=useRef(0);
- const signature=JSON.stringify(args);
- async function load(cursor){const v=++version.current;setBusy(true);setError('');if(!cursor)setResult(null);try{const next=await liveRequest(workspace,operation,{creator_id:account,...args,...(cursor?{cursor}:{})});if(v===version.current)setResult(old=>{if(!cursor||!field)return next;const rows=[...(old?.data?.[field]||[]),...next.data[field]];const seen=new Set();return {...next,data:{...next.data,[field]:rows.filter(x=>{const id=x.id??JSON.stringify(x);if(seen.has(id))return false;seen.add(id);return true})}}})}catch(e){if(v===version.current){setResult(null);setError(e.message)}}finally{if(v===version.current)setBusy(false)}}
- useEffect(()=>{load();return()=>{version.current++}},[workspace,account,operation,signature]);
- return {result,error,busy,load};
-}
+export function usePage(workspace,account,operation,args,field){return useLivePage(liveRequest,workspace,account,operation,args,field);}
 function Transactions({workspace,account,start,end}){
  const {result,error,busy,load}=usePage(workspace,account,'transactions',{start,end},'transactions');
  const rows=(result?.data.transactions||[]).filter(x=>x.createdAt&&Date.parse(x.createdAt)>=Date.parse(start+'T00:00:00Z')&&Date.parse(x.createdAt)<=Date.parse(end+'T23:59:59.999Z'));
@@ -47,12 +43,15 @@ function Analytics({workspace,account,accounts,onAccount,overview=false}){
  return <section><div className="analytics-model-card"><div><h2>Analíticas · Datos reales</h2><p>Selecciona la modelo. Todos los importes y gráficos pertenecen exclusivamente a esa cuenta.</p></div><label>Modelo de las estadísticas<ModelSelect label="Modelo de las estadísticas" value={account} onChange={onAccount} accounts={accounts.filter(a=>a.analytics)}/></label></div>{overview?<FinanceOverview workspace={workspace} account={account}/>:<><h3>Explorar un período</h3><div className="analytics-presets">{[["last-month","Último mes completo"],["30days","Últimos 30 días"],["month","Este mes"]].map(([preset,label])=><button key={preset} onClick={()=>{const range=analyticsRange(preset);setDates(range);setApplied(range)}}>{label}</button>)}</div><form className="live-search" onSubmit={e=>{e.preventDefault();setApplied({...dates})}}><label>Desde<input type="date" required value={dates.start} max={dates.end} onChange={e=>setDates({...dates,start:e.target.value})}/></label><label>Hasta<input type="date" required value={dates.end} min={dates.start} max={today} onChange={e=>setDates({...dates,end:e.target.value})}/></label><button>Consultar</button></form><div className="analytics-explainer"><strong>Cómo leer tus resultados</strong><p>El resumen del proveedor corresponde al período consultado en UTC. Debajo puedes auditar los movimientos cargados: importe, comisión y neto son campos distintos; no rellenamos cifras que falten.</p></div><Series key={'series'+JSON.stringify(applied)} workspace={workspace} account={account} {...applied}/><h3>Detalle de movimientos</h3><p className="live-muted">Carga más páginas para ampliar los subtotales. Neto es lo que informa cada movimiento tras sus deducciones; no equivale a saldo retirable.</p><Transactions key={JSON.stringify(applied)} workspace={workspace} account={account} {...applied}/></>}</section>
 }
 export default function LiveWorkspace({workspace,onBack,currentUserId}){
- const [accounts,setAccounts]=useState(null),[selected,setSelected]=useState(''),[tab,setTab]=useState('chat'),[collapsed,setCollapsed]=useState(false),[writeEnabled,setWriteEnabled]=useState(false),[chatBlocked,setChatBlocked]=useState(false),[error,setError]=useState('');
+ const viewKey=sessionKey(currentUserId,workspace.id);
+ const saved=useRef(readSession(viewKey,{}));
+ const [accounts,setAccounts]=useState(null),[selected,setSelected]=useState(saved.current?.account||''),[tab,setTab]=useState(saved.current?.tab||'chat'),[collapsed,setCollapsed]=useState(saved.current?.collapsed??false),[writeEnabled,setWriteEnabled]=useState(false),[chatBlocked,setChatBlocked]=useState(false),[error,setError]=useState('');
  useEffect(()=>{let active=true,inflight=false;async function check(){if(inflight)return;inflight=true;try{const r=await liveRequest(workspace.id,'accounts');if(active){setAccounts(r.accounts);setWriteEnabled(r.writeEnabled===true);setChatBlocked(r.chatSafety?.blocked===true);setError('')}}catch(e){if(active){setAccounts(null);setError(e.message)}}finally{inflight=false}}check();const timer=setInterval(check,5000);const visible=()=>{if(document.visibilityState==='visible')check()};document.addEventListener('visibilitychange',visible);return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible)}},[workspace.id]);
  const available=accounts||[];
  const presence=usePresence(workspace.id,available);
  const sections=navigationSections(workspace.role,available),view=resolveSection(tab,workspace.role,available);
  const account=sectionAccount(view,available,selected);
+ useEffect(()=>{if(accounts)writeSession(viewKey,{account:account?.id||selected,tab:view,collapsed})},[viewKey,accounts,account?.id,selected,view,collapsed]);
  const activeSection=sections.find(s=>s.id===view);
  const selectView=(next,id)=>{if(id)setSelected(id);setTab(next);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
  const pageKey=workspace.id+':'+(account?.id||'agency')+':'+view+':'+account?.chat+':'+account?.analytics+':'+account?.send+':'+account?.vault;
@@ -67,7 +66,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
     {view==='team'&&<LiveTeam workspace={workspace} currentUserId={currentUserId}/>}
     {view==='roles'&&<RolesPage onTeam={()=>setTab('team')}/>}
     {account&&view==='bot'&&<BotPage workspace={workspace.id} account={account} onChat={()=>setTab('chat')}/>}
-    {account&&view==='chat'&&<LiveInbox presence={presence[account.id]} workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
+    {account&&view==='chat'&&<LiveInbox currentUserId={currentUserId} presence={presence[account.id]} workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
     {account&&view==='vault'&&<LiveVault workspace={workspace.id} account={account.id}/>}
     {account&&['dashboard','analytics'].includes(view)&&<Analytics workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} overview={view==='dashboard'}/>}
    </div>}

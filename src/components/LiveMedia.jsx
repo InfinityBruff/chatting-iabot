@@ -1,3 +1,4 @@
+import {readSession,writeSession,sessionKey} from '../chat-sync.js';
 import VaultLibrary from './VaultLibrary.jsx';
 import {sendManualMessage} from '../manual-send.js';
 import {ChatIcon,PendingChatFeature} from './ChatTools.jsx';
@@ -17,12 +18,17 @@ function ComposerDialog({title,busy,onClose,children}){
  const ref=useRef(null);useEffect(()=>{ref.current?.showModal()},[]);
  return <dialog ref={ref} className="chat-content-dialog" onCancel={e=>{e.preventDefault();if(!busy)onClose()}} aria-label={title}><header><h2>{title}</h2><button type="button" aria-label="Cerrar ventana" disabled={busy} onClick={onClose}>×</button></header><div className="chat-dialog-body">{children}</div></dialog>;
 }
-export function Composer({workspace,account,fan,canVault,enabled,onSent,model,compact=false,blocked=false}){
+export function Composer({workspace,account,fan,canVault,enabled,onSent,onProgress=()=>{},currentUserId,model,compact=false,blocked=false}){
+ const draftKey=sessionKey(currentUserId,workspace,account,String(fan.userId??fan.id),'draft');
+ const restored=useRef(readSession(draftKey,{}));
+ const outgoingId=useRef(crypto.randomUUID());
  const [safety,setSafety]=useState(null);
  const [notice,setNotice]=useState(''),[quick,setQuick]=useState(false),[snippet,setSnippet]=useState('');
  useEffect(()=>{if(blocked)setSafety({blocked:true});else setSafety(previous=>previous?.blocked?null:previous)},[blocked]);
  enabled=enabled&&!blocked&&!safety?.blocked;
- const [text,setText]=useState(''),[price,setPrice]=useState('0'),[attachments,setAttachments]=useState([]),[vault,setVault]=useState(false),[review,setReview]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState(''),[attempted,setAttempted]=useState(false);const lock=useRef(false),fileInput=useRef(null);
+ const [text,setText]=useState(restored.current?.text||''),[price,setPrice]=useState(restored.current?.price||'0'),[attachments,setAttachments]=useState(restored.current?.attachments||[]),[vault,setVault]=useState(false),[review,setReview]=useState(restored.current?.review||null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState(''),[attempted,setAttempted]=useState(!!restored.current?.review);const lock=useRef(false),fileInput=useRef(null);
+ const saveDraft=(value)=>writeSession(draftKey,value);
+ useEffect(()=>{saveDraft({text,price,attachments:attachments.map(a=>({...a,media:a.media?.url?.startsWith('blob:')?{type:a.media.type}:a.media})),review})},[draftKey,text,price,attachments,review]);
  async function run(fn){if(lock.current)return;lock.current=true;setBusy(true);setError('');setSent('');try{await fn()}catch(e){setError(e.message);if(e.safety){setReview(null);setAttempted(false);setSafety(e.safety)}}finally{lock.current=false;setBusy(false)}}
  const amount=Number(price.replace(',','.'));const priceValid=/^\d+(?:[.,]\d{1,2})?$/.test(price)&&Number.isSafeInteger(Math.round(amount*100));
  const formatPrice=n=>new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n);
@@ -30,8 +36,17 @@ export function Composer({workspace,account,fan,canVault,enabled,onSent,model,co
  const objectUrls=useRef([]);useEffect(()=>()=>objectUrls.current.forEach(url=>URL.revokeObjectURL(url)),[]);
  async function upload(file){if(!file)return;await run(async()=>{if(file.size>10*1024*1024)throw Error('Límite actual: 10 MB por archivo. Los vídeos grandes requieren subida por partes.');const form=new FormData();form.set('workspace_id',workspace);form.set('creator_id',account);form.set('operation','upload');form.set('file',file);const {data,error:e}=await authClient.functions.invoke('bruff-live',{body:form});if(e){let message;try{message=(await e.context.json()).error}catch{}throw Error(message||'No se pudo subir el archivo.')}if(data?.error)throw Error(data.error);const url=URL.createObjectURL(file);objectUrls.current.push(url);setAttachments(a=>[...a,{id:crypto.randomUUID(),name:data.data.name,token:data.data.attachment,media:{url,type:file.type.startsWith('image/')?'photo':file.type.startsWith('video/')?'video':'audio'}}].slice(0,10))});if(fileInput.current)fileInput.current.value=''}
  const reviewDisabled=busy||!enabled||!priceValid||(amount>0&&!attachments.length)||(!text.trim()&&!attachments.length);
- const prepare=()=>run(async()=>{const r=await sendManualMessage({request:(operation,args)=>liveRequest(workspace,operation,args),draft:{creator_id:account,conversation_id:String(fan.userId??fan.id),text,price:amount,attachments:attachments.map(a=>a.token)},pending:review,onPrepared:pending=>{setReview(pending);setAttempted(true)}});setReview(null);setAttempted(false);setText('');setPrice('0');setAttachments([]);setSent('Enviado · ID '+r.data.id);onSent()});
- const cancelReview=()=>{if(attempted&&!window.confirm('El mensaje podría haberse enviado. Comprueba el historial antes de crear otro. ¿Descartar este intento?'))return;setReview(null);setAttempted(false)};
+ const prepare=()=>run(async()=>{
+  const outgoing={id:'pending:'+outgoingId.current,text,price:amount,isFromMe:true,createdAt:new Date().toISOString(),media:attachments.map(a=>a.media).filter(Boolean),delivery:'checking'};
+  onProgress(outgoing);
+  try{
+   const r=await sendManualMessage({request:(operation,args)=>liveRequest(workspace,operation,args),draft:{creator_id:account,conversation_id:String(fan.userId??fan.id),text,price:amount,attachments:attachments.map(a=>a.token)},pending:review,onPrepared:pending=>{setReview(pending);setAttempted(true);saveDraft({text,price,attachments:attachments.map(a=>({...a,media:a.media?.url?.startsWith('blob:')?{type:a.media.type}:a.media})),review:pending});onProgress({...outgoing,delivery:'sending'})}});
+   saveDraft(null);setReview(null);setAttempted(false);setText('');setPrice('0');setAttachments([]);setSent('Enviado');
+   onSent({...outgoing,id:String(r.data.id),delivery:undefined,createdAt:r.data.createdAt||outgoing.createdAt,seenByFan:false,sentBy:r.data.sentBy,attributionAvailable:typeof r.data.sentBy==='string'});
+   outgoingId.current=crypto.randomUUID();
+  }catch(e){onProgress(e.safety?null:{...outgoing,delivery:'uncertain'});throw e;}
+ });
+ const cancelReview=()=>{if(attempted&&!window.confirm('El mensaje podría haberse enviado. Comprueba el historial antes de crear otro. ¿Descartar este intento?'))return;setReview(null);setAttempted(false);onProgress(null)};
  const priceField=<label className="live-price">Precio total del contenido (USD)<input aria-label="Precio total del contenido (USD)" inputMode="decimal" value={price} maxLength={12} disabled={busy||!enabled||!!review} onChange={e=>setPrice(e.target.value)} placeholder="0,00"/><small>0 = gratuito · Precio del conjunto. El texto acompañante queda visible.</small></label>;
  return <section className={`live-composer ${compact?'chat-composer':''}`} aria-label="Redactar mensaje">
   {safety&&<ChatSafetyNotice safety={safety} onClose={()=>setSafety(previous=>previous?.blocked?{...previous,dismissed:true}:null)}/>}
