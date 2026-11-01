@@ -280,3 +280,5 @@ Compras paided_message comprobadas con importes reales (Val 45 USD, Valen 15 USD
 01/11: Colecciones incorpora selección de fans paginada desde OFMAPI, búsqueda y carga completa explícita, fotos y hasta 100 selecciones por operación. Mantiene permisos owner/admin por agencia/modelo y capacidades de listas. El detalle del proveedor puede mostrar solo una vista previa de miembros, señalada en pantalla.
 
 01/11: Directorio de fans automático compartido en Workspace reemplaza botones de carga manual. Todas las modelos autorizadas precargan con recorrido completo y reintentos; nuevas altas mediante refrescos periódicos. Caché de sesión en memoria; sincronización permanente en servidor con BRUFF cerrado y persistencia entre dispositivos siguen pendientes. Primera entrada indica progreso hasta terminar todas las páginas, sin confundir carga parcial con total.
+
+01/11: Contadores independientes de notificaciones (lateral, Todos y categorías) por usuario/agencia/modelo. Revisión persistida en localStorage como antes, por navegador; no equivale a estado compartido entre dispositivos. No modifica leído en OnlyFans.
