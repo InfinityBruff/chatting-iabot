@@ -1,3 +1,4 @@
+import {coordinateProviderReads,createProviderReadCache} from './provider-read-coordinator.js';
 import {likeFanMessage} from './message-like.js';
 import {manageNativeQueue} from '../../../server/native-queue.js';
 import {protectProviderReads,retrySeconds} from './provider-read-guard.js';
@@ -70,14 +71,15 @@ export function normalizeLive(operation,data,binding){
  }
  throw Error('operation');
 }
-export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabled=false,advancedWriteEnabled=false,fetcher=fetch,onFailure=record=>console.error(JSON.stringify(record))}){
- const baseFetcher=fetcher;
+export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEnabled=false,writeEnabled=false,advancedWriteEnabled=false,fetcher=fetch,onFailure=record=>console.error(JSON.stringify(record))}){
+ const baseFetcher=fetcher,readCache=createProviderReadCache();
  return async request=>{
   let readQuota=null;
-  const fetcher=protectProviderReads({fetcher:baseFetcher,onQuota:q=>{readQuota=q},gate:serviceKey?async(op,wait_seconds=0)=>{
+  const guardedFetcher=protectProviderReads({fetcher:baseFetcher,onQuota:q=>{readQuota=q},gate:serviceKey?async(op,wait_seconds=0)=>{
    const response=await baseFetcher(url+'/rest/v1/rpc/bruff_provider_read_gate',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({op,wait_seconds}),signal:AbortSignal.timeout(10000)});
    if(!response.ok)throw Error('read_guard');return response.json();
   }:null});
+  const fetcher=readSlotEnabled?coordinateProviderReads({fetcher:guardedFetcher,cache:readCache,slot:serviceKey?async(op,lease_id,priority)=>{const r=await baseFetcher(url+'/rest/v1/rpc/bruff_provider_read_slot',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({op,lease_id,priority}),signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('read_slot');return r.json()}:null}):guardedFetcher;
   let diagnosticOperation='request',failureKind='unavailable',providerStatus=null;
   const origin=request.headers.get('origin');
   const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'}:{})};
@@ -89,7 +91,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
   if(origin&&!origins.has(origin))return reply(403,{error:'Origen no permitido'});
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
   if(request.method!=='POST')return reply(405,{error:'Método no permitido'});
-  if(!url||!anonKey||!providerKey)return reply(503,{error:'Conector no configurado'});
+  if(!url||!anonKey||!providerKey||readSlotEnabled&&!serviceKey)return reply(503,{error:'Conector no configurado'});
   if(request.headers.has('x-bruff-advanced-secret')){
    if(origin||!serviceKey)return reply(403,{error:'No autorizado'});
    const adminRpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('No autorizado');return r.json()};
@@ -272,7 +274,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
    // Recheck after provider latency so revoked membership cannot receive a pending result.
    if(await authorize()!==binding)throw Error('access');
    return reply(200,{data,observedAt:new Date().toISOString()});
-  }catch(e){failureKind=['TypeError','ReferenceError','SyntaxError','TimeoutError','AbortError'].includes(e?.name)?e.name:['schema','provider','input','category','read_guard'].includes(e?.message)?e.message:'unexpected';providerStatus=e?.providerStatus;
+  }catch(e){failureKind=['TypeError','ReferenceError','SyntaxError','TimeoutError','AbortError'].includes(e?.name)?e.name:['schema','provider','input','category','read_guard','read_slot'].includes(e?.message)?e.message:'unexpected';providerStatus=e?.providerStatus;
    if(e?.providerStatus===429){const retryAfter=Number.isInteger(e.retryAfter)&&e.retryAfter>0?e.retryAfter:60;headers['Retry-After']=String(retryAfter);return reply(429,{error:'El proveedor limita las consultas. Se conserva el avance; espera antes de actualizar.',providerStatus:429,retryAfter})}
    return reply(e.message==='access'?403:['ticket','input'].includes(e.message)?400:503,{error:e.message==='access'?'No tienes acceso a esta modelo o apartado.':e.message==='input'?'Revisa los parámetros de la consulta.':e.message==='ticket'?'La selección ha caducado o no pertenece a esta cuenta. Vuelve a seleccionar los archivos.':'No se pudo confirmar la operación. Si estabas enviando, conserva la revisión y consulta el historial antes de crear otro mensaje.'})}
  };

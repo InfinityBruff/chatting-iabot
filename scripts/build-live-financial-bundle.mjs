@@ -15,13 +15,13 @@ if(start<0||handlerStart<start||serve<handlerStart)throw Error('Unexpected basel
 const dir=await mkdtemp(join(tmpdir(),'bruff-financial-bundle-'));
 try{
  let bundle='';
- for(const [name,files]of Object.entries({BRUFFLikes:['supabase/functions/bruff-live/message-like.js'],BRUFFReadGuard:['supabase/functions/bruff-live/provider-read-guard.js'],BRUFFQueue:['server/native-queue.js'],BRUFFNative:['server/native-mass.js'],BRUFFAdvanced:['server/advanced-worker.js'],BRUFFPrep:['server/advanced-preparation.js'],BRUFFAudience:['supabase/functions/bruff-live/advanced-audience.js','supabase/functions/bruff-live/audience-discovery.js']})){
+ for(const [name,files]of Object.entries({BRUFFLikes:['supabase/functions/bruff-live/message-like.js'],BRUFFReadGuard:['supabase/functions/bruff-live/provider-read-guard.js','supabase/functions/bruff-live/provider-read-coordinator.js'],BRUFFQueue:['server/native-queue.js'],BRUFFNative:['server/native-mass.js'],BRUFFAdvanced:['server/advanced-worker.js'],BRUFFPrep:['server/advanced-preparation.js'],BRUFFAudience:['supabase/functions/bruff-live/advanced-audience.js','supabase/functions/bruff-live/audience-discovery.js']})){
   const entry=join(dir,name+'.mjs');await writeFile(entry,files.map(p=>`export * from ${JSON.stringify(join(root,p))};`).join('\n'));
   const build=await rolldown({input:entry});
   try{const result=await build.generate({format:'iife',name});bundle+=result.output[0].code+'\n'}finally{await build.close()}
  }
  bundle+='const {resolveMassAudience,AudienceError,AudiencePending,discoverAudience}=BRUFFAudience;\n';
- bundle+='const {protectProviderReads,retrySeconds}=BRUFFReadGuard;\n';
+ bundle+='const {protectProviderReads,retrySeconds,coordinateProviderReads,createProviderReadCache}=BRUFFReadGuard;\n';
  // These exact helper bytes retain capability tickets, manual send and vault safeguards.
  let helpers=prior.slice(start,handlerStart);
  const actions=await readFile(join(root,'supabase/functions/bruff-live/actions.js'),'utf8'),handlerSource=await readFile(join(root,'supabase/functions/bruff-live/handler.js'),'utf8');
@@ -41,7 +41,7 @@ try{
  if(legacy<0||auth<legacy)throw Error('Unexpected legacy worker boundary');
  handler=handler.slice(0,legacy)+"  if(request.headers.has('x-bruff-automation-secret'))return reply(403,{error:'Ejecutor anterior deshabilitado'});\n"+handler.slice(auth);
  for(const [symbol,namespace]of Object.entries({likeFanMessage:'BRUFFLikes',manageNativeQueue:'BRUFFQueue',submitNativeMass:'BRUFFNative',runAdvancedTick:'BRUFFAdvanced',preparationPlan:'BRUFFPrep'}))handler=handler.replaceAll(symbol+'(',namespace+'.'+symbol+'(');
- bundle+=handler+'\n'+prior.slice(serve);
+ bundle+=handler+'\n'+prior.slice(serve).replace('createLiveHandler({','createLiveHandler({readSlotEnabled:true,');
  await writeFile(output,bundle);
  console.log('Saved bundle; manual send/ticket safeguards preserved, explicit media/read/like helpers rebuilt. No deployment.');
 }finally{await rm(dir,{recursive:true,force:true})}

@@ -1,8 +1,9 @@
 import {useCallback,useEffect,useLayoutEffect,useRef} from 'react';
 import {captureThreadAnchor,restoreThreadAnchor,nearHistoryStart} from '../thread-scroll.js';
 import {readSession,writeSession} from '../chat-sync.js';
-export function useThreadScroll({scrollKey,result,busy,error,load,requestCursor,revision,paginationEnabled=true}){
- const scroll=useRef(null),first=useRef(true),follow=useRef(true),anchor=useRef(null),paging=useRef(false),seen=useRef(new Set()),upward=useRef(false),lastTop=useRef(0),saveTimer=useRef(),alive=useRef(true),latest=useRef(),touchY=useRef(null);
+export function useThreadScroll({scrollKey,result,busy,error,load,requestCursor,revision,paginationEnabled=true,followRef}){
+ const scroll=useRef(null),first=useRef(true),ownFollow=useRef(true),anchor=useRef(null),paging=useRef(false),seen=useRef(new Set()),upward=useRef(false),lastTop=useRef(0),saveTimer=useRef(),alive=useRef(true),latest=useRef(),touchY=useRef(null);
+ const follow=followRef||ownFollow;
  latest.current={result,busy,error,load,paginationEnabled};
  const save=useCallback(()=>{const el=scroll.current;if(el&&!first.current)writeSession(scrollKey,{...captureThreadAnchor(el),follow:follow.current})},[scrollKey]);
  const loadOlder=useCallback(async cursor=>{

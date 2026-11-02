@@ -1,11 +1,11 @@
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
 import {fanSelected} from '../bot-scope.js';
 export function useBotScope(workspace,account){
  const [scope,setScope]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);const generation=useRef(0),lock=useRef(false);
- useEffect(()=>{const g=++generation.current;let pending=false;setScope(null);setError('');async function load(){if(pending||lock.current)return;pending=true;try{const {data,error}=await authClient.rpc('bruff_bot_scope',{w:workspace,c:account});if(g!==generation.current)return;if(error)throw error;setScope(previous=>!previous||data.version>=previous.version?data:previous);setError('')}catch{if(g===generation.current){setScope(null);setError('No se pudo consultar la configuración BRUFF. No se ha activado ningún bot.')}}finally{pending=false}}load();const t=setInterval(load,10000);return()=>{generation.current++;clearInterval(t)}},[workspace,account]);
- async function update(args){if(lock.current||!scope?.editable)return;const g=generation.current;lock.current=true;setBusy(true);setError('');try{const {data,error}=await authClient.rpc('bruff_bot_update',{w:workspace,c:account,expected:scope.version,...args});if(g!==generation.current)return;if(error)throw error;setScope(data)}catch(e){if(g===generation.current)setError(e.message||'No se guardó el cambio.')}finally{lock.current=false;if(g===generation.current)setBusy(false)}}
- return {scope,error,busy,update};
+ useEffect(()=>{const g=++generation.current;let pending=false;setScope(null);setError('');async function load(){if(pending||lock.current)return;pending=true;try{const {data,error}=await authClient.rpc('bruff_bot_scope',{w:workspace,c:account});if(g!==generation.current)return;if(error)throw error;setScope(previous=>!previous||data.version>=previous.version?(JSON.stringify(previous)===JSON.stringify(data)?previous:data):previous);setError('')}catch{if(g===generation.current){setScope(null);setError('No se pudo consultar la configuración BRUFF. No se ha activado ningún bot.')}}finally{pending=false}}load();const t=setInterval(load,10000);return()=>{generation.current++;clearInterval(t)}},[workspace,account]);
+ const update=useCallback(async(args)=>{if(lock.current||!scope?.editable)return;const g=generation.current;lock.current=true;setBusy(true);setError('');try{const {data,error}=await authClient.rpc('bruff_bot_update',{w:workspace,c:account,expected:scope.version,...args});if(g!==generation.current)return;if(error)throw error;setScope(data)}catch(e){if(g===generation.current)setError(e.message||'No se guardó el cambio.')}finally{lock.current=false;if(g===generation.current)setBusy(false)}},[workspace,account,scope]);
+ return useMemo(()=>({scope,error,busy,update}),[scope,error,busy,update]);
 }
 export function ModelBotControl({bot,model}){
  const {scope,busy,error,update}=bot;

@@ -15,4 +15,4 @@ async function invokeLive(workspace,operation,extra){
  if(data?.error)throw Error(data.error);return data;
 }
 export function More({page,busy,load}){return page?.hasMore?<button disabled={busy||!page.cursor} onClick={()=>load(page.cursor)}>{busy?'Cargando…':page.cursor?'Cargar más':'El proveedor no entregó cursor; no se puede continuar'}</button>:null}
-export function usePage(workspace,account,operation,args,field){return useLivePage(liveRequest,workspace,account,operation,args,field);}
+export function usePage(workspace,account,operation,args,field,policy){return useLivePage(liveRequest,workspace,account,operation,args,field,policy);}
