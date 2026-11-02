@@ -3,6 +3,7 @@ import {advancedProvider} from './advanced-provider.js';
 const safeId=x=>typeof x==='string'&&/^[1-9][0-9]*$/.test(x)&&Number.isSafeInteger(Number(x));
 export function nativeMassPayload(config,recipientIds,now=Date.now()){
  preparationPlan(config,new Date(now).toISOString());
+ if(config.timeWindow?.enabled||config.ending?.enabled)throw Error('La franja horaria requiere el ejecutor personalizado');
  if(config.bulk.repeat)throw Error('La repetición requiere el programador de BRUFF');
  const m=config.messages[0];
  if(m.text.includes('{nombre}'))throw Error('Los nombres por fan requieren el ejecutor personalizado');
@@ -16,6 +17,7 @@ export async function submitNativeMass({record,store,providerKey,fetcher=fetch,e
  const scope={workspace:record.workspace,creator:record.creator,fan:record.recipients[0]};
  const media=advancedProvider({scope,binding:record.binding,providerKey,authorize:()=>store.authorize(record),fetcher});
  await media.resolveMedia(scope,record.config.messages[0].media);
+ const tags=record.config.messages[0].tags||[];if(tags.length)payload.tagUsers=await media.resolveTags(scope,tags);
  if(!await store.moderate(record,payload.text))throw Error('Mensaje bloqueado por moderación');
  // A long vault lookup must not turn a scheduled campaign into an immediate send.
  nativeMassPayload(record.config,record.recipients,now());

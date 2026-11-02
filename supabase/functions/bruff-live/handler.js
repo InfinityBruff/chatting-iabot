@@ -160,7 +160,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
     let prepared;
     if(input.operation==='automation_prepare'){
      if(await authorize()!==binding)throw Error('access');
-     const native=!draft.bulk.repeat&&!draft.messages[0].text.includes('{nombre}');
+     const native=!draft.ending.enabled&&!draft.timeWindow.enabled&&!draft.bulk.repeat&&!draft.messages[0].text.includes('{nombre}');
      const response=await fetcher(url+'/rest/v1/rpc/'+(native?'bruff_native_mass':'bruff_prepare_mass'),{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,d:draft.id,v:draft.version,actor:identity.id,binding_id:binding,recipients:audience.recipientIds,...(native?{op:'prepare'}:{plan})}),signal:AbortSignal.timeout(15000)});
      if(!response.ok)return reply(503,{error:'No se pudo preparar la ejecución. No se ha activado ningún envío.'});
      prepared=await response.json();

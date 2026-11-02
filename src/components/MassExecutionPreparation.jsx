@@ -36,7 +36,7 @@ export default function MassExecutionPreparation({client,workspace,creator,draft
   }catch(e){if(turn===serial.current)setState(s=>({...s,busy:false,error:e.message}))}finally{locked.current=false}
  };
  const run=current.run,m=draft.messages[0];
- return <section className="am-card" aria-label="Preparar ejecución masiva"><h3>Preparar ejecución</h3><p className="am-help">1. Guarda el borrador. 2. Completa la comprobación de destinatarios. 3. Prepara una ejecución pausada y revisa el envío. Solo el propietario puede activarla.</p>
+ return <section className="am-card" aria-label="Preparar ejecución masiva"><h3>Preparar ejecución</h3><p className="am-help">1. Guarda el borrador. 2. Completa la comprobación de destinatarios. 3. Prepara una ejecución pausada y revisa el envío. Las etiquetas se verifican antes de enviar. Las franjas respetan la zona horaria elegida; «Finalizar campaña» detiene también los pendientes al llegar al límite. Solo el propietario puede activarla.</p>
  {unavailable&&<p className="am-notice">{unavailable}</p>}
  <button type="button" className="am-primary" onClick={prepare} disabled={current.busy||dirty||!cloud||!draft.id||!!unavailable}>{current.busy?'Comprobando…':'Preparar sin enviar'}</button>
  {current.error&&<p role="alert" className="am-notice">{current.error}</p>}

@@ -9,7 +9,7 @@ function fixture(){
  return {claim,calls,store,provider,args:{delivery:claim,store,provider,enabled:true,now:()=>now}};
 }
 test('disabled advanced executor performs no claims or writes',async()=>{const f=fixture();f.store.claim=()=>{throw Error('must not claim')};assert.equal((await deliverAdvanced({...f.args,enabled:false})).status,'disabled')});
-test('unsupported tags block delivery rather than silently disappearing',async()=>{const f=fixture();f.claim.message.tags=['creator'];assert.equal((await deliverAdvanced(f.args)).status,'stopped');assert.equal(f.calls.some(c=>c[0]==='begin'||c[0]==='send'),false)});
+test('unresolvable tags block delivery rather than silently disappearing',async()=>{const f=fixture();f.claim.message.tags=['creator'];assert.equal((await deliverAdvanced(f.args)).status,'blocked');assert.equal(f.calls.some(c=>c[0]==='begin'||c[0]==='send'),false)});
 test('each send uses scoped names and a stable delivery id',async()=>{const f=fixture();assert.equal((await deliverAdvanced(f.args)).status,'sent');const sent=f.calls.find(c=>c[0]==='send');assert.equal(sent[2].text,'Hola Johnny');assert.equal(sent[3].idempotencyKey,'bruff-advanced-delivery')});
 test('cross-agency/model/fan context never reaches provider',async()=>{for(const k of ['workspace','creator','fan']){const f=fixture();f.store.context=async()=>({scope:{...f.claim.scope,[k]:'other'}});assert.equal((await deliverAdvanced(f.args)).status,'blocked');assert.equal(f.calls.some(c=>c[0]==='send'),false)}});
 test('revocation or pause during preparation blocks the final write',async()=>{const f=fixture();f.store.begin=async()=>false;assert.equal((await deliverAdvanced(f.args)).status,'stopped');assert.equal(f.calls.some(c=>c[0]==='send'),false)});

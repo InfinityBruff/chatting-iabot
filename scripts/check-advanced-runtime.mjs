@@ -15,7 +15,7 @@ const login=async id=>{await db.exec(`reset role;select set_config('request.jwt.
 const rpc=(model,op='list',id=null,version=null,value=null,workspace=w)=>q('select public.bruff_auto_message_drafts($1,$2,$3,$4,$5,$6) as value',[workspace,model,op,id,version,value]);
 try{
  await db.exec("create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated;");
- for(const name of ['202610300001_private_foundation','202610310002_membership_rpc','202610310003_team','202610310004_role_scopes','202610310005_team_names','202610310006_live_read','202610310007_live_send_vault','202610310008_chat_safety','202611010011_message_authorship','202611020016_auto_message_drafts','202611020017_mass_message_drafts','202611020018_fan_custom_names','202611020019_advanced_delivery_queue','202611020020_audience_checkpoints','202611020021_advanced_run_controls','202611020022_mass_execution_preparation','202611020023_advanced_mass_runtime','202611020024_transport_authorization','202611020025_native_mass','202611020026_native_mass_recovery','202611020027_native_queue','202611020028_scheduler_safe_update','202611020029_mass_drain_cycles'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
+ for(const name of ['202610300001_private_foundation','202610310002_membership_rpc','202610310003_team','202610310004_role_scopes','202610310005_team_names','202610310006_live_read','202610310007_live_send_vault','202610310008_chat_safety','202611010011_message_authorship','202611020016_auto_message_drafts','202611020017_mass_message_drafts','202611020018_fan_custom_names','202611020019_advanced_delivery_queue','202611020020_audience_checkpoints','202611020021_advanced_run_controls','202611020022_mass_execution_preparation','202611020023_advanced_mass_runtime','202611020024_transport_authorization','202611020025_native_mass','202611020026_native_mass_recovery','202611020027_native_queue','202611020028_scheduler_safe_update','202611020029_mass_drain_cycles','202611020030_mass_tags'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
  await db.exec(`insert into auth.users values('${owner}','o@example.test',now()),('${manager}','m@example.test',now()),('${worker}','c@example.test',now());insert into bruff_private.workspaces(id,name) values('${w}','Prueba A'),('${other}','Prueba B');insert into bruff_private.memberships(workspace_id,user_id,role,status) values('${w}','${owner}','owner','active'),('${w}','${manager}','admin','active'),('${w}','${worker}','operator','active');`);
  for(const [i,m]of models.entries())await db.query('insert into bruff_private.creator_accounts(workspace_id,id,display_name)values($1,$2,$3)',[w,m,'Modelo '+i]);
  await db.query('insert into bruff_private.creator_accounts(workspace_id,id,display_name)values($1,$2,$3)',[other,foreign,'Modelo ajena']);await login(owner);
@@ -102,5 +102,15 @@ try{
  await db.query("update bruff_private.advanced_deliveries set state='sent' where run_id=$1 and state='pending'",[prepared.id]);
  await db.exec('set role service_role');await drainPoll();await db.exec('reset role');
  eq(await q('select state as value from bruff_private.advanced_runs where id=$1',[prepared.id]),'completed');
+ // Real PostgreSQL time-zone and midnight semantics, entirely fictitious instants.
+ await db.exec('reset role');
+ const window=(start,end,zone,instant)=>q("select bruff_private.mass_window_open($1,$2) as value",[{timeWindow:{enabled:true,start,end,zone}},instant]);
+ eq(await window('22:00','06:00','UTC','2030-01-01T23:00:00Z'),true);
+ eq(await window('22:00','06:00','UTC','2030-01-02T06:00:00Z'),false);
+ eq(await window('09:00','17:00','Europe/Madrid','2030-07-01T07:00:00Z'),true);
+ eq(await window('09:00','17:00','Europe/Madrid','2030-01-01T07:00:00Z'),false);
+ eq(await window('09:00','17:00','invalid','2030-01-01T12:00:00Z'),false);
+ eq(await q('select bruff_private.mass_end_reached($1,$2,$3) as value',[{ending:{enabled:true,mode:'duration',durationMinutes:120}},'2030-01-01T10:00Z','2030-01-01T12:00Z']),true);
+ eq(await q('select bruff_private.mass_end_reached($1,$2,$3) as value',[{ending:{enabled:true,mode:'date',at:'2030-01-01T13:00Z'}},'2030-01-01T10:00Z','2030-01-01T12:00Z']),false);
  console.log(checks+' runtime schema checks passed; no provider calls');
 }finally{await db.close()}

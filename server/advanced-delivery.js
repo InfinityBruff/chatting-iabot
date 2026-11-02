@@ -15,7 +15,7 @@ export async function deliverAdvanced({delivery,store,provider,enabled=false,now
  const stop=async(reason)=>{await store.release(claim,{reason});return {status:'stopped',reason}};
  try{
   if(!await store.authorize(claim))return await stop('Sin permiso o campaña detenida');
-  if(claim.message.tags?.length)return await stop('Las etiquetas todavía no están conectadas al proveedor');
+
   if(!Number.isFinite(Date.parse(claim.dueAt))||Date.parse(claim.dueAt)>now())return await stop('Todavía no corresponde enviar');
   if(!Number.isFinite(Date.parse(claim.expiresAt))||Date.parse(claim.expiresAt)<=now())return await stop('Reserva caducada');
   const context=await store.context(claim);
@@ -24,9 +24,10 @@ export async function deliverAdvanced({delivery,store,provider,enabled=false,now
   if(context.replyAfterPrevious!==false&&claim.stepIndex>0)throw Error('No se pudo verificar la respuesta del fan');
   if(claim.trigger==='online'&&(context.online!==true||!Number.isFinite(Date.parse(context.presenceAt))||now()-Date.parse(context.presenceAt)>45000||Date.parse(context.presenceAt)>now()))return await stop('Presencia no confirmada');
   const rendered=personalizeMessage(claim.message,{fan:context.fanName,custom:context.customName});
+  const tagUsers=claim.message.tags?.length?await provider.resolveTags(claim.scope,claim.message.tags):[];
   const media=await provider.resolveMedia(claim.scope,claim.message.media);
   if(!sameScope(media?.scope,claim.scope)||media.verified!==true)throw Error('No se pudo verificar el contenido de esta modelo');
-  const payload={text:rendered.text,media:media.items,price:claim.message.paidMedia||claim.message.paidText?Number(claim.message.price):0,lockedText:claim.message.paidText===true};
+  const payload={text:rendered.text,media:media.items,price:claim.message.paidMedia||claim.message.paidText?Number(claim.message.price):0,lockedText:claim.message.paidText===true,...(tagUsers.length?{tagUsers}:{})};
   if(!await store.moderate(claim,payload))return await stop('Contenido bloqueado por moderación');
   // begin records the exact payload once. A changed alias cannot alter an uncertain retry.
   if(!await store.begin(claim,payload,now()))return await stop('Campaña pausada, modificada o acceso retirado');
