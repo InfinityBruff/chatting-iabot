@@ -15,7 +15,7 @@ const login=async id=>{await db.exec(`reset role;select set_config('request.jwt.
 const rpc=(model,op='list',id=null,version=null,value=null,workspace=w)=>q('select public.bruff_auto_message_drafts($1,$2,$3,$4,$5,$6) as value',[workspace,model,op,id,version,value]);
 try{
  await db.exec("create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated;");
- for(const name of ['202610300001_private_foundation','202610310002_membership_rpc','202610310003_team','202610310004_role_scopes','202610310005_team_names','202610310006_live_read','202610310007_live_send_vault','202610310008_chat_safety','202611010011_message_authorship','202611020016_auto_message_drafts','202611020017_mass_message_drafts','202611020018_fan_custom_names','202611020019_advanced_delivery_queue','202611020020_audience_checkpoints','202611020021_advanced_run_controls','202611020022_mass_execution_preparation','202611020023_advanced_mass_runtime','202611020024_transport_authorization','202611020025_native_mass','202611020026_native_mass_recovery','202611020027_native_queue','202611020028_scheduler_safe_update'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
+ for(const name of ['202610300001_private_foundation','202610310002_membership_rpc','202610310003_team','202610310004_role_scopes','202610310005_team_names','202610310006_live_read','202610310007_live_send_vault','202610310008_chat_safety','202611010011_message_authorship','202611020016_auto_message_drafts','202611020017_mass_message_drafts','202611020018_fan_custom_names','202611020019_advanced_delivery_queue','202611020020_audience_checkpoints','202611020021_advanced_run_controls','202611020022_mass_execution_preparation','202611020023_advanced_mass_runtime','202611020024_transport_authorization','202611020025_native_mass','202611020026_native_mass_recovery','202611020027_native_queue','202611020028_scheduler_safe_update','202611020029_mass_drain_cycles'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
  await db.exec(`insert into auth.users values('${owner}','o@example.test',now()),('${manager}','m@example.test',now()),('${worker}','c@example.test',now());insert into bruff_private.workspaces(id,name) values('${w}','Prueba A'),('${other}','Prueba B');insert into bruff_private.memberships(workspace_id,user_id,role,status) values('${w}','${owner}','owner','active'),('${w}','${manager}','admin','active'),('${w}','${worker}','operator','active');`);
  for(const [i,m]of models.entries())await db.query('insert into bruff_private.creator_accounts(workspace_id,id,display_name)values($1,$2,$3)',[w,m,'Modelo '+i]);
  await db.query('insert into bruff_private.creator_accounts(workspace_id,id,display_name)values($1,$2,$3)',[other,foreign,'Modelo ajena']);await login(owner);
@@ -81,5 +81,26 @@ try{
  eq(await queue('record',owner,models[0],{state:'cancelled',queueId:'777'}),true);
  await reject(()=>queue('record',owner,models[0],{state:'cancelled',queueId:'999'}));
  await login(owner);await reject(()=>queue('context'));
+ // Slow personalized campaign: crossing every interval and planned end must not drop fans.
+ await db.exec('reset role');
+ await db.query("update bruff_private.auto_message_drafts set config=jsonb_set(jsonb_set(config,'{bulk,repeat}','true'),'{bulk,endMode}','\"runs\"') where id=$1",[saved.savedId]);
+ await db.query("update bruff_private.advanced_runs set state='active',last_cycle=0,activated_at=now()-interval '4 hours',ends_at=now()-interval '1 hour',execution_plan=jsonb_build_object('cycles',3,'intervalMs',3600000,'missedPolicy','drain') where id=$1",[prepared.id]);
+ await db.query("insert into bruff_private.advanced_deliveries(run_id,fan_id,cycle,step_index,due_at) select $1,x::text,0,0,now()-interval '3 hours' from generate_series(900,911)x",[prepared.id]);
+ await db.exec('set role service_role');
+ const drainPoll=()=>q('select public.bruff_advanced_poll($1,true) as value',[token]);
+ eq((await drainPoll()).deliveries.length,4);
+ await db.exec('reset role');
+ eq(await q("select count(*)::int as value from bruff_private.advanced_deliveries where run_id=$1 and state='pending'",[prepared.id]),12);
+ eq(await q('select last_cycle as value from bruff_private.advanced_runs where id=$1',[prepared.id]),0);
+ eq(await q("select count(*)::int as value from bruff_private.advanced_deliveries where run_id=$1 and state='blocked'",[prepared.id]),0);
+ for(const cycle of [1,2]){
+  await db.query("update bruff_private.advanced_deliveries set state='sent' where run_id=$1 and state='pending'",[prepared.id]);
+  await db.exec('set role service_role');await drainPoll();await db.exec('reset role');
+  eq(await q('select last_cycle as value from bruff_private.advanced_runs where id=$1',[prepared.id]),cycle);
+  eq(await q('select count(*)::int as value from bruff_private.advanced_deliveries where run_id=$1 and cycle=$2',[prepared.id,cycle]),1);
+ }
+ await db.query("update bruff_private.advanced_deliveries set state='sent' where run_id=$1 and state='pending'",[prepared.id]);
+ await db.exec('set role service_role');await drainPoll();await db.exec('reset role');
+ eq(await q('select state as value from bruff_private.advanced_runs where id=$1',[prepared.id]),'completed');
  console.log(checks+' runtime schema checks passed; no provider calls');
 }finally{await db.close()}
