@@ -1,4 +1,5 @@
 import Automations from './Automations.jsx';
+import AutoMessages from './AutoMessages.jsx';
 import {PanelLayout} from './PanelResize.jsx';
 import {FanDirectory} from './FanDirectory.jsx';
 import {useNotifications,NotificationToasts,NotificationsPage,CollectionsPage} from './Community.jsx';
@@ -52,7 +53,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const [accounts,setAccounts]=useState(null),[selected,setSelected]=useState(saved.current?.account||''),[tab,setTab]=useState(saved.current?.tab||'chat'),[collapsed,setCollapsed]=useState(saved.current?.collapsed??false),[writeEnabled,setWriteEnabled]=useState(false),[chatBlocked,setChatBlocked]=useState(false),[error,setError]=useState('');
  useEffect(()=>{let active=true,inflight=false;async function check(){if(inflight)return;inflight=true;try{const r=await liveRequest(workspace.id,'accounts');if(active){setAccounts(r.accounts);setWriteEnabled(r.writeEnabled===true);setChatBlocked(r.chatSafety?.blocked===true);setError('')}}catch(e){if(active){setAccounts(null);setError(e.message)}}finally{inflight=false}}check();const timer=setInterval(check,5000);const visible=()=>{if(document.visibilityState==='visible')check()};document.addEventListener('visibilitychange',visible);return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible)}},[workspace.id]);
  const available=accounts||[];
- const presence=usePresence(workspace.id,available,tab==='automations'?selected:null);
+ const presence=usePresence(workspace.id,available,['automations','auto-messages'].includes(tab)?selected:null);
  const notifications=useNotifications(currentUserId,workspace.id,available,workspace.role);
  const sections=navigationSections(workspace.role,available),view=resolveSection(tab,workspace.role,available);
  const account=sectionAccount(view,available,selected);
@@ -72,6 +73,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
     {view==='accounts'&&<AccountsPage accounts={available} onOpen={selectView}/>}
     {view==='team'&&<LiveTeam workspace={workspace} currentUserId={currentUserId}/>}
     {view==='roles'&&<RolesPage onTeam={()=>setTab('team')}/>}
+    {account&&view==='auto-messages'&&<AutoMessages key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={setSelected} presence={presence[account.id]}/>}
     {account&&view==='automations'&&<Automations key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={setSelected} presence={presence[account.id]}/>}
     {account&&view==='bot'&&<BotPage workspace={workspace.id} account={account} onChat={()=>setTab('chat')}/>}
     {account&&view==='chat'&&<LiveInbox currentUserId={currentUserId} presence={presence[account.id]} workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
