@@ -16,3 +16,8 @@ server/advanced-delivery.js conecta personalización con una interfaz de almacen
 - Programador desplegado con campañas detenidas, seguido de una prueba de entrega únicamente a un destinatario acordado.
 
 Validación: 7 casos nuevos, 244 pruebas totales y compilación correctas. Solo fixtures: no hubo envíos, cambios de campaña ni conexiones de producción.
+
+## Cola persistente · 02/11
+Migración 019 aplicada en Supabase. Tablas privadas, RPC exclusiva de service_role y estados pending/claimed/sending/sent/uncertain/blocked. Reserva exclusiva con lease y revisión, payload persistido antes de escribir al proveedor, pausas y revocaciones comprobadas antes de begin. Estado sending expirado pasa a uncertain, nunca a pendiente. Ningún scheduler ni ruta de activación instalado. Adaptador server/advanced-store.js preparado.
+
+19 comprobaciones PostgreSQL locales correctas; 244 pruebas y compilación. Pendiente: descubrimiento y carga de la cola, controles autenticados de ejecución, resolución de contexto/medios, proveedor y programador. La cola vacía instalada no equivale a motor operativo.
