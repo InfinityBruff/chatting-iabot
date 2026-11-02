@@ -15,6 +15,7 @@ export async function deliverAdvanced({delivery,store,provider,enabled=false,now
  const stop=async(reason)=>{await store.release(claim,{reason});return {status:'stopped',reason}};
  try{
   if(!await store.authorize(claim))return await stop('Sin permiso o campaña detenida');
+  if(claim.message.tags?.length)return await stop('Las etiquetas todavía no están conectadas al proveedor');
   if(!Number.isFinite(Date.parse(claim.dueAt))||Date.parse(claim.dueAt)>now())return await stop('Todavía no corresponde enviar');
   if(!Number.isFinite(Date.parse(claim.expiresAt))||Date.parse(claim.expiresAt)<=now())return await stop('Reserva caducada');
   const context=await store.context(claim);

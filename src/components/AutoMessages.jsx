@@ -89,7 +89,7 @@ function MessageEditor({step,index,total,onChange,onRemove,onMove,onVault,canVau
  </>}{preview&&<Modal title={'Vista previa · mensaje '+(index+1)} onClose={()=>setPreview(false)}><PersonalizedPreview step={step} directory={directory} names={names}/><div className="am-preview-bubble"><div className="am-preview-media">{step.media.map(m=><VaultThumbnail key={m.id} item={m}/>)}</div><b>{step.paidMedia||step.paidText?`${step.price||'—'} USD`:'Gratis'}</b></div></Modal>}</article>;
 }
 
-export default function AutoMessages({user,workspace,account,accounts,onAccount,presence,client=authClient,center=false,onLegacy,massOnly=false}){
+export default function AutoMessages({user,workspace,account,accounts,onAccount,presence,client=authClient,center=false,onLegacy,massOnly=false,onDirtyChange}){
  const types=massOnly?['mass']:center?['mass','welcome','online']:['welcome','online','expired','expiring'];
  const pageTitle=massOnly?'Mensajes masivos':center?'Automatizaciones':'Mensajes automáticos';
  const storage=useDrafts({user,workspace,account:account.id,client});
@@ -97,6 +97,7 @@ export default function AutoMessages({user,workspace,account,accounts,onAccount,
  const names=useFanNames(workspace,account.id,client);
  const [draft,setDraft]=useState(null),[notice,setNotice]=useState(''),[archived,setArchived]=useState(false),[search,setSearch]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[statusFilter,setStatusFilter]=useState('all'),[vault,setVault]=useState(null),[review,setReview]=useState(false),[discard,setDiscard]=useState(false),[dirty,setDirty]=useState(false),[now,setNow]=useState(Date.now());
  const titleRef=useRef(null);
+ useEffect(()=>{onDirtyChange?.(dirty);return()=>onDirtyChange?.(false)},[dirty,onDirtyChange]);
  useEffect(()=>{if(!dirty)return;const guard=e=>{e.preventDefault();e.returnValue=''};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard)},[dirty]);
  useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),3000);return()=>clearInterval(t)},[]);
  useEffect(()=>{if(draft)titleRef.current?.focus()},[draft?.id,draft?.trigger]);
