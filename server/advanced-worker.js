@@ -1,3 +1,4 @@
+import {withdrawAdvanced} from './advanced-withdrawal.js';
 import {advancedStore} from './advanced-store.js';
 import {advancedProvider} from './advanced-provider.js';
 import {deliverAdvanced} from './advanced-delivery.js';
@@ -6,6 +7,12 @@ export async function runAdvancedTick({token,rpc,providerKey,fetcher=fetch,write
  const batch=await rpc('bruff_advanced_poll',{token,can_send:writeEnabled===true});
  if(!batch||typeof batch.ready!=='boolean'||!Array.isArray(batch.deliveries)||batch.deliveries.length>4)throw Error('Respuesta de programador inválida');
  if(!writeEnabled||!batch.ready)return {ready:false,processed:0};
+ let withdrawals=[];
+ if(batch.cleanupReady===true){
+  const jobs=await rpc('bruff_advanced_withdrawal',{op:'poll',token});
+  if(!Array.isArray(jobs)||jobs.length>2)throw Error('Cola de retirada inválida');
+  withdrawals=await Promise.allSettled(jobs.map(job=>withdrawAdvanced({job,providerKey,fetcher,enabled:true,store:{authorize:()=>rpc('bruff_advanced_withdrawal',{op:'authorize',job_id:job.id,lease_id:job.lease}),begin:()=>rpc('bruff_advanced_withdrawal',{op:'begin',job_id:job.id,lease_id:job.lease}),finish:(_,state)=>rpc('bruff_advanced_withdrawal',{op:'finish',job_id:job.id,lease_id:job.lease,result:state})}})));
+ }
  const results=await Promise.allSettled(batch.deliveries.map(async delivery=>{
   let claimed;
   const call=async(name,body)=>{try{return{data:await rpc(name==='bruff_advanced_delivery'?'bruff_advanced_execute':name,body),error:null}}catch(error){return{data:null,error}}};
@@ -22,5 +29,5 @@ export async function runAdvancedTick({token,rpc,providerKey,fetcher=fetch,write
   const originalClaim=store.claim;store.claim=async id=>{const claim=await originalClaim(id);if(claim&&(claim.trigger!=='mass'||claim.stepIndex!==0)){await store.release(claim,{reason:'Disparador no conectado a este ejecutor'});return null}return claim};
   return deliverAdvanced({delivery,store,provider,enabled:true});
  }));
- return {ready:true,processed:results.length,results:results.map(r=>r.status==='fulfilled'?r.value.status:'error')};
+ return {ready:true,processed:results.length,...(batch.cleanupReady===true?{withdrawals:withdrawals.map(x=>x.status==='fulfilled'?x.value.state:'error')}:{ }),results:results.map(r=>r.status==='fulfilled'?r.value.status:'error')};
 }

@@ -15,7 +15,7 @@ const login=async id=>{await db.exec(`reset role;select set_config('request.jwt.
 const rpc=(model,op='list',id=null,version=null,value=null,workspace=w)=>q('select public.bruff_auto_message_drafts($1,$2,$3,$4,$5,$6) as value',[workspace,model,op,id,version,value]);
 try{
  await db.exec("create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated;");
- for(const name of ['202610300001_private_foundation','202610310002_membership_rpc','202610310003_team','202610310004_role_scopes','202610310005_team_names','202610310006_live_read','202610310007_live_send_vault','202610310008_chat_safety','202611010011_message_authorship','202611020016_auto_message_drafts','202611020017_mass_message_drafts','202611020018_fan_custom_names','202611020019_advanced_delivery_queue','202611020020_audience_checkpoints','202611020021_advanced_run_controls','202611020022_mass_execution_preparation','202611020023_advanced_mass_runtime','202611020024_transport_authorization','202611020025_native_mass','202611020026_native_mass_recovery','202611020027_native_queue','202611020028_scheduler_safe_update','202611020029_mass_drain_cycles','202611020030_mass_tags'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
+ for(const name of ['202610300001_private_foundation','202610310002_membership_rpc','202610310003_team','202610310004_role_scopes','202610310005_team_names','202610310006_live_read','202610310007_live_send_vault','202610310008_chat_safety','202611010011_message_authorship','202611020016_auto_message_drafts','202611020017_mass_message_drafts','202611020018_fan_custom_names','202611020019_advanced_delivery_queue','202611020020_audience_checkpoints','202611020021_advanced_run_controls','202611020022_mass_execution_preparation','202611020023_advanced_mass_runtime','202611020024_transport_authorization','202611020025_native_mass','202611020026_native_mass_recovery','202611020027_native_queue','202611020028_scheduler_safe_update','202611020029_mass_drain_cycles','202611020030_mass_tags','202611020031_mass_withdrawal','202611020032_mass_financial_filters'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
  await db.exec(`insert into auth.users values('${owner}','o@example.test',now()),('${manager}','m@example.test',now()),('${worker}','c@example.test',now());insert into bruff_private.workspaces(id,name) values('${w}','Prueba A'),('${other}','Prueba B');insert into bruff_private.memberships(workspace_id,user_id,role,status) values('${w}','${owner}','owner','active'),('${w}','${manager}','admin','active'),('${w}','${worker}','operator','active');`);
  for(const [i,m]of models.entries())await db.query('insert into bruff_private.creator_accounts(workspace_id,id,display_name)values($1,$2,$3)',[w,m,'Modelo '+i]);
  await db.query('insert into bruff_private.creator_accounts(workspace_id,id,display_name)values($1,$2,$3)',[other,foreign,'Modelo ajena']);await login(owner);
@@ -58,7 +58,7 @@ try{
  await db.exec('reset role');await db.query("insert into bruff_private.advanced_deliveries(run_id,fan_id,cycle,step_index,due_at) values($1,'456',0,0,now())",[prepared.id]);
  await db.exec('set role service_role');let simulatedWrites=0;
  const tick=await runAdvancedTick({token,writeEnabled:true,providerKey:'fixture',rpc:async(name,args)=>{
-  const fields={bruff_advanced_poll:['token','can_send'],bruff_advanced_execute:['op','delivery_id','lease_id','expected_revision','value'],bruff_advanced_context:['op','delivery_id','lease_id','expected_revision','body'],bruff_advanced_transport_authorize:['delivery_id','lease_id','expected_revision']}[name];
+  const fields={bruff_advanced_withdrawal:['op','token','job_id','lease_id','result'],bruff_advanced_poll:['token','can_send'],bruff_advanced_execute:['op','delivery_id','lease_id','expected_revision','value'],bruff_advanced_context:['op','delivery_id','lease_id','expected_revision','body'],bruff_advanced_transport_authorize:['delivery_id','lease_id','expected_revision']}[name];
   if(!fields)throw Error('Unexpected RPC');return q('select public.'+name+'('+fields.map((_,i)=>String.fromCharCode(36)+(i+1)).join(',')+') as value',fields.map(k=>args[k]??null));
  },fetcher:async(url,options)=>{if(options.method==='POST'){simulatedWrites++;return new Response(JSON.stringify({id:'888'}))}return new Response(JSON.stringify({id:456,name:'John Smith'}))}});
  eq(tick.results,['sent']);eq(simulatedWrites,1);
@@ -112,5 +112,51 @@ try{
  eq(await window('09:00','17:00','invalid','2030-01-01T12:00:00Z'),false);
  eq(await q('select bruff_private.mass_end_reached($1,$2,$3) as value',[{ending:{enabled:true,mode:'duration',durationMinutes:120}},'2030-01-01T10:00Z','2030-01-01T12:00Z']),true);
  eq(await q('select bruff_private.mass_end_reached($1,$2,$3) as value',[{ending:{enabled:true,mode:'date',at:'2030-01-01T13:00Z'}},'2030-01-01T10:00Z','2030-01-01T12:00Z']),false);
+ await db.exec('reset role');
+ await db.query("update bruff_private.auto_message_drafts set config=jsonb_set(config,'{unsend}','{\"enabled\":true,\"mode\":\"unread\",\"hours\":1}') where id=$1",[saved.savedId]);
+ const wd=await q("insert into bruff_private.advanced_deliveries(run_id,fan_id,cycle,step_index,due_at) values($1,'321',9,0,now()) returning id as value",[prepared.id]);
+ await db.query("update bruff_private.advanced_deliveries set state='sent',provider_id='555' where id=$1",[wd]);
+ eq(await q('select count(*)::int as value from bruff_private.advanced_withdrawals where delivery_id=$1',[wd]),1);
+ const withdraw=(op,job=null,lease=null,result=null)=>q('select public.bruff_advanced_withdrawal($1,$2,$3,$4,$5) as value',[op,token,job,lease,result]);
+ await db.exec('set role service_role');eq(await withdraw('poll'),[]);
+ await db.exec('reset role');await db.query("update bruff_private.advanced_withdrawals set due_at=now()-interval '1 minute' where delivery_id=$1",[wd]);
+ await db.exec('set role service_role');const jobs=await withdraw('poll');eq(jobs.length,1);eq(jobs[0].fan,'321');eq(jobs[0].messageId,'555');
+ const job=jobs[0];eq(await withdraw('authorize',job.id,job.lease),true);
+ // Recheck permissions and connection after claiming, before allowing DELETE.
+ eq(await withdraw('begin',job.id,'00000000-0000-0000-0000-000000000099'),false);
+ await reject(()=>withdraw('finish',job.id,job.lease,'removed'));
+ const denyWithdrawal=async(sql,params,restore,restoreParams=params)=>{
+  await db.exec('reset role');await db.query(sql,params);
+  await db.exec('set role service_role');eq(await withdraw('authorize',job.id,job.lease),false);eq(await withdraw('begin',job.id,job.lease),false);
+  await db.exec('reset role');await db.query(restore,restoreParams);await db.exec('set role service_role');
+ };
+ await denyWithdrawal("update bruff_private.memberships set status='disabled' where workspace_id=$1 and user_id=$2",[w,owner],"update bruff_private.memberships set status='active' where workspace_id=$1 and user_id=$2");
+ await denyWithdrawal("update bruff_private.creator_accounts set external_id='acct_changed' where workspace_id=$1 and id=$2",[w,models[0]],"update bruff_private.creator_accounts set external_id=$3 where workspace_id=$1 and id=$2",[w,models[0],job.binding]);
+ await denyWithdrawal('update bruff_private.advanced_runtime set approved=false where id=true',[],'update bruff_private.advanced_runtime set approved=true where id=true');
+ await db.exec('reset role');const previousRunState=await q('select state as value from bruff_private.advanced_runs where id=$1',[prepared.id]);
+ await denyWithdrawal("update bruff_private.advanced_runs set state='paused' where id=$1",[prepared.id],'update bruff_private.advanced_runs set state=$2 where id=$1',[prepared.id,previousRunState]);
+ eq(await withdraw('begin',job.id,job.lease),true);eq(await withdraw('begin',job.id,job.lease),false);
+ eq(await withdraw('finish',job.id,job.lease,'removed'),true);eq(await withdraw('poll'),[]);
+ await login(owner);const wc=await q('select public.bruff_withdrawal_counts($1,$2) as value',[w,models[0]]);eq(wc[0].removed,1);eq(await q('select public.bruff_withdrawal_counts($1,$2) as value',[w,models[1]]),[]);
+ await login(worker);await reject(()=>withdraw('poll'));await reject(()=>q('select public.bruff_withdrawal_counts($1,$2) as value',[w,models[0]]));
+ // Agency-wide filters must cover all registered models, with current analytics access.
+ await login(owner);await reject(()=>q('select public.bruff_financial_sources($1) as value',[w]));
+ await db.exec('reset role');
+ for(const [i,model]of models.entries())await db.query("update bruff_private.creator_accounts set provider='ofmapi',connection_status='connected',external_id=$3 where workspace_id=$1 and id=$2",[w,model,'acct_finance_'+i]);
+ await login(owner);const manifest=await q('select public.bruff_financial_sources($1) as value',[w]);eq(manifest.length,3);eq(manifest.map(x=>x.id),models);
+ await reject(()=>q('select public.bruff_financial_sources($1) as value',[other]));
+ await login(manager);eq(await q('select public.bruff_financial_sources($1) as value',[w]),manifest);
+ await login(worker);await reject(()=>q('select public.bruff_financial_sources($1) as value',[w]));
+ await db.exec('reset role;set role anon');await reject(()=>q('select public.bruff_financial_sources($1) as value',[w]));
+ await db.exec('reset role');await db.query("update bruff_private.creator_accounts set connection_status='disconnected' where id=$1",[models[1]]);
+ await login(owner);await reject(()=>q('select public.bruff_financial_sources($1) as value',[w]));
+ await db.exec('reset role');await db.query("update bruff_private.creator_accounts set connection_status='connected' where id=$1",[models[1]]);
+ await db.query("update bruff_private.memberships set status='disabled' where workspace_id=$1 and user_id=$2",[w,manager]);
+ await login(manager);await reject(()=>q('select public.bruff_financial_sources($1) as value',[w]));
+ await login(owner);const financeDraft=newAutoMessage('mass');financeDraft.name='Financial filters fixture';financeDraft.messages[0].text='Hello';
+ financeDraft.audience.agencySpend={enabled:true,min:0,max:100};financeDraft.audience.modelPurchase={enabled:true,min:0,max:30};financeDraft.audience.agencyPurchase={enabled:true,min:0,max:30};
+ const financeSaved=await rpc(models[0],'save',null,null,autoMessagePayload(financeDraft));
+ await db.exec('reset role;set role service_role');
+ const financePrepared=await q('select public.bruff_prepare_mass($1,$2,$3,1,$4,$5,$6,$7) as value',[w,models[0],financeSaved.savedId,owner,'acct_finance_0',['321'],plan]);eq(financePrepared.state,'paused');eq(financePrepared.count,1);
  console.log(checks+' runtime schema checks passed; no provider calls');
 }finally{await db.close()}

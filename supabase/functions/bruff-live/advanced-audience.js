@@ -1,8 +1,10 @@
+import {filterSpend} from './spend-filter.js';
+import {filterFinancialAudience} from './financial-audience.js';
 export class AudienceError extends Error {}
 export class AudiencePending extends AudienceError { constructor(message,retryAfter=5){super(message);this.retryAfter=retryAfter} }
 // Server-only audience preparation. Reads provider data; never sends or activates.
 const fanId=value=>typeof value==='string'&&/^[0-9]{1,24}$/.test(value)?value:typeof value==='number'&&Number.isSafeInteger(value)&&value>0?String(value):null;
-export async function resolveMassAudience({config,binding,authorize,providerKey,fetcher=fetch,maxPages=200,maxFans=100000,checkpoint=null,saveCheckpoint=async()=>{},pageBudget=200}){
+export async function resolveMassAudience({config,binding,authorize,providerKey,fetcher=fetch,maxPages=200,maxFans=100000,checkpoint=null,saveCheckpoint=async()=>{},pageBudget=200,financialContext}){
  if(config?.trigger!=='mass'||!['all','selected','collections'].includes(config.bulk?.audience))throw new AudienceError('Audiencia de masivo inválida');
  if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw new AudienceError('Modelo sin conexión');
  const ensure=async()=>{if(await authorize()!==binding)throw new AudienceError('Acceso retirado o conexión modificada')};
@@ -13,6 +15,7 @@ export async function resolveMassAudience({config,binding,authorize,providerKey,
   if(!response.ok)throw new AudienceError('No se pudo completar la audiencia');
   const data=await response.json();await ensure();return data;
  };
+ let lastCheckpoint=checkpoint;const persist=async value=>{await saveCheckpoint(value);lastCheckpoint=value};
  const lists=new Map();
  const members=async id=>{
   if(typeof id!=='string'||!/^[-\w]{1,100}$/.test(id))throw new AudienceError('Colección inválida');
@@ -40,10 +43,10 @@ export async function resolveMassAudience({config,binding,authorize,providerKey,
    const data=await read('fans?'+params);
    if(!Array.isArray(data.fans)||typeof data.hasMore!=='boolean')throw new AudienceError('Directorio incompleto');
    for(const row of data.fans){const id=fanId(row.id);if(!id)throw new AudienceError('Identificador de fan inválido');add(id)}
-   if(!data.hasMore){complete=true;await saveCheckpoint({ids:[...included],cursors:[...cursors],cursor,pages:page+1,complete:true});break}
+   if(!data.hasMore){complete=true;await persist({ids:[...included],cursors:[...cursors],cursor,pages:page+1,complete:true});break}
    if(typeof data.cursor!=='string'||!data.cursor||data.cursor.length>2048||cursors.has(data.cursor))throw new AudienceError('No se puede continuar la paginación de fans');
    cursors.add(data.cursor);cursor=data.cursor;
-   await saveCheckpoint({ids:[...included],cursors:[...cursors],cursor,pages:page+1,complete:false});
+   await persist({ids:[...included],cursors:[...cursors],cursor,pages:page+1,complete:false});
   }
   if(!complete)throw new AudienceError('No se ha completado el directorio; no se devolverá una audiencia parcial');
   if(config.bulk.audience==='selected'){
@@ -54,7 +57,19 @@ export async function resolveMassAudience({config,binding,authorize,providerKey,
  }
  const excluded=new Set();if(!Array.isArray(config.audience?.excludeLists)||config.audience.excludeLists.length>100)throw new AudienceError('Exclusiones inválidas');
  for(const list of config.audience.excludeLists)for(const id of await members(list))excluded.add(id);
- const before=included.size;for(const id of excluded)included.delete(id);
+ const directoryIds=[...included];const before=included.size;for(const id of excluded)included.delete(id);
+ let filtered=0;
+ if(['agencySpend','modelPurchase','agencyPurchase'].some(k=>config.audience?.[k]?.enabled)){
+  if(!financialContext)throw new AudienceError('Falta verificar el ámbito financiero de la agencia');
+  let result;try{result=await filterFinancialAudience({ids:[...included],audience:config.audience,...financialContext,checkpoint:lastCheckpoint,save:async financial=>persist({...lastCheckpoint,ids:lastCheckpoint?.ids||directoryIds,complete:true,financial})})}catch(e){if(e instanceof AudienceError)throw e;throw new AudienceError(e.message)}
+  if(!result.complete)throw new AudiencePending('Histórico financiero: avance guardado. Continuará automáticamente.',5);
+  const wanted=new Set(result.ids);filtered+=included.size-wanted.size;for(const id of included)if(!wanted.has(id))included.delete(id);
+ }
+ if(config.audience?.modelSpend?.enabled||config.audience?.buyingPower?.enabled){
+  let result;try{result=await filterSpend({ids:[...included],rule:config.audience.modelSpend,stars:config.audience.buyingPower,checkpoint:lastCheckpoint,read,save:async spendFilter=>persist({...lastCheckpoint,ids:lastCheckpoint?.ids||directoryIds,complete:true,spendFilter})});}catch(e){if(e instanceof AudienceError)throw e;throw new AudienceError(e.message)}
+  if(!result.complete)throw new AudiencePending('Filtro de gasto: avance guardado. Continuará automáticamente.',5);
+  const wanted=new Set(result.ids);filtered+=included.size-wanted.size;for(const id of included)if(!wanted.has(id))included.delete(id);
+ }
  await ensure();
- return {complete:true,recipientIds:[...included].sort(),includedCount:before,excludedCount:before-included.size,count:included.size,observedAt:new Date().toISOString(),coverage:config.bulk.audience==='collections'?'selected-collections':'fans-directory',deliveryEligibility:'OnlyFans determina la elegibilidad al enviar. Esto es una audiencia verificada, no una garantía de entrega.'};
+ return {complete:true,filteredCount:filtered,recipientIds:[...included].sort(),includedCount:before,excludedCount:before-included.size-filtered,count:included.size,observedAt:new Date().toISOString(),coverage:config.bulk.audience==='collections'?'selected-collections':'fans-directory',deliveryEligibility:'OnlyFans determina la elegibilidad al enviar. Esto es una audiencia verificada, no una garantía de entrega.'};
 }

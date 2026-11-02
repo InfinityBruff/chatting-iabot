@@ -6,7 +6,7 @@ const w='00000000-0000-0000-0000-000000000001',c='00000000-0000-0000-0000-000000
 const draft=()=>{const x=newAutoMessage('mass');x.name='Fixture';x.messages[0].text='Hola';return {...x,id:d,version:1}};
 test('preparation rejects unsupported switches without silently dropping them',()=>{
  assert.equal(preparationPlan(draft()).cycles,1);
- for(const k of ['unsend','resend']){const x=draft();x[k].enabled=true;assert.throws(()=>preparationPlan(x))}
+ for(const k of ['resend']){const x=draft();x[k].enabled=true;assert.throws(()=>preparationPlan(x))}
  const x=draft();x.startAiOnReply=true;assert.throws(()=>preparationPlan(x));
 });
 test('preparation route binds verified server recipients and never sends',async()=>{

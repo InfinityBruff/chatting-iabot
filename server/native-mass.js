@@ -3,7 +3,7 @@ import {advancedProvider} from './advanced-provider.js';
 const safeId=x=>typeof x==='string'&&/^[1-9][0-9]*$/.test(x)&&Number.isSafeInteger(Number(x));
 export function nativeMassPayload(config,recipientIds,now=Date.now()){
  preparationPlan(config,new Date(now).toISOString());
- if(config.timeWindow?.enabled||config.ending?.enabled)throw Error('La franja horaria requiere el ejecutor personalizado');
+ if(config.timeWindow?.enabled||config.ending?.enabled||config.unsend?.enabled)throw Error('La franja horaria requiere el ejecutor personalizado');
  if(config.bulk.repeat)throw Error('La repetición requiere el programador de BRUFF');
  const m=config.messages[0];
  if(m.text.includes('{nombre}'))throw Error('Los nombres por fan requieren el ejecutor personalizado');

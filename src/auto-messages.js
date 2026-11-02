@@ -50,7 +50,8 @@ export function validateAutoMessage(d){
  for(const key of ['modelSpend','agencySpend','modelPurchase','agencyPurchase','buyingPower']){
   const r=d.audience?.[key];if(!r)return 'Revisa los filtros de audiencia.';
   if(r.enabled&&(r.min===''||r.max===''||!Number.isFinite(Number(r.min))||!Number.isFinite(Number(r.max))||Number(r.min)<0||Number(r.max)<Number(r.min)))return 'Completa los rangos de audiencia: mínimo y máximo válidos.';
-  if(r.enabled&&key==='buyingPower'&&Number(r.max)>5)return 'El poder de compra va de 0 a 5.';
+  if(r.enabled&&key==='buyingPower'&&(!Number.isInteger(Number(r.min))||!Number.isInteger(Number(r.max))||Number(r.max)>5))return 'Las estrellas de gasto BRUFF van de 0 a 5, en números enteros.';
+  if(r.enabled&&['modelPurchase','agencyPurchase'].includes(key)&&(!Number.isInteger(Number(r.min))||!Number.isInteger(Number(r.max))||Number(r.max)>36600))return 'La antigüedad de compra requiere días enteros entre 0 y 36600.';
  }
  if(!d.audience.activeChats||!['all','team'].includes(d.audience.activeChats.mode)||!Number.isInteger(Number(d.audience.activeChats.minutes))||Number(d.audience.activeChats.minutes)<1)return 'Revisa la exclusión de chats activos.';
  if(!Array.isArray(d.audience.excludeLists)||d.audience.excludeLists.length>100||d.audience.excludeLists.some(id=>typeof id!=='string'||!/^[\w-]{1,100}$/.test(id)))return 'Revisa las colecciones excluidas.';
@@ -102,8 +103,8 @@ export function autoMessageRuleSummary(d){
 export function autoMessagePreparationIssues(d){
  const issues=[d.trigger==='mass'&&!d.bulk.repeat&&!d.messages.some(m=>m.text.includes('{nombre}'))?'Masivo nativo: prepara los destinatarios y revisa el envío antes de confirmar. Las opciones incompatibles se bloquean. Guardar no envía.':'La ejecución personalizada o recurrente requiere preparar la audiencia y comprobar el estado del programador. Cada ciclo termina su audiencia antes del siguiente; puede retrasarse. Guardar no activa ni envía.'];
  if(d.action==='assistant'||d.startAiOnReply)issues.push('BRUFF IA necesita un modelo conectado y controles de activación verificados.');
- if(d.audience.buyingPower.enabled)issues.push('Buying Power es una métrica de OnlyMonster: OFMAPI no ofrece una equivalencia verificada.');
- if(d.audience.agencySpend.enabled||d.audience.agencyPurchase.enabled)issues.push('Los filtros de agencia necesitan un histórico unificado autorizado; no se estiman con las páginas visibles.');
- if(d.unsend.enabled)issues.push('La retirada automática necesita comprobación de permisos, estado y restricciones del proveedor.');
+ if(d.audience.buyingPower.enabled)issues.push('Estrellas de gasto BRUFF: utiliza el gasto real acumulado con esta modelo, como en el chat. Los diamantes cuentan como cinco estrellas.');
+ if(d.audience.agencySpend.enabled||d.audience.agencyPurchase.enabled)issues.push('Los filtros de agencia consultan todas las modelos registradas. Una modelo desconectada o un dato desconocido bloquea la preparación.');
+ if(d.unsend.enabled)issues.push('La retirada automática solo actúa sobre mensajes enviados por BRUFF. Conserva PPV abiertos y, en modo no leídos, comprueba la lectura antes de retirar. No se garantiza retirada si el proveedor la rechaza.');
  return issues;
 }

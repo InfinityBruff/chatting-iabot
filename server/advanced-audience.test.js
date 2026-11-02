@@ -26,7 +26,7 @@ test('authenticated audience route uses stored draft, current version and send p
    if(url.endsWith('/auth/v1/user'))return json({id:'fixture-owner',email_confirmed_at:'yes'});
    if(url.includes('bruff_my_workspaces'))return json([{id:w,role:mode==='operator'?'operator':'owner'}]);
    if(url.includes('bruff_live_authorize')){const body=JSON.parse(o.body);assert.equal(body.w,w);assert.equal(body.c,c);assert.equal(body.p,'send');return json('acct_fixture')}
-   if(url.includes('bruff_auto_message_drafts'))return json({rows:[{...config,id:d,version:mode==='changed'&&++reads>1?2:1,archived:false,audience:{excludeLists:[],modelSpend:{enabled:mode==='filtered'}}}]});
+   if(url.includes('bruff_auto_message_drafts'))return json({rows:[{...config,id:d,version:mode==='changed'&&++reads>1?2:1,archived:false,audience:{excludeLists:[],activeChats:{enabled:mode==='filtered'}}}]});
    assert.equal(o.method,'GET');providerReads++;return json({fans:[{id:1}],hasMore:false});
   }});
   const response=await handler(new Request('https://bruff.test',{method:'POST',headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},body:JSON.stringify({operation:'automation_audience',workspace_id:w,creator_id:c,draft_id:d,expected_version:1})}));
@@ -35,3 +35,4 @@ test('authenticated audience route uses stored draft, current version and send p
   if(['operator','filtered'].includes(mode))assert.equal(providerReads,0);
  }
 });
+test('complete directory and spend filter resume together without returning partial recipients',async()=>{let checkpoint=null,spendReads=0,directoryReads=0;const config={trigger:'mass',bulk:{audience:'all'},audience:{excludeLists:[],modelSpend:{enabled:true,min:50,max:60}}};const args={config,binding:'acct_fixture',providerKey:'fake',authorize:async()=> 'acct_fixture',saveCheckpoint:async value=>{checkpoint=value},fetcher:async(url,o)=>{assert.equal(o.method,'GET');if(url.includes('/fans/spend?')){spendReads++;const ids=new URL(url).searchParams.get('ids').split(',');return new Response(JSON.stringify({fans:ids.map(id=>({fanId:Number(id),available:true,total:Number(id)}))}))}directoryReads++;return new Response(JSON.stringify({fans:Array.from({length:65},(_,i)=>({id:i+1})),hasMore:false}))}};await assert.rejects(resolveMassAudience(args),/Filtro de gasto/);assert.equal(checkpoint.spendFilter.offset,40);const result=await resolveMassAudience({...args,checkpoint});assert.equal(result.complete,true);assert.equal(result.count,11);assert.equal(directoryReads,1);assert.equal(spendReads,4);assert.deepEqual(result.recipientIds.sort((a,b)=>a-b),Array.from({length:11},(_,i)=>String(i+50)))});

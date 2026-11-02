@@ -48,6 +48,6 @@ for(const model of ['A','B','C'])test(`complete mass rehearsal ${model}: 1207 fa
  assert.equal(simulatedPosts,3615);assert.equal(nextMassCycle(plan,{now:time,lastCycle:2}).status,'completed');
 });
 test('unsupported mass settings fail before audience or delivery, never silently disappear',()=>{
- for(const key of ['unsend','resend']){const d=newAutoMessage('mass');d.name='Fixture';d.messages[0].text='Hola';d[key].enabled=true;assert.throws(()=>preparationPlan(d,new Date(start).toISOString()))}
+ for(const key of ['resend']){const d=newAutoMessage('mass');d.name='Fixture';d.messages[0].text='Hola';d[key].enabled=true;assert.throws(()=>preparationPlan(d,new Date(start).toISOString()))}
  const d=newAutoMessage('mass');d.name='Fixture';d.messages[0].text='Hola';d.messages[0].tags=['test'];assert.equal(preparationPlan(d,new Date(start).toISOString()).cycles,1);
 });

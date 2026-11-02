@@ -1,5 +1,13 @@
 # Ejecutor avanzado: coordinación de entregas
 
+## Estado actual · 02/11, última continuación local
+
+Las secciones siguientes conservan el historial de implementación. El runtime masivo y programador ya están publicados hasta la migración 030, según `PRODUCTION-PLAN.md`. Los cambios de retirada y filtros financieros 031–032 están implementados y verificados LOCALMENTE, pendientes de publicar; no interpretar el estado inicial de este documento como estado productivo actual.
+
+Alcance final de masivos: texto propio, colecciones, precio/adjuntos sin mezcla gratis/pago, programación, repetición, nombres, etiquetas, franjas/finalización, retirada y filtros de gasto/última compra por modelo/agencia. Sin IA, traducción ni GIF externo. Compra significa PPV/post confirmado, edad en días completos; agencia incluye todas las modelos registradas y bloquea si alguna no puede verificarse. Audiencia fijada al preparar, sin reevaluación automática de filtros en cada repetición. Estados financieros desconocidos bloquean; no se convierten en cero ni se aceptan como compra confirmada.
+
+Comprobaciones: 920 pruebas, build, 97 SQL locales y 8 pruebas del bundle candidato. `scripts/build-live-financial-bundle.mjs` conserva helpers previos de chat/baúl y genera `/private/tmp/bruff-live-financial.js` sin desplegar. El worker legado sigue rechazado. Migraciones 031–032 requieren publicación coordinada con backend/frontend. Esta continuación no consulta cuentas reales, activa campañas, envía ni retira mensajes reales. Ver el último checkpoint de `docs/PRODUCTION-PLAN.md` para comandos, hashes y límites.
+
 Estado: módulo preparado y probado, no instalado como endpoint ni programado. No cambia el sitio productivo y no puede enviar por sí solo.
 
 server/advanced-delivery.js conecta personalización con una interfaz de almacenamiento y proveedor. Requiere activación explícita, ámbito agencia/modelo/fan, reserva con versión y caducidad, comprobación de permisos antes y después de lecturas, moderación del texto final, medios verificados, respuesta del fan y presencia reciente. Un resultado incierto no vuelve automáticamente a pendiente.

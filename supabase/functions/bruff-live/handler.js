@@ -3,7 +3,7 @@ import {submitNativeMass} from '../../../server/native-mass.js';
 import {runAdvancedTick} from '../../../server/advanced-worker.js';
 import {preparationPlan} from '../../../server/advanced-preparation.js';
 import {discoverAudience} from './audience-discovery.js';
-import {resolveMassAudience,AudienceError} from './advanced-audience.js';
+import {resolveMassAudience,AudienceError,AudiencePending} from './advanced-audience.js';
 import {runAutomationTick} from './automation-worker.js';
 import {communityNames,communityAction} from './community.js';
 import {fanProfile,fanHistory,fanActivity} from './fan-profile.js';
@@ -141,7 +141,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
     const draft=stored.rows?.find(d=>d.id===input.draft_id&&!d.archived);
     if(!draft||draft.version!==input.expected_version)return reply(409,{error:'El borrador ha cambiado. Actualiza antes de continuar'});
     if(draft.trigger!=='mass')return reply(400,{error:'Esta comprobación corresponde a mensajes masivos'});
-    if(Object.entries(draft.audience||{}).some(([key,value])=>key!=='excludeLists'&&value?.enabled))return reply(400,{error:'Hay filtros avanzados sin resolver; no se omitirán al preparar destinatarios'});
+    if(Object.entries(draft.audience||{}).some(([key,value])=>!['excludeLists','modelSpend','buyingPower','agencySpend','modelPurchase','agencyPurchase'].includes(key)&&value?.enabled))return reply(400,{error:'Hay filtros avanzados sin resolver; no se omitirán al preparar destinatarios'});
     let plan;
     if(input.operation==='automation_prepare'){
      if(!serviceKey)return reply(503,{error:'La preparación de ejecuciones no está configurada'});
@@ -153,14 +153,28 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
      if(!response.ok)throw new AudienceError('No se pudo guardar el avance de destinatarios. No se enviará nada.');
      return response.json();
     };
-    let audience;try{audience=serviceKey?await discoverAudience({config:draft,binding,authorize,providerKey,fetcher,checkpointRpc}):await resolveMassAudience({config:draft,binding,authorize,providerKey,fetcher})}catch(e){if(e instanceof AudienceError)return reply(503,{error:e.message});throw e}
+    let financialContext;
+    if(['agencySpend','modelPurchase','agencyPurchase'].some(k=>draft.audience?.[k]?.enabled)){
+     const agency=draft.audience.agencySpend.enabled||draft.audience.agencyPurchase.enabled;
+     const manifest=async()=>agency?await rpc('bruff_financial_sources',{w:input.workspace_id}):[{id:input.creator_id,binding:await rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p:'analytics'})}];
+     const sources=await manifest(),signature=JSON.stringify(sources);
+     const check=async()=>{if(await authorize()!==binding||JSON.stringify(await manifest())!==signature)throw new AudienceError('Las modelos o permisos de la agencia han cambiado. Vuelve a preparar la audiencia')};
+     financialContext={sources,current:input.creator_id,read:async(source,path)=>{
+      await check();
+      const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+source.binding+'/'+path,{method:'GET',headers:{Authorization:'Bearer '+providerKey},redirect:'error',signal:AbortSignal.timeout(20000)});
+      if(response.status===429){const raw=response.headers.get('retry-after'),wait=/^\d+$/.test(raw||'')?Number(raw):Math.ceil((Date.parse(raw)-Date.now())/1000);throw new AudiencePending('El proveedor limita el histórico financiero. Se conserva el avance.',Math.min(86400,Math.max(30,Number.isFinite(wait)?wait:60)))}
+      if(!response.ok)throw new AudienceError('No se pudo completar el histórico financiero de la agencia');
+      const data=await response.json();await check();return data;
+     }};
+    }
+    let audience;try{audience=serviceKey?await discoverAudience({config:draft,binding,authorize,providerKey,fetcher,checkpointRpc,financialContext}):await resolveMassAudience({config:draft,binding,authorize,providerKey,fetcher,financialContext})}catch(e){if(e instanceof AudienceError)return reply(503,{error:e.message});throw e}
     if(audience.complete!==true)return reply(503,{error:(audience.message||'Hay una comprobación en curso o en espera.')+' Avance guardado en la nube. Vuelve a comprobar dentro de '+audience.retryAfter+' segundos.',retryAfter:audience.retryAfter,resumable:true});
     const latest=await rpc('bruff_auto_message_drafts',{w:input.workspace_id,c:input.creator_id,op:'list'});
     if(!latest.rows?.some(d=>d.id===draft.id&&d.version===draft.version&&!d.archived))return reply(409,{error:'La campaña cambió durante la comprobación'});
     let prepared;
     if(input.operation==='automation_prepare'){
      if(await authorize()!==binding)throw Error('access');
-     const native=!draft.ending.enabled&&!draft.timeWindow.enabled&&!draft.bulk.repeat&&!draft.messages[0].text.includes('{nombre}');
+     const native=!draft.unsend.enabled&&!draft.ending.enabled&&!draft.timeWindow.enabled&&!draft.bulk.repeat&&!draft.messages[0].text.includes('{nombre}');
      const response=await fetcher(url+'/rest/v1/rpc/'+(native?'bruff_native_mass':'bruff_prepare_mass'),{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,d:draft.id,v:draft.version,actor:identity.id,binding_id:binding,recipients:audience.recipientIds,...(native?{op:'prepare'}:{plan})}),signal:AbortSignal.timeout(15000)});
      if(!response.ok)return reply(503,{error:'No se pudo preparar la ejecución. No se ha activado ningún envío.'});
      prepared=await response.json();
