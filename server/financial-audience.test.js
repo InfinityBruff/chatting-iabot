@@ -64,6 +64,7 @@ test('authenticated financial preparation uses server agency bindings, rechecks 
   let manifestReads=0,checkpoint=null,providerReads=0,prepared=null;
   const handler=createLiveHandler({url:'https://auth.test',anonKey:'fake',serviceKey:'private-fixture',providerKey:'fake',fetcher:async(url,o)=>{
    const json=x=>new Response(JSON.stringify(x));
+   if(url.includes('bruff_provider_read_gate')){const b=JSON.parse(o.body);return json({allowed:b.op!=='block',retryAfter:b.op==='block'?b.wait_seconds:0})}
    if(url.endsWith('/auth/v1/user'))return json({id:w,email_confirmed_at:'yes'});
    if(url.includes('bruff_my_workspaces'))return json([{id:w,role:'owner'}]);
    if(url.includes('bruff_live_authorize'))return json('acct_a');

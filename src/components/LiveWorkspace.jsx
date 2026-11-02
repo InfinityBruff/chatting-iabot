@@ -23,7 +23,7 @@ import './live.css';
 import {analyticsRange,earningsCategories} from '../live-analytics.js';
 export async function liveRequest(workspace,operation,extra={}){
  const {data,error}=await authClient.functions.invoke('bruff-live',{body:{workspace_id:workspace,operation,...extra}});
- if(error){let payload;try{payload=await error.context.json()}catch{}const failure=Error(payload?.error||'No se pudieron consultar los datos reales.');failure.status=error.context?.status;if(payload?.code==='CHAT_SAFETY')failure.safety=payload.safety;throw failure;}
+ if(error){let payload;try{payload=await error.context.json()}catch{}const failure=Error(payload?.error||'No se pudieron consultar los datos reales.');failure.status=error.context?.status;const retry=Number(payload?.retryAfter??error.context?.headers?.get('retry-after'));if(Number.isFinite(retry)&&retry>0)failure.retryAfter=retry;if(payload?.code==='CHAT_SAFETY')failure.safety=payload.safety;throw failure;}
  if(data?.error)throw Error(data.error);return data;
 }
 const money=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n):'No disponible';
@@ -65,7 +65,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const activeSection=sections.find(s=>s.id===view);
  const selectView=(next,id)=>{if(!allowNavigation())return;if(id)setSelected(id);setTab(next);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
  const pageKey=workspace.id+':'+(account?.id||'agency')+':'+view+':'+account?.chat+':'+account?.analytics+':'+account?.send+':'+account?.vault;
- return <PanelLayout key={viewKey} scope={viewKey}><FanDirectory user={currentUserId} workspace={workspace.id} accounts={available} role={workspace.role}><ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
+ return <PanelLayout key={viewKey} scope={viewKey}><FanDirectory user={currentUserId} workspace={workspace.id} accounts={available} role={workspace.role} section={view} activeModel={account?.id}><ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
   <WorkspaceNavigation unread={notifications.count} sections={sections} active={view} onSelect={selectView} collapsed={collapsed} onBack={()=>{if(allowNavigation())onBack()}} workspace={workspace}/>
   <div className="live-main workspace-main">
    <header className="workspace-topbar"><button aria-label={collapsed?'Expandir menú':'Contraer menú'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><WorkspaceIcon name="menu"/></button><Brand/><div className="workspace-breadcrumb"><span>{activeSection?.group}</span><b>/</b><strong>{activeSection?.label}</strong></div><span className="workspace-user">{teamRoles[workspace.role]}<span className="workspace-user-avatar">{workspace.name?.slice(0,1)||'B'}</span></span></header>

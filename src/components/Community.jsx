@@ -18,13 +18,13 @@ export function useNotifications(user,workspace,accounts,role){
   const publish=toasts=>{if(!disposed)setSnapshot(s=>({scope,models:Object.fromEntries(Object.entries(models).map(([k,v])=>[k,{...v}])),toasts:toasts|| (s.scope===scope?s.toasts:[])}))};
   const persist=id=>{try{localStorage.setItem(notificationKey(user,workspace,id),JSON.stringify(models[id].state))}catch{models[id].storageError=true}};
   async function pollModel(id){
-    const m=models[id];try{
-     const {incoming,head,error}=await collectNotificationUpdates({request:(params)=>liveRequest(workspace,'notifications',{creator_id:id,...params}),known:known[id],baseline:m.state.baseline,active:()=>!disposed});if(disposed)return;
+    const m=models[id];let retryAfter;try{
+     const result=await collectNotificationUpdates({request:(params)=>liveRequest(workspace,'notifications',{creator_id:id,...params}),known:known[id],baseline:m.state.baseline,active:()=>!disposed});const {incoming,head,error}=result;retryAfter=result.retryAfter;if(disposed)return;
      const fresh=m.checked?freshNotifications(incoming,m.state.baseline,known[id]):[];
      incoming.forEach(n=>known[id].add(n.id));m.rows=combineNotifications(m.rows,incoming);m.checked=Date.now();m.error=error;if(head&&!m.historyLoaded){m.cursor=head.cursor;m.hasMore=head.hasMore}persist(id);
      if(fresh.length){const alerts=fresh.filter(n=>!m.state.reviewed.includes(n.id)).slice(0,3).map(n=>({...n,model:id}));if(alerts.length){setSnapshot(s=>({scope,models:s.scope===scope?s.models:{},toasts:[...(s.scope===scope?s.toasts:[]),...alerts].slice(-3)}));
        if(soundRef.current&&audio.current?.state==='running'){const c=audio.current,o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.setValueAtTime(660,c.currentTime);o.frequency.setValueAtTime(880,c.currentTime+.12);g.gain.setValueAtTime(.0001,c.currentTime);g.gain.exponentialRampToValueAtTime(.12,c.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,c.currentTime+.35);o.start();o.stop(c.currentTime+.36)}}}
-    }catch(e){if(disposed)return;m.error=e.message;if(e.status===401||e.status===403){m.rows=[];m.checked=null;publish([])}}publish();
+    }catch(e){if(disposed)return;retryAfter=e.retryAfter;m.error=e.message;if(e.status===401||e.status===403){m.rows=[];m.checked=null;publish([])}}publish();return {retryAfter};
   }
   const polling=startModelPolling({ids,poll:pollModel,visible:()=>document.visibilityState==='visible'});
   refresh.current=async(id,cursor)=>{if(!id){polling.refresh();return}const m=models[id];if(!m||m.loading)return;m.loading=true;publish();try{const r=await liveRequest(workspace,'notifications',{creator_id:id,...(cursor?{cursor}:{})});if(disposed)return;m.rows=combineNotifications(m.rows,r.data.notifications);m.cursor=r.data.cursor;m.hasMore=r.data.hasMore;m.historyLoaded=true;m.error=''}catch(e){if(disposed)return;m.error=e.message;if(e.status===401||e.status===403)m.rows=[]}finally{if(!disposed){m.loading=false;publish()}}};

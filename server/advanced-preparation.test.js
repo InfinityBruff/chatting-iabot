@@ -14,6 +14,7 @@ test('preparation route binds verified server recipients and never sends',async(
   let reads=0;const prepared=[];
   const handler=createLiveHandler({url:'https://auth.test',anonKey:'public',providerKey:'fixture',serviceKey:'private-fixture',fetcher:async(url,o)=>{
    const json=x=>new Response(JSON.stringify(x));
+   if(url.includes('bruff_provider_read_gate')){const b=JSON.parse(o.body);return json({allowed:b.op!=='block',retryAfter:b.op==='block'?b.wait_seconds:0})}
    if(url.endsWith('/auth/v1/user'))return json({id:w,email_confirmed_at:'yes'});
    if(url.includes('bruff_my_workspaces'))return json([{id:w,role:mode==='operator'?'operator':'owner'}]);
    if(url.includes('bruff_live_authorize'))return json('acct_fixture');

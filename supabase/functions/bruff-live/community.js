@@ -1,4 +1,5 @@
 // Community endpoints never expose provider raw objects or HTML.
+import {retrySeconds} from './provider-read-guard.js';
 export const communityNames=['notifications','collections','collection_fans','collection_detail','collection_create','collection_rename','collection_add','collection_remove','bookmarks'];
 const communityTypes=['subscribed','purchases','tip','commented','mentioned','favorited','message','deactivated_media'];
 const communityText=v=>typeof v==='string'?v.slice(0,10000):null;
@@ -20,7 +21,7 @@ export async function communityAction({input,binding,providerKey,fetcher,authori
  if(input.query){if(typeof input.query!=='string'||input.query.length>150)throw Error('input');params.set('query',input.query)}
  if(input.type){if(!(op==='collection_fans'?['all','active','expired']:communityTypes).includes(input.type))throw Error('input');params.set('type',input.type)}
  if(op==='notifications'||op==='collections'||op==='collection_fans')params.set('pages','1');
- const call=async(path,method='GET',body)=>{const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path,{method,headers:{Authorization:'Bearer '+providerKey,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000),redirect:'error'});if(!r.ok)throw Error('provider');return r.json()};
+ const call=async(path,method='GET',body)=>{const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path,{method,headers:{Authorization:'Bearer '+providerKey,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000),redirect:'error'});if(!r.ok)throw Object.assign(Error('provider'),{providerStatus:r.status,...(r.status===429?{retryAfter:retrySeconds(r.headers)}:{})});return r.json()};
  let result;
  if(['notifications','collections','collection_fans','bookmarks'].includes(op))result=communityNormalize(op,await call((op==='collections'?'lists':op==='collection_fans'?'fans':op)+'?'+params));
  else{

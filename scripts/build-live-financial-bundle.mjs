@@ -15,14 +15,18 @@ if(start<0||handlerStart<start||serve<handlerStart)throw Error('Unexpected basel
 const dir=await mkdtemp(join(tmpdir(),'bruff-financial-bundle-'));
 try{
  let bundle='';
- for(const [name,files]of Object.entries({BRUFFQueue:['server/native-queue.js'],BRUFFNative:['server/native-mass.js'],BRUFFAdvanced:['server/advanced-worker.js'],BRUFFPrep:['server/advanced-preparation.js'],BRUFFAudience:['supabase/functions/bruff-live/advanced-audience.js','supabase/functions/bruff-live/audience-discovery.js']})){
+ for(const [name,files]of Object.entries({BRUFFReadGuard:['supabase/functions/bruff-live/provider-read-guard.js'],BRUFFQueue:['server/native-queue.js'],BRUFFNative:['server/native-mass.js'],BRUFFAdvanced:['server/advanced-worker.js'],BRUFFPrep:['server/advanced-preparation.js'],BRUFFAudience:['supabase/functions/bruff-live/advanced-audience.js','supabase/functions/bruff-live/audience-discovery.js']})){
   const entry=join(dir,name+'.mjs');await writeFile(entry,files.map(p=>`export * from ${JSON.stringify(join(root,p))};`).join('\n'));
   const build=await rolldown({input:entry});
   try{const result=await build.generate({format:'iife',name});bundle+=result.output[0].code+'\n'}finally{await build.close()}
  }
  bundle+='const {resolveMassAudience,AudienceError,AudiencePending,discoverAudience}=BRUFFAudience;\n';
+ bundle+='const {protectProviderReads,retrySeconds}=BRUFFReadGuard;\n';
  // These exact helper bytes retain capability tickets, manual send and vault safeguards.
- bundle+=prior.slice(start,handlerStart);
+ const helpers=prior.slice(start,handlerStart),communityStart=helpers.indexOf('export async function communityAction('),communityEnd=helpers.indexOf('\nconst origins=',communityStart);
+ const community=await readFile(join(root,'supabase/functions/bruff-live/community.js'),'utf8');
+ if(communityStart<0||communityEnd<communityStart)throw Error('Unexpected community helper boundary');
+ bundle+=helpers.slice(0,communityStart)+community.slice(community.indexOf('export async function communityAction(')).trimEnd()+'\n'+helpers.slice(communityEnd);
  let handler=await readFile(join(root,'supabase/functions/bruff-live/handler.js'),'utf8');handler=handler.slice(handler.indexOf('export function createLiveHandler('));
  const legacy=handler.indexOf("  if(request.headers.has('x-bruff-automation-secret')){"),auth=handler.indexOf('  const authorization=',legacy);
  if(legacy<0||auth<legacy)throw Error('Unexpected legacy worker boundary');
