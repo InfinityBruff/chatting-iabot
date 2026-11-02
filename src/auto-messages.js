@@ -1,5 +1,7 @@
+import {scheduleDefaults,validateSchedule,scheduleSummary,durationLabel} from './automation-schedule.js';
 // Configurations only. These drafts are never passed to the v2 sending worker.
 export const autoMessageTriggers = {
+ mass:{name:'Masivos',icon:'users',description:'Envía una campaña a todos los fans, colecciones o perfiles elegidos.'},
  welcome:{name:'Bienvenida',icon:'hand',description:'Saluda a los fans cuando se suscriben por primera vez.',event:'se suscribe por primera vez'},
  online:{name:'En línea',icon:'online',description:'Contacta con los fans cuando aparecen en línea.',event:'aparece en línea'},
  expired:{name:'Suscripción caducada',icon:'expired',description:'Prepara un mensaje después de que caduque su suscripción.'},
@@ -18,6 +20,7 @@ export function newAutoMessage(trigger='welcome'){
   ending:{enabled:false,mode:'date',at:'',durationMinutes:120},
   unsend:{enabled:false,mode:'all',hours:1},resend:{enabled:false,days:1},startAiOnReply:false,
   audience:{modelSpend:range(),agencySpend:range(),modelPurchase:range(),agencyPurchase:range(),buyingPower:range(),activeChats:{enabled:trigger==='welcome',mode:'all',minutes:trigger==='welcome'?1440:15},excludeLists:[]},
+  ...(trigger==='mass'?{bulk:{...scheduleDefaults,audience:'all',listIds:[],recipients:[],schedule:'manual',at:''}}:{}),
   messages:[newAutoMessageStep()]};
 }
 export function autoMessageKey(user,workspace,creator){
@@ -27,6 +30,14 @@ export function autoMessageKey(user,workspace,creator){
 export function validateAutoMessage(d){
  if(!d||d.schemaVersion!==1||!autoMessageTriggers[d.trigger]||!['message','assistant'].includes(d.action))return 'Revisa el tipo de campaña y su acción.';
  if(typeof d.name!=='string'||!d.name.trim()||d.name.length>80)return 'Añade un nombre interno de hasta 80 caracteres.';
+ if(d.trigger==='mass'){
+  const b=d.bulk;
+  if(!b||!['all','collections','selected'].includes(b.audience)||!['manual','scheduled'].includes(b.schedule)||typeof b.repeat!=='boolean')return 'Revisa la audiencia y programación del masivo.';
+  for(const [key,limit] of [['listIds',100],['recipients',10000]])if(!Array.isArray(b[key])||b[key].length>limit||b[key].some(id=>typeof id!=='string'||!(/^[a-zA-Z0-9_-]{1,100}$/).test(id))||new Set(b[key]).size!==b[key].length)return 'Revisa las colecciones o fans seleccionados.';
+  if(b.audience==='collections'&&!b.listIds.length||b.audience==='selected'&&!b.recipients.length)return 'Selecciona al menos una colección o un fan.';
+  if(d.action!=='message'||d.messages?.length!==1)return 'Los masivos usan un único mensaje por ejecución.';
+  const error=validateSchedule({...b,type:'mass'},0);if(error)return error;
+ }
  if(!triggerDelays.includes(d.delay)||!expiryDays.includes(Number(d.expiryDays)))return 'Selecciona un retraso válido.';
  if(!d.timeWindow||!/^\d{2}:\d{2}$/.test(d.timeWindow.start)||!/^\d{2}:\d{2}$/.test(d.timeWindow.end)||[d.timeWindow.start,d.timeWindow.end].some(t=>Number(t.slice(0,2))>23||Number(t.slice(3))>59))return 'Revisa la franja horaria.';
  try{new Intl.DateTimeFormat('es',{timeZone:d.timeWindow.zone}).format()}catch{return 'Selecciona una zona horaria válida.'}
@@ -80,7 +91,15 @@ export function previewAutoMessage(step,{fan='Alex',custom='Álex',example=true}
  if(step.firstName)name=name?.trim().split(/\s+/)[0];
  return step.text.replaceAll('{nombre}',step.nameMode==='none'?'':name||step.fallback||'');
 }
-export function autoMessageRuleSummary(d){return d.trigger==='expired'?`${d.expiryDays} día(s) después de caducar`:d.trigger==='expiring'?`${d.expiryDays} día(s) antes de caducar`:`${autoMessageTriggers[d.trigger]?.name} · espera ${d.delay} min`}
+export function autoMessageRuleSummary(d){
+ if(d.trigger==='mass')return scheduleSummary({...d.bulk,type:'mass'});
+ const parts=[d.trigger==='expired'?d.expiryDays+' día(s) después de caducar':d.trigger==='expiring'?d.expiryDays+' día(s) antes de caducar':autoMessageTriggers[d.trigger]?.name+' · espera '+d.delay+' min'];
+ if(d.timeWindow.enabled)parts.push(d.timeWindow.start+'–'+d.timeWindow.end+' ('+d.timeWindow.zone+')');
+ if(d.ending.enabled)parts.push(d.ending.mode==='duration'?'Durante '+durationLabel(d.ending.durationMinutes):'Finaliza '+new Date(d.ending.at).toLocaleString('es-ES'));
+ if(d.unsend.enabled)parts.push('Retirar '+(d.unsend.mode==='unread'?'no leídos':'todos')+' tras '+d.unsend.hours+' h');
+ if(d.resend.enabled)parts.push('Reenvío tras '+d.resend.days+' día(s)');
+ return parts.join(' · ');
+}
 export function autoMessagePreparationIssues(d){
  const issues=['El ejecutor de Auto Messages todavía no está conectado. Guardar no activa ni envía.'];
  if(d.action==='assistant'||d.startAiOnReply)issues.push('BRUFF IA necesita un modelo conectado y controles de activación verificados.');
