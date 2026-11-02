@@ -1,4 +1,4 @@
-import {resolveMassAudience} from './advanced-audience.js';
+import {resolveMassAudience,AudienceError} from './advanced-audience.js';
 import {runAutomationTick} from './automation-worker.js';
 import {communityNames,communityAction} from './community.js';
 import {fanProfile,fanHistory,fanActivity} from './fan-profile.js';
@@ -107,7 +107,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
     if(!draft||draft.version!==input.expected_version)return reply(409,{error:'El borrador ha cambiado. Actualiza antes de continuar'});
     if(draft.trigger!=='mass')return reply(400,{error:'Esta comprobación corresponde a mensajes masivos'});
     if(Object.entries(draft.audience||{}).some(([key,value])=>key!=='excludeLists'&&value?.enabled))return reply(400,{error:'Hay filtros avanzados sin resolver; no se omitirán al preparar destinatarios'});
-    const audience=await resolveMassAudience({config:draft,binding,authorize,providerKey,fetcher});
+    let audience;try{audience=await resolveMassAudience({config:draft,binding,authorize,providerKey,fetcher})}catch(e){if(e instanceof AudienceError)return reply(503,{error:e.message});throw e}
     const latest=await rpc('bruff_auto_message_drafts',{w:input.workspace_id,c:input.creator_id,op:'list'});
     if(!latest.rows?.some(d=>d.id===draft.id&&d.version===draft.version&&!d.archived))return reply(409,{error:'La campaña cambió durante la comprobación'});
     return reply(200,{data:{...audience,draftId:draft.id,draftVersion:draft.version,creatorId:input.creator_id,activated:false}});
