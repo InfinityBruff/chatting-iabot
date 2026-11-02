@@ -18,7 +18,8 @@ export function protectProviderReads({fetcher,gate,now=Date.now,onQuota=()=>{}})
   const response=await fetcher(url,options);
   const number=name=>{const raw=response.headers.get(name),value=Number(raw);return raw!==null&&Number.isInteger(value)&&value>=0&&value<=2147483647?value:null};
   const quota={limit:number('x-ratelimit-limit'),remaining:number('x-ratelimit-remaining'),reset:number('x-ratelimit-reset'),window:number('x-ratelimit-window')};
-  if(quota.limit>0&&quota.window>0)onQuota(quota);
+  if(Object.values(quota).some(value=>value!==null))onQuota(quota);
+  if(response.status===429)console.info(JSON.stringify({event:'bruff_read_quota',...quota,retryAfter:retrySeconds(response.headers,now())}));
   let wait=0;
   if(response.status===429)wait=retrySeconds(response.headers,now());
   else if(response.ok&&response.headers.get('x-ratelimit-remaining')==='0'){
