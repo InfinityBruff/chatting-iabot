@@ -11,7 +11,7 @@ export async function tickets(secret,scope){
 export function mediaView(item,binding){
  const safe=value=>{try{const u=new URL(value);return u.protocol==='https:'&&u.hostname==='api.ofmapi.com'&&!u.username&&!u.password&&u.pathname===`/v1/accounts/${binding}/media/download`?u.href:null}catch{return null}};
  return {id:String(item.id??''),type:item.type,createdAt:item.createdAt,isReady:item.isReady,canView:item.canView,duration:item.duration,isDrm:item.isDrm,convertedToVideo:item.convertedToVideo,hasError:item.hasError,
-  url:item.canView===true?safe(item.downloadUrl):null,preview:item.canView===true?safe(item.downloadUrls?.thumb||item.downloadUrls?.preview):null};
+  url:item.canView===true?safe(item.downloadUrl):null,preview:item.canView===true?[item.downloadUrls?.thumb,item.downloadUrls?.squarePreview,item.downloadUrls?.preview,(['photo','gif'].includes(item.type)&&!item.convertedToVideo)?item.downloadUrls?.full:null].map(safe).find(Boolean)||null:null,previewSources:item.canView===true?[...new Set([item.downloadUrls?.thumb,item.downloadUrls?.squarePreview,item.downloadUrls?.preview,(['photo','gif'].includes(item.type)&&!item.convertedToVideo)?item.downloadUrls?.full:null].map(safe).filter(Boolean))]:[]};
 }
 export const actionNames=['vault_categories','vault_media','prepare_send','send_message','upload'];
 export async function liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled,screen,beginSend,finishSend}){

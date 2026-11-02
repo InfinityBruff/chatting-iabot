@@ -1,5 +1,5 @@
 import {useEffect,useState,useRef} from 'react';
-import {liveRequest} from './LiveWorkspace.jsx';
+import {liveRequest} from './LiveData.jsx';
 import {startPresenceScan,acceptPresencePage,failPresenceScan} from '../presence-scan.js';
 // Round-robin across all authorized models: one request at a time, independent cursors.
 export default function usePresence(workspace,accounts,fastModel=null){
@@ -22,7 +22,7 @@ export default function usePresence(workspace,accounts,fastModel=null){
    if(!states[id].scanning)states[id]=startPresenceScan(states[id],now);
    const current=states[id];
    try{
-    const r=await liveRequest(workspace,'presence',{creator_id:id,...(current.cursor?{cursor:current.cursor}:{})});
+    const r=await liveRequest(workspace,'presence',{creator_id:id,...(current.cursor?{cursor:current.cursor}:{})},{active:()=>active});
     if(!active)return;
     states[id]=acceptPresencePage(current,r.data,Date.now());
     if(id===fast.current&&states[id].complete&&!states[id].issue)states[id]={...states[id],nextAt:Date.now()+3000};

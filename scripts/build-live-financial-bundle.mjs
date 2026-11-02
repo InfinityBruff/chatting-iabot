@@ -1,4 +1,4 @@
-// Preserve deployed chat/vault helpers while replacing only the mass feature modules.
+// Preserve deployed send safeguards; update explicitly bounded read/presentation helpers.
 import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {pathToFileURL,fileURLToPath} from 'node:url';
@@ -15,7 +15,7 @@ if(start<0||handlerStart<start||serve<handlerStart)throw Error('Unexpected basel
 const dir=await mkdtemp(join(tmpdir(),'bruff-financial-bundle-'));
 try{
  let bundle='';
- for(const [name,files]of Object.entries({BRUFFReadGuard:['supabase/functions/bruff-live/provider-read-guard.js'],BRUFFQueue:['server/native-queue.js'],BRUFFNative:['server/native-mass.js'],BRUFFAdvanced:['server/advanced-worker.js'],BRUFFPrep:['server/advanced-preparation.js'],BRUFFAudience:['supabase/functions/bruff-live/advanced-audience.js','supabase/functions/bruff-live/audience-discovery.js']})){
+ for(const [name,files]of Object.entries({BRUFFLikes:['supabase/functions/bruff-live/message-like.js'],BRUFFReadGuard:['supabase/functions/bruff-live/provider-read-guard.js'],BRUFFQueue:['server/native-queue.js'],BRUFFNative:['server/native-mass.js'],BRUFFAdvanced:['server/advanced-worker.js'],BRUFFPrep:['server/advanced-preparation.js'],BRUFFAudience:['supabase/functions/bruff-live/advanced-audience.js','supabase/functions/bruff-live/audience-discovery.js']})){
   const entry=join(dir,name+'.mjs');await writeFile(entry,files.map(p=>`export * from ${JSON.stringify(join(root,p))};`).join('\n'));
   const build=await rolldown({input:entry});
   try{const result=await build.generate({format:'iife',name});bundle+=result.output[0].code+'\n'}finally{await build.close()}
@@ -23,7 +23,16 @@ try{
  bundle+='const {resolveMassAudience,AudienceError,AudiencePending,discoverAudience}=BRUFFAudience;\n';
  bundle+='const {protectProviderReads,retrySeconds}=BRUFFReadGuard;\n';
  // These exact helper bytes retain capability tickets, manual send and vault safeguards.
- const helpers=prior.slice(start,handlerStart),communityStart=helpers.indexOf('export async function communityAction('),communityEnd=helpers.indexOf('\nconst origins=',communityStart);
+ let helpers=prior.slice(start,handlerStart);
+ const actions=await readFile(join(root,'supabase/functions/bruff-live/actions.js'),'utf8'),handlerSource=await readFile(join(root,'supabase/functions/bruff-live/handler.js'),'utf8');
+ // Replace only these two standalone functions. Ticket signing and manual-send
+ // state transitions remain byte-for-byte from the verified deployed baseline.
+ for(const [symbol,source]of [['mediaView',actions],['normalizeLive',handlerSource]]){
+  const marker='export function '+symbol+'(',a=helpers.indexOf(marker),b=helpers.indexOf('\n}\n',a)+3,c=source.indexOf(marker),d=source.indexOf('\n}\n',c)+3;
+  if(a<0||b<a||c<0||d<c)throw Error('Unexpected helper boundary: '+symbol);
+  helpers=helpers.slice(0,a)+source.slice(c,d)+helpers.slice(b);
+ }
+ const communityStart=helpers.indexOf('export async function communityAction('),communityEnd=helpers.indexOf('\nconst origins=',communityStart);
  const community=await readFile(join(root,'supabase/functions/bruff-live/community.js'),'utf8');
  if(communityStart<0||communityEnd<communityStart)throw Error('Unexpected community helper boundary');
  bundle+=helpers.slice(0,communityStart)+community.slice(community.indexOf('export async function communityAction(')).trimEnd()+'\n'+helpers.slice(communityEnd);
@@ -31,8 +40,8 @@ try{
  const legacy=handler.indexOf("  if(request.headers.has('x-bruff-automation-secret')){"),auth=handler.indexOf('  const authorization=',legacy);
  if(legacy<0||auth<legacy)throw Error('Unexpected legacy worker boundary');
  handler=handler.slice(0,legacy)+"  if(request.headers.has('x-bruff-automation-secret'))return reply(403,{error:'Ejecutor anterior deshabilitado'});\n"+handler.slice(auth);
- for(const [symbol,namespace]of Object.entries({manageNativeQueue:'BRUFFQueue',submitNativeMass:'BRUFFNative',runAdvancedTick:'BRUFFAdvanced',preparationPlan:'BRUFFPrep'}))handler=handler.replaceAll(symbol+'(',namespace+'.'+symbol+'(');
+ for(const [symbol,namespace]of Object.entries({likeFanMessage:'BRUFFLikes',manageNativeQueue:'BRUFFQueue',submitNativeMass:'BRUFFNative',runAdvancedTick:'BRUFFAdvanced',preparationPlan:'BRUFFPrep'}))handler=handler.replaceAll(symbol+'(',namespace+'.'+symbol+'(');
  bundle+=handler+'\n'+prior.slice(serve);
  await writeFile(output,bundle);
- console.log('Saved mass bundle; existing chat/vault helpers preserved byte-for-byte. No deployment.');
+ console.log('Saved bundle; manual send/ticket safeguards preserved, explicit media/read/like helpers rebuilt. No deployment.');
 }finally{await rm(dir,{recursive:true,force:true})}

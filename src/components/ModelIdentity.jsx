@@ -1,13 +1,15 @@
 import React,{createContext,useContext,useEffect,useId,useRef,useState} from 'react';
-import {liveRequest} from './LiveWorkspace.jsx';
+import {liveRequest} from './LiveData.jsx';
 import './model-identity.css';
 const Profiles=createContext({});
 export function ModelProfiles({workspace,accounts,children}){
  const [state,setState]=useState({});
  const signature=JSON.stringify(accounts.map(a=>[a.id,a.chat,a.analytics,a.vault]));
  useEffect(()=>{let active=true;setState({});
-  Promise.allSettled(accounts.map(async a=>{try{const r=await liveRequest(workspace,'profile',{creator_id:a.id});if(active)setState(old=>({...old,[a.id]:r.data}));}catch{}}));
-  return()=>{active=false};
+  let timer;const pending=[...accounts];
+  async function next(){const a=pending.shift();if(!active||!a)return;try{const r=await liveRequest(workspace,'profile',{creator_id:a.id},{active:()=>active});if(active)setState(old=>({...old,[a.id]:r.data}))}catch(e){if(e.status===429){pending.unshift(a);if(active)timer=setTimeout(next,Math.max(1000,(e.retryAfter||60)*1000));return}}if(active)timer=setTimeout(next,200)}
+  timer=setTimeout(next,750);
+  return()=>{active=false;clearTimeout(timer)};
  },[workspace,signature]);
  return <Profiles.Provider value={state}>{children}</Profiles.Provider>;
 }

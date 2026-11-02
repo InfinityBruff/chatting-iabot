@@ -1,13 +1,12 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {liveRequest,usePage} from './LiveWorkspace.jsx';
-import {MediaPreview} from './LiveMedia.jsx';
+import {liveRequest,usePage} from './LiveData.jsx';
+import {MediaPreview,MediaImage} from './MediaPreview.jsx';
 import {ChatIcon} from './ChatTools.jsx';
 import {collectVaultFolders,mediaLabels,sortVaultMedia,toggleVaultSelection} from '../vault-library.js';
 import './vault-library.css';
 function FolderIcon(){return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10H3Z"/></svg>}
 export function VaultThumbnail({item}){
- const [failed,setFailed]=useState('');const src=item.preview||((item.type==='photo'||item.type==='gif')&&!item.convertedToVideo?item.url:null);
- return <span className={'vault-thumbnail vault-thumbnail-'+item.type}>{src&&src!==failed?<img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={()=>setFailed(src)}/>:<span className="vault-thumbnail-empty"><ChatIcon name={item.type==='video'?'video':item.type==='audio'?'mic':'image'} size={32}/><small>{item.canView===false?'Bloqueado':item.isReady===false?'Procesando':'Sin miniatura'}</small></span>}{(item.type==='video'||item.type==='audio')&&<span className="vault-play-mark" aria-hidden="true">▶</span>}</span>;
+ return <span className={'vault-thumbnail vault-thumbnail-'+item.type}><MediaImage item={item}/>{(item.type==='video'||item.type==='audio')&&<span className="vault-play-mark" aria-hidden="true">▶</span>}</span>;
 }
 const date=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'}):'Fecha no disponible';
 function AssetPreview({item,onClose,onToggle,selected,disabled}){

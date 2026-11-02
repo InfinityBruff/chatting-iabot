@@ -1,9 +1,8 @@
-import Automations from './Automations.jsx';
-import AutoMessages from './AutoMessages.jsx';
+const Automations=React.lazy(()=>import('./Automations.jsx'));
+const AutoMessages=React.lazy(()=>import('./AutoMessages.jsx'));
 import {PanelLayout} from './PanelResize.jsx';
 import {FanDirectory} from './FanDirectory.jsx';
 import {useNotifications,NotificationToasts,NotificationsPage,CollectionsPage} from './Community.jsx';
-import {useLivePage} from './useLivePage.js';
 import {readSession,writeSession,sessionKey} from '../chat-sync.js';
 import {ModelProfiles,ModelSelect} from './ModelIdentity.jsx';
 import usePresence from './usePresence.js';
@@ -12,7 +11,7 @@ import FinanceOverview from './FinanceOverview.jsx';
 import EarningsChart from './EarningsChart.jsx';
 import WorkspaceNavigation,{WorkspaceIcon} from './WorkspaceNavigation.jsx';
 import {AccountsPage,BotPage,RolesPage} from './WorkspacePages.jsx';
-import LiveTeam from './LiveTeam.jsx';
+const LiveTeam=React.lazy(()=>import('./LiveTeam.jsx'));
 import {navigationSections,resolveSection,sectionAccount} from '../workspace-navigation.js';
 import {teamRoles} from '../team.js';
 import {LiveVault} from './LiveMedia.jsx';
@@ -20,16 +19,12 @@ import LiveInbox from './LiveInbox.jsx';
 import React,{useEffect,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
 import './live.css';
+import './enterprise.css';
 import {analyticsRange,earningsCategories} from '../live-analytics.js';
-export async function liveRequest(workspace,operation,extra={}){
- const {data,error}=await authClient.functions.invoke('bruff-live',{body:{workspace_id:workspace,operation,...extra}});
- if(error){let payload;try{payload=await error.context.json()}catch{}const failure=Error(payload?.error||'No se pudieron consultar los datos reales.');failure.status=error.context?.status;const retry=Number(payload?.retryAfter??error.context?.headers?.get('retry-after'));if(Number.isFinite(retry)&&retry>0)failure.retryAfter=retry;if(payload?.code==='CHAT_SAFETY')failure.safety=payload.safety;throw failure;}
- if(data?.error)throw Error(data.error);return data;
-}
+import {liveRequest,usePage,More} from './LiveData.jsx';
+export {liveRequest,usePage,More} from './LiveData.jsx';
 const money=n=>typeof n==='number'&&Number.isFinite(n)?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n):'No disponible';
 const date=d=>d&&!Number.isNaN(Date.parse(d))?new Date(d).toLocaleString('es-ES'):'Fecha no disponible';
-export function More({page,busy,load}){return page?.hasMore?<button disabled={busy||!page.cursor} onClick={()=>load(page.cursor)}>{busy?'Cargando…':page.cursor?'Cargar más':'El proveedor no entregó cursor; no se puede continuar'}</button>:null}
-export function usePage(workspace,account,operation,args,field){return useLivePage(liveRequest,workspace,account,operation,args,field);}
 function Transactions({workspace,account,start,end}){
  const {result,error,busy,load}=usePage(workspace,account,'transactions',{start,end},'transactions');
  const rows=(result?.data.transactions||[]).filter(x=>x.createdAt&&Date.parse(x.createdAt)>=Date.parse(start+'T00:00:00Z')&&Date.parse(x.createdAt)<=Date.parse(end+'T23:59:59.999Z'));
@@ -55,7 +50,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const viewKey=sessionKey(currentUserId,workspace.id);
  const saved=useRef(readSession(viewKey,{}));
  const [accounts,setAccounts]=useState(null),[selected,setSelected]=useState(saved.current?.account||''),[tab,setTab]=useState(saved.current?.tab||'chat'),[collapsed,setCollapsed]=useState(saved.current?.collapsed??false),[writeEnabled,setWriteEnabled]=useState(false),[chatBlocked,setChatBlocked]=useState(false),[error,setError]=useState('');
- useEffect(()=>{let active=true,inflight=false;async function check(){if(inflight)return;inflight=true;try{const r=await liveRequest(workspace.id,'accounts');if(active){setAccounts(r.accounts);setWriteEnabled(r.writeEnabled===true);setChatBlocked(r.chatSafety?.blocked===true);setError('')}}catch(e){if(active){setAccounts(null);setError(e.message)}}finally{inflight=false}}check();const timer=setInterval(check,5000);const visible=()=>{if(document.visibilityState==='visible')check()};document.addEventListener('visibilitychange',visible);return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible)}},[workspace.id]);
+ useEffect(()=>{let active=true,inflight=false;async function check(){if(inflight)return;inflight=true;try{const r=await liveRequest(workspace.id,'accounts');if(active){setAccounts(previous=>JSON.stringify(previous)===JSON.stringify(r.accounts)?previous:r.accounts);setWriteEnabled(r.writeEnabled===true);setChatBlocked(r.chatSafety?.blocked===true);setError('')}}catch(e){if(active){setAccounts(null);setError(e.message)}}finally{inflight=false}}check();const timer=setInterval(check,5000);const visible=()=>{if(document.visibilityState==='visible')check()};document.addEventListener('visibilitychange',visible);return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible)}},[workspace.id]);
  const available=accounts||[];
  const presence=usePresence(workspace.id,available,['automations','auto-messages'].includes(tab)?selected:null);
  const notifications=useNotifications(currentUserId,workspace.id,available,workspace.role);
@@ -70,7 +65,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
   <div className="live-main workspace-main">
    <header className="workspace-topbar"><button aria-label={collapsed?'Expandir menú':'Contraer menú'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><WorkspaceIcon name="menu"/></button><Brand/><div className="workspace-breadcrumb"><span>{activeSection?.group}</span><b>/</b><strong>{activeSection?.label}</strong></div><span className="workspace-user">{teamRoles[workspace.role]}<span className="workspace-user-avatar">{workspace.name?.slice(0,1)||'B'}</span></span></header>
    {error&&<p role="alert">{error}</p>}{!accounts&&!error&&<p role="status">Verificando acceso a las modelos…</p>}
-   {accounts&&<div key={pageKey} className={'live-content workspace-content '+(view==='chat'?'workspace-chat-content':'')}>
+   {accounts&&<React.Suspense fallback={<div className="workspace-loading" role="status"><div className="bruff-loading-orbit"/>Cargando espacio…</div>}><div key={pageKey} className={'live-content workspace-content '+(view==='chat'?'workspace-chat-content':'')}>
     {account&&['vault','bot','collections'].includes(view)&&<div className="workspace-context-bar"><span className="workspace-provider">OnlyFans</span><label>Modelo<ModelSelect label="Modelo activa" value={account.id} onChange={setSelected} accounts={available.filter(a=>a[activeSection.permission])}/></label><small>{view==='bot'?'Preferencias guardadas · motor pendiente':'Datos reales · Acceso por modelo'}</small></div>}
     {view==='notifications'&&<NotificationsPage workspace={workspace.id} feed={notifications} accounts={available} onChat={(model,fan)=>{writeSession(sessionKey(currentUserId,workspace.id,model,'','fan'),fan);selectView('chat',model)}}/>}
     {account&&view==='collections'&&<CollectionsPage workspace={workspace.id} account={account.id} enabled={writeEnabled}/>}
@@ -84,7 +79,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
     {account&&view==='chat'&&<LiveInbox currentUserId={currentUserId} presence={presence[account.id]} workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
     {account&&view==='vault'&&<LiveVault workspace={workspace.id} account={account.id}/>}
     {account&&['dashboard','analytics'].includes(view)&&<Analytics workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} overview={view==='dashboard'}/>}
-   </div>}
+   </div></React.Suspense>}
   </div>
  <NotificationToasts feed={notifications} accounts={available} onOpen={selectView}/>
  </main></ModelProfiles></FanDirectory></PanelLayout>

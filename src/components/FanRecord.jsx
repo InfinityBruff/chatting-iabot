@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
-import {liveRequest} from './LiveWorkspace.jsx';
+import {liveRequest} from './LiveData.jsx';
 import FanActivity from './FanActivity.jsx';
 import './fan-record.css';
 const unknown='No disponible';
@@ -15,7 +15,7 @@ export default function FanRecord({workspace,account,fan,model,request=liveReque
  const alive=useRef(true),versions=useRef({profile:0,history:0,note:0,spend:0}),running=useRef({}),dirty=useRef(false),savingRef=useRef(false);
  const fanId=String(fan.userId??fan.id);
  async function read(kind){if(running.current[kind]||(kind==='note'&&(dirty.current||savingRef.current)))return;running.current[kind]=true;const v=++versions.current[kind];const set={profile:setProfile,history:setHistory,note:setNote,spend:setSpend}[kind];set(s=>({...s,busy:true,error:''}));
-  try{let data;if(kind==='note'){const r=await notesClient.rpc('bruff_fan_note',{w:workspace,c:account,fan:fanId});if(r.error)throw Error('No se pudieron cargar las notas.');data=r.data;}else data=(await request(workspace,{profile:'fan_profile',history:'fan_history',spend:'fan_spend'}[kind],{creator_id:account,conversation_id:fanId})).data;
+  try{let data;if(kind==='note'){const r=await notesClient.rpc('bruff_fan_note',{w:workspace,c:account,fan:fanId});if(r.error)throw Error('No se pudieron cargar las notas.');data=r.data;}else data=(await request(workspace,{profile:'fan_profile',history:'fan_history',spend:'fan_spend'}[kind],{creator_id:account,conversation_id:fanId},{active:()=>alive.current&&versions.current[kind]===v})).data;
    if(alive.current&&versions.current[kind]===v){if(kind==='note'&&dirty.current){set(s=>({...s,busy:false}));return}set({data,busy:false,updated:new Date().toISOString()});if(kind==='note'){setBody(data?.body||'');setMessage('')}}
   }catch(e){if(alive.current&&versions.current[kind]===v)set(s=>({...s,data:e.status===401||e.status===403?null:s.data,busy:false,error:e.message}))}finally{running.current[kind]=false}
  }

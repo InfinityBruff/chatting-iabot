@@ -1,3 +1,4 @@
+import {likeFanMessage} from './message-like.js';
 import {manageNativeQueue} from '../../../server/native-queue.js';
 import {protectProviderReads,retrySeconds} from './provider-read-guard.js';
 import {submitNativeMass} from '../../../server/native-mass.js';
@@ -43,7 +44,7 @@ export function normalizeLive(operation,data,binding){
  }
  if(operation==='messages'){
   if(!Array.isArray(data.messages))throw Error('schema');
-  return {...page,messages:data.messages.map(x=>({...pick(x,['id','text','isFromMe','createdAt','price','isTip','seenByFan','mediaCount','isOpened']),media:(Array.isArray(x.media)?x.media:[]).map(m=>mediaView(m,binding))}))};
+  return {...page,messages:data.messages.map(x=>({...pick(x,['id','text','isFromMe','createdAt','price','isTip','seenByFan','mediaCount','isOpened','isLiked']),media:(Array.isArray(x.media)?x.media:[]).map(m=>mediaView(m,binding))}))};
  }
  if(operation==='transactions'){
   if(!Array.isArray(data.transactions))throw Error('schema');
@@ -108,12 +109,12 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
    let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id'].includes(k)))return reply(400,{error:'Consulta no válida'});
    diagnosticOperation=input.operation;
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('access');return r.json()};
-   if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id}),writeEnabled,chatSafety:await rpc('bruff_chat_status',{w:input.workspace_id})});
+   if(input.operation==='accounts'){const [accounts,chatSafety]=await Promise.all([rpc('bruff_live_accounts',{w:input.workspace_id}),rpc('bruff_chat_status',{w:input.workspace_id})]);return reply(200,{accounts,writeEnabled,chatSafety})}
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
-   const permission=['automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
+   const permission=['like_message','automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
    const authorize=async()=>{
     let p=permission;
     if(communityNames.includes(input.operation)||['automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')} 
@@ -194,6 +195,16 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
     return reply(200,{data:{...audience,...(prepared?{execution:prepared}:{}),draftId:draft.id,draftVersion:draft.version,creatorId:input.creator_id,activated:false}});
    }
    if(communityNames.includes(input.operation))return reply(200,{data:await communityAction({input,binding,providerKey,fetcher,authorize,writeEnabled}),observedAt:new Date().toISOString()});
+   if(input.operation==='like_message')return await likeFanMessage({input,binding,providerKey,fetcher,authorize,writeEnabled,reply});
+   if(input.operation==='fan_spend_batch'){
+    if(!Array.isArray(input.user_ids)||!input.user_ids.length||input.user_ids.length>20||input.user_ids.some(id=>typeof id!=='string'||!/^\d{1,24}$/.test(id)))return reply(400,{error:'Fans inválidos'});
+    const ids=[...new Set(input.user_ids)];
+    const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/fans/spend?'+new URLSearchParams({ids:ids.join(',')}),{headers:{Authorization:'Bearer '+providerKey},redirect:'error',signal:AbortSignal.timeout(10000)});
+    if(!r.ok){const error=Error('provider');error.providerStatus=r.status;error.retryAfter=r.status===429?retrySeconds(r.headers):null;throw error}
+    const payload=await r.json();if(!Array.isArray(payload.fans))throw Error('schema');
+    if(await authorize()!==binding)throw Error('access');
+    return reply(200,{data:{fans:payload.fans.filter(row=>ids.includes(String(row.fanId))).map(row=>({id:String(row.fanId),spend:normalizeSpend(row)}))}});
+   }
    if(input.operation==='presence'){
     if(input.cursor!=null&&(typeof input.cursor!=='string'||input.cursor.length>2048))return reply(400,{error:'Cursor inválido'});
     let data;try{data=await readOnlinePresence({binding,providerKey,fetcher,cursor:input.cursor})}catch(e){data={onlineIds:[],checkedAt:null,complete:false,scope:'followings',unavailable:true,providerStatus:e.providerStatus||null,retryAfter:e.retryAfter||null}}
@@ -204,6 +215,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
      const r=await fetcher(url+'/rest/v1/rpc/bruff_message_finish',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,fan,request_id,actor:identity.id,message_id}),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('attribution');
     },screen:async(fan,body)=>{const result=await rpc('bruff_chat_screen',{w:input.workspace_id,c:input.creator_id,fan,body});if(typeof result?.allowed!=='boolean'||typeof result?.blocked!=='boolean')throw Error('safety');return result}});
    const params=new URLSearchParams();let path;
+   if(input.fast!=null&&(input.operation!=='inbox'||typeof input.fast!=='boolean'))return reply(400,{error:'Consulta no válida'});
    if(['inbox','messages','transactions','fan_activity'].includes(input.operation)){params.set('pages','1');if(input.cursor!=null){if(typeof input.cursor!=='string'||input.cursor.length>2048)return reply(400,{error:'Cursor inválido'});params.set('cursor',input.cursor)}}
    if(['messages','fan_profile','fan_history','fan_activity','fan_spend'].includes(input.operation)){if(typeof input.conversation_id!=='string'||!/^\d{1,24}$/.test(input.conversation_id))return reply(400,{error:'Conversación inválida'});if(input.operation==='fan_activity'&&(!/^\d{4}-\d{2}-\d{2}$/.test(input.start||'')||!Number.isFinite(Date.parse(input.start))||input.start<'2016-01-01'||Date.parse(input.start)>Date.now()))return reply(400,{error:'Inicio de historial inválido'});if(input.operation==='fan_activity')params.set('start',input.start+'T00:00:00Z');if(input.operation==='fan_spend')params.set('ids',input.conversation_id);path=input.operation==='fan_activity'?'transactions':input.operation==='fan_spend'?'fans/spend':input.operation==='fan_profile'?'user/'+input.conversation_id:input.operation==='fan_history'?'fans/'+input.conversation_id+'/subscription-history':'conversations/'+input.conversation_id;}
    else if(input.operation==='profile')path='me';
@@ -235,7 +247,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
    const data=input.operation==='fan_activity'?fanActivity(payload,input.conversation_id,input.start):input.operation==='fan_spend'?normalizeSpend(payload.fans?.find(f=>String(f.fanId)===input.conversation_id)):input.operation==='fan_profile'?fanProfile(payload,input.conversation_id):input.operation==='fan_history'?fanHistory(payload,input.conversation_id):normalizeLive(input.operation,payload,binding);
    // Inbox has no spend. Fetch only ids from this authorized model's page,
    // in provider-supported batches of 20. A failed spend lookup never hides chats.
-   if(input.operation==='inbox'){
+   if(input.operation==='inbox'&&input.fast!==true){
     const ids=[...new Set(data.conversations.map(f=>String(f.userId??f.id)).filter(id=>/^\d{1,24}$/.test(id)))].slice(0,100);
     const amounts=new Map();
     await Promise.all(Array.from({length:Math.ceil(ids.length/20)},async(_,index)=>{

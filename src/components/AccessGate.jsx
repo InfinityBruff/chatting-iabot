@@ -1,16 +1,18 @@
+import {setPageCacheOwner} from '../live-page-cache.js';
 import {clearUserSession,readSession,writeSession,sessionKey} from '../chat-sync.js';
 import Brand from './Brand.jsx';
-import React, {useEffect,useRef,useState} from 'react';
+import React, {lazy,Suspense,useEffect,useRef,useState} from 'react';
 import {authClient,loadMemberships} from '../auth.js';
-import App from '../App.jsx';
-import LiveWorkspace from './LiveWorkspace.jsx';
+const App=lazy(()=>import('../App.jsx'));
+const LiveWorkspace=lazy(()=>import('./LiveWorkspace.jsx'));
 import PasswordAccess, {hasAuthLink} from './PasswordAccess.jsx';
 import './access.css';
-import LiveTeam from './LiveTeam.jsx';
+const LiveTeam=lazy(()=>import('./LiveTeam.jsx'));
 import MyDisplayName from './MyDisplayName.jsx';
 import {teamRoles as roles} from '../team.js';
 
-export default function AccessGate(){
+export default function AccessGate(){return <Suspense fallback={<main className="access-page" role="status"><section className="access-card"><Brand/><div className="bruff-loading-orbit"/><p>Abriendo tu espacio…</p></section></main>}><AccessContent/></Suspense>}
+function AccessContent(){
  const [demo,setDemo]=useState(false),[session,setSession]=useState(null),[workspaces,setWorkspaces]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [flow,setFlow]=useState(hasAuthLink?'link':null);
  const [teamWorkspace,setTeamWorkspace]=useState(null);
@@ -20,7 +22,7 @@ export default function AccessGate(){
  const identity=useRef(null);
  useEffect(()=>{if(session&&liveWorkspace)writeSession(sessionKey(session.user.id,'','agency'),liveWorkspace)},[session?.user?.id,liveWorkspace]);
  useEffect(()=>{if(!session){autoEntered.current=false;setLiveWorkspace(null)}else if(!flow&&workspaces?.length&&!autoEntered.current){const saved=readSession(sessionKey(session.user.id,'','agency'));const target=workspaces.find(w=>w.id===saved)||(workspaces.length===1?workspaces[0]:null);if(target){autoEntered.current=true;setLiveWorkspace(target.id)}}},[session,flow,workspaces]);
- useEffect(()=>{const {data}=authClient.auth.onAuthStateChange((_event,next)=>{const nextId=next?.user?.id||null;if(identity.current!==nextId){if(identity.current)clearUserSession(identity.current);identity.current=nextId;generation.current++;autoEntered.current=false;setWorkspaces(null);setLiveWorkspace(null);setError('');}setSession(next);});return ()=>data.subscription.unsubscribe();},[]);
+ useEffect(()=>{const {data}=authClient.auth.onAuthStateChange((_event,next)=>{const nextId=next?.user?.id||null;if(identity.current!==nextId){if(identity.current)clearUserSession(identity.current);identity.current=nextId;setPageCacheOwner(nextId);generation.current++;autoEntered.current=false;setWorkspaces(null);setLiveWorkspace(null);setError('');}setSession(next);});return ()=>data.subscription.unsubscribe();},[]);
  useEffect(()=>{
   if(!session||flow)return;
   let active=true,inflight=false;const gen=generation.current;

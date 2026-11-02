@@ -23,3 +23,4 @@ test('stored navigation and drafts isolate users agencies models and fans; logou
  keys.forEach((k,i)=>writeSession(k,{text:String(i)}));assert.equal(readSession(keys[1]).text,'1');clearUserSession('u');assert.equal(readSession(keys[0]),null);assert.equal(readSession(keys[3]).text,'3');delete globalThis.sessionStorage;
 });
 test('disabled storage does not crash editing; normal non-chat pages replace data',()=>{assert.equal(writeSession('x',{}),false);assert.equal(readSession('x','fallback'),'fallback');const next=page([{id:'2'}]);assert.equal(mergePage(page([{id:'1'}]),next,'messages'),next)});
+test('unchanged messages keep their object identity during head refreshes',()=>{const message={id:'1',text:'Hello',media:[]},old={data:{messages:[message],hasMore:true,cursor:'older'}};const next=mergePage(old,{data:{messages:[{...message,media:[]}],hasMore:true,cursor:'next'}},'messages',{retain:true});assert.equal(next.data.messages[0],message)});

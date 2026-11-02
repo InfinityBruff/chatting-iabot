@@ -1,6 +1,6 @@
 import React,{createContext,useContext,useEffect,useState} from 'react';
 import {createFanDirectory,directoryModelIds} from '../fan-directory.js';
-import {liveRequest} from './LiveWorkspace.jsx';
+import {liveRequest} from './LiveData.jsx';
 const Context=createContext({});
 const ListsContext=createContext({});
 export function FanDirectory({user,workspace,accounts,role,section,activeModel,children,request=liveRequest}){

@@ -1,6 +1,6 @@
 import {useFanDirectory} from './FanDirectory.jsx';
 import React,{useEffect,useRef,useState} from 'react';
-import {liveRequest} from './LiveWorkspace.jsx';
+import {liveRequest} from './LiveData.jsx';
 export function CollectionFans({workspace,account,list,onClose,onAdded}){
  const [query,setQuery]=useState(''),[selected,setSelected]=useState({}),[saving,setSaving]=useState(false),[error,setError]=useState(''),[review,setReview]=useState(false);
  const active=useRef(true);useEffect(()=>()=>{active.current=false},[]);

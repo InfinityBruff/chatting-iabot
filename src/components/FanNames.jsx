@@ -1,4 +1,4 @@
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
 export function useFanNames(workspace,account,client=authClient){
  const key=workspace+':'+account,active=useRef(0),busy=useRef(false),serial=useRef(0);
@@ -8,8 +8,9 @@ export function useFanNames(workspace,account,client=authClient){
   read();const timer=setInterval(read,5000);document.addEventListener('visibilitychange',read);return()=>{++active.current;clearInterval(timer);document.removeEventListener('visibilitychange',read)};
  },[key,client]);
  const current=state.key===key?state:{rows:[],ready:false,error:''};
- const save=async(fan,value,expected)=>{if(!current.ready||busy.current)throw Error('Espera a que se verifiquen los nombres.');busy.current=true;++serial.current;const version=active.current;try{const r=await client.rpc('bruff_fan_names',{w:workspace,c:account,fan,value,expected});if(r.error)throw Error(r.error.code==='40001'?'El nombre cambió en otra sesión. Cierra y vuelve a abrir el editor.':'No se pudo guardar el nombre. Revisa tus permisos.');if(active.current===version)setState(s=>({...s,rows:[...s.rows.filter(x=>x.fanId!==fan),r.data]}));}finally{busy.current=false}};
- return {...current,save,find:fan=>current.rows.find(x=>x.fanId===fan)};
+ const save=useCallback(async(fan,value,expected)=>{if(!current.ready||busy.current)throw Error('Espera a que se verifiquen los nombres.');busy.current=true;++serial.current;const version=active.current;try{const r=await client.rpc('bruff_fan_names',{w:workspace,c:account,fan,value,expected});if(r.error)throw Error(r.error.code==='40001'?'El nombre cambió en otra sesión. Cierra y vuelve a abrir el editor.':'No se pudo guardar el nombre. Revisa tus permisos.');if(active.current===version)setState(s=>({...s,rows:[...s.rows.filter(x=>x.fanId!==fan),r.data]}));}finally{busy.current=false}},[key,client,current.ready]);
+ const index=useMemo(()=>new Map(current.rows.map(row=>[row.fanId,row])),[current.rows]);
+ return useMemo(()=>({...current,save,find:fan=>index.get(fan)}),[current,save,index]);
 }
 export function FanNameEditor({names,fan,canEdit}){
  const [open,setOpen]=useState(false),[value,setValue]=useState(''),[version,setVersion]=useState(0),[saving,setSaving]=useState(false),[error,setError]=useState('');const dialog=useRef(null),trigger=useRef(null),fanId=String(fan.userId??fan.id);

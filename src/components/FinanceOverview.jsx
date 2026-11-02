@@ -1,5 +1,5 @@
 import React,{useState} from 'react';
-import {usePage} from './LiveWorkspace.jsx';
+import {usePage} from './LiveData.jsx';
 import {earningsCategories,historicalSum,analyticsRange,historicalRange} from '../live-analytics.js';
 const money=n=>Number.isFinite(n)?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n):'No disponible';
 const names={messages:'Mensajes / PPV',tips:'Propinas',subscriptions:'Suscripciones',posts:'Publicaciones',streams:'Directos',referrals:'Referidos'};

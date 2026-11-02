@@ -4,7 +4,8 @@ export function mergePage(previous,next,field,{append=false,retain=false}={}){
  const rows=new Map((previous.data?.[field]||[]).map(x=>[String(x.userId??x.id),x]));
  for(const x of next.data?.[field]||[]){const key=String(x.userId??x.id),old=rows.get(key);const merged={...old,...x};
   if(field==='conversations'&&old&&Date.parse(old.lastMessageTime)>Date.parse(x.lastMessageTime)){for(const k of ['lastMessage','lastMessageTime','lastMessageIsFromMe'])merged[k]=old[k];}
-  rows.set(key,merged);}
+  if(field==='conversations'&&old?.spend?.available&&x.spend?.available===false)merged.spend=old.spend;
+  rows.set(key,field==='messages'&&old&&JSON.stringify(old)===JSON.stringify(merged)?old:merged);}
  return {...next,data:{...next.data,...(!append&&previous.data._extended?{cursor:previous.data.cursor,hasMore:previous.data.hasMore}:{}),_extended:append||previous.data._extended===true,[field]:[...rows.values()]}};
 }
 export function newestPreview(fan,message){

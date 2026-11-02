@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {liveRequest} from './LiveWorkspace.jsx';
+import {liveRequest} from './LiveData.jsx';
 import {mergeActivity,activityStats} from '../fan-activity.js';
 const money=n=>typeof n==='number'?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n):'—';
 const labels={message:'Mensaje / PPV',post:'Publicación',tip:'Propina',new_subscription:'Alta',recurring_subscription:'Renovación',stream:'Directo',other:'Otro movimiento'};
@@ -18,7 +18,7 @@ export default function FanActivity({workspace,account,fan}){
   async function tick(){
    clearTimeout(timer);if(!active||running)return;if(document.visibilityState!=='visible'){timer=setTimeout(tick,30000);return}running=true;if(complete&&Date.now()-fullAt>=300000){complete=false;cursor=null;seen=new Set();cycleRows=[];pages=0;unidentified=false}
    setState(s=>({...s,busy:true,error:''}));
-   try{const r=await liveRequest(workspace,'fan_activity',{creator_id:account,conversation_id:fan,start,...(!complete&&cursor?{cursor}:{})});if(!active)return;
+   try{const r=await liveRequest(workspace,'fan_activity',{creator_id:account,conversation_id:fan,start,...(!complete&&cursor?{cursor}:{})},{active:()=>active});if(!active)return;
     if(!r.data?.transactions)throw Error('El historial de movimientos no está disponible.');
     rows=mergeActivity(rows,r.data.transactions);if(!complete)cycleRows=mergeActivity(cycleRows,r.data.transactions);unidentified||=r.data.transactions.some(x=>!x.id);failures=0;
     if(!complete){pages++;if(r.data.hasMore){if(!r.data.cursor||seen.has(r.data.cursor))throw Error('El proveedor no permite continuar este historial.');cursor=r.data.cursor;seen.add(cursor)}else {complete=true;fullAt=Date.now();rows=cycleRows}}
