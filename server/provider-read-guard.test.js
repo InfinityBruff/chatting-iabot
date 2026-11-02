@@ -51,3 +51,4 @@ test('authenticated fan-directory requests preserve real 429 and its delay acros
  }
  assert.equal(reads,1);assert.equal(checks,2);assert.deepEqual(failures,[]);
 });
+test('quota observations include only bounded numeric headers, never credentials or payloads',async()=>{const seen=[];const read=protectProviderReads({gate:async()=>({allowed:true}),onQuota:q=>seen.push(q),fetcher:async()=>new Response('{}',{headers:{'x-ratelimit-limit':'60','x-ratelimit-remaining':'2','x-ratelimit-reset':'1793657000','x-ratelimit-window':'60',authorization:'private-fixture'}})});await read(endpoint);assert.deepEqual(seen,[{limit:60,remaining:2,reset:1793657000,window:60}]);assert.equal(JSON.stringify(seen).includes('private-fixture'),false)});

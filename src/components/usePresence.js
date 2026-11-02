@@ -26,7 +26,7 @@ export default function usePresence(workspace,accounts,fastModel=null){
     if(!active)return;
     states[id]=acceptPresencePage(current,r.data,Date.now());
     if(id===fast.current&&states[id].complete&&!states[id].issue)states[id]={...states[id],nextAt:Date.now()+3000};
-   }catch(e){if(active)states[id]=failPresenceScan(current,{status:e.status},Date.now())}
+   }catch(e){if(active)states[id]=failPresenceScan(current,{status:e.status,retryAfter:e.retryAfter},Date.now())}
    finally{inflight=false;if(active){publish();schedule()}}
   }
   const visible=()=>{if(document.visibilityState==='visible'&&!inflight){clearTimeout(timer);tick()}};

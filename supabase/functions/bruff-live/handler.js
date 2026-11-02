@@ -73,7 +73,8 @@ export function normalizeLive(operation,data,binding){
 export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabled=false,advancedWriteEnabled=false,fetcher=fetch,onFailure=record=>console.error(JSON.stringify(record))}){
  const baseFetcher=fetcher;
  return async request=>{
-  const fetcher=protectProviderReads({fetcher:baseFetcher,gate:serviceKey?async(op,wait_seconds=0)=>{
+  let readQuota=null;
+  const fetcher=protectProviderReads({fetcher:baseFetcher,onQuota:q=>{readQuota=q},gate:serviceKey?async(op,wait_seconds=0)=>{
    const response=await baseFetcher(url+'/rest/v1/rpc/bruff_provider_read_gate',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({op,wait_seconds}),signal:AbortSignal.timeout(10000)});
    if(!response.ok)throw Error('read_guard');return response.json();
   }:null});
@@ -82,6 +83,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
   const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'}:{})};
   const reply=(status,body)=>{
    if(status===503)try{onFailure({event:'bruff_live_failure',operation:diagnosticOperation,kind:failureKind,...(Number.isInteger(providerStatus)&&providerStatus>=400&&providerStatus<=599?{providerStatus}:{})})}catch{}
+   if(readQuota&&['inbox','messages','fan_spend_batch','presence','profile','fan_profile','fan_spend','fan_history','fan_activity',...communityNames].includes(diagnosticOperation))body={...body,readQuota};
    return new Response(JSON.stringify(body),{status,headers});
   };
   if(origin&&!origins.has(origin))return reply(403,{error:'Origen no permitido'});
