@@ -2,6 +2,8 @@ import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
 import {newAutoMessage,autoMessagePayload} from '../src/auto-messages.js';
+import {advancedStore} from '../server/advanced-store.js';
+import {deliverAdvanced} from '../server/advanced-delivery.js';
 const {PGlite}=await import(pathToFileURL(process.argv[2]).href),db=new PGlite();let checks=0;
 const q=async(sql,params=[])=>(await db.query(sql,params)).rows[0]?.value;
 const eq=(a,b)=>{assert.deepEqual(a,b);checks++};
@@ -37,5 +39,25 @@ try{
  await db.exec('reset role');await db.query("update bruff_private.memberships set status='active' where user_id=$1",[owner]);await db.query('update bruff_private.auto_message_drafts set version=version+1 where id=$1',[saved.savedId]);await db.exec('set role service_role');eq(await call('claim'),null);
  await db.exec('reset role');await login(owner);await reject(()=>call('claim'));await reject(()=>db.query('select * from bruff_private.advanced_deliveries'));
  await db.exec('reset role;set role anon');await reject(()=>call('claim'));
- console.log(checks+' durable queue checks passed');
+ // Real PostgreSQL functions + actual adapter/coordinator, with an in-memory provider only.
+ for(const [index,model] of models.entries()){
+  await login(owner);
+  const config=newAutoMessage(index===0?'mass':index===1?'welcome':'online');config.name='Integración ficticia';
+  Object.assign(config.messages[0],{text:'Hola {nombre}',nameMode:'custom_fan',firstName:true,fallback:'Amigo'});
+  const record=await rpc(model,'save',null,null,autoMessagePayload(config));await db.exec('reset role');
+  await db.query("update bruff_private.creator_accounts set provider='ofmapi',external_id=$2,connection_status='connected' where id=$1",[model,'fixture-'+index]);
+  const runId=(await db.query("insert into bruff_private.advanced_runs(workspace_id,creator_id,draft_id,draft_version,activated_by,activated_at,state,ends_at) values($1,$2,$3,1,$4,now(),'active',now()+interval '1 hour') returning id",[w,model,record.savedId,owner])).rows[0].id;
+  const deliveryId=(await db.query("insert into bruff_private.advanced_deliveries(run_id,fan_id,step_index,due_at) values($1,'456',0,now()) returning id",[runId])).rows[0].id;
+  const scope={workspace:w,creator:model,fan:'456'},writes=[];
+  const store=advancedStore({rpc:async(name,args)=>{try{return {data:await q('select public.bruff_advanced_delivery($1,$2,$3,$4,$5) as value',[args.op,args.delivery_id,args.lease_id,args.expected_revision,args.value]),error:null}}catch(error){return {data:null,error}}},context:async()=>({scope,fanName:'John Smith',customName:'Johnny Bravo',replyAfterPrevious:false,online:true,presenceAt:new Date().toISOString()}),moderate:async()=>true});
+  const provider={resolveMedia:async()=>({scope,verified:true,items:[]}),send:async(s,p)=>{writes.push({scope:s,payload:p});return {id:'888'}}};
+  await db.exec('set role service_role');
+  const args={delivery:{id:deliveryId,scope,activationId:runId},store,provider,enabled:true};
+  eq((await deliverAdvanced(args)).status,'sent');eq(writes.length,1);eq(writes[0].payload.text,'Hola Johnny');eq(writes[0].scope,scope);
+  eq((await deliverAdvanced(args)).status,'not_claimed');eq(writes.length,1);
+  await db.exec('reset role');
+  eq(await q('select state as value from bruff_private.advanced_deliveries where id=$1',[deliveryId]),'sent');
+  eq(await q('select provider_id as value from bruff_private.advanced_deliveries where id=$1',[deliveryId]),'888');
+ }
+ console.log(checks+' durable queue checks passed (including three-model end-to-end local DB integration; fake provider only)');
 }finally{await db.close()}
