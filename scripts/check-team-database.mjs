@@ -344,5 +344,42 @@ const future=JSON.stringify({...JSON.parse(config),schedule:'scheduled',at:new D
 const scheduled=await scalar(`select public.bruff_automations('${w}','${model}','save',null,null,'${future}') as value`);
 await db.exec(`select public.bruff_automations('${w}','${model}','activate','${scheduled.savedId}',1);reset role;set role service_role`);
 check(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`),[]);
+// Scheduling v2 runs on the same isolated permission fixtures; no provider requests.
+await db.exec('reset role');
+await db.exec(await readFile(new URL('../supabase/migrations/202611020015_automation_schedules.sql',import.meta.url),'utf8'));
+await db.exec(`update bruff_private.automations set status='completed';select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+const timing={repeat:true,intervalMinutes:60,endMode:'runs',maxRuns:2,durationMinutes:120,endAt:'',listIds:['vip']};
+const repeatedConfig={...JSON.parse(config),...timing,audience:'collections',name:'Scheduled QA'};
+const makeRule=async cfg=>{const out=await scalar(`select public.bruff_automations('${w}','${model}','save',null,null,'${JSON.stringify(cfg)}') as value`);check(out.schedulerVersion,2);return out.savedId};
+const ruleView=async id=>(await scalar(`select public.bruff_automations('${w}','${model}') as value`)).rows.find(r=>r.id===id);
+const recurring=await makeRule(repeatedConfig);
+check((await ruleView(recurring)).listIds,['vip']);
+await reject(`select public.bruff_automations('${w}','${model}','save',null,null,'${JSON.stringify({...repeatedConfig,intervalMinutes:1})}')`);
+await reject(`select public.bruff_automations('${w}','${model}','save',null,null,'${JSON.stringify({...repeatedConfig,listIds:[]})}')`);
+await db.exec(`select public.bruff_automations('${w}','${model}','activate','${recurring}',1);reset role;set role service_role`);
+for(let i=0;i<2;i++){
+ const claim=await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`),r=claim.find(r=>r.id===recurring);check(r.cycle,i);
+ await db.exec(`select public.bruff_automation_worker('page',null,'${recurring}','${r.lease}','{"fans":[{"id":"123456"}],"done":true}')`);
+ const d=await scalar(`select public.bruff_automation_worker('next',null,'${recurring}','${r.lease}') as value`);check(d.fan_id,'123456');
+ await db.exec(`select public.bruff_automation_worker('finish',null,'${recurring}','${r.lease}','{"id":"${d.id}","messageId":"${98765+i}"}');select public.bruff_automation_worker('release',null,'${recurring}','${r.lease}')`);
+ if(i===0){check(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`),[]);await db.exec(`reset role;update bruff_private.automations set next_check=now()-interval '1 second' where id='${recurring}';set role service_role`)}
+}
+await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);
+check((await ruleView(recurring)).status,'completed');check((await ruleView(recurring)).counts.sent,2);
+const timed=await makeRule({...JSON.parse(config),...timing,type:'online',endMode:'duration',repeat:false});
+await db.exec(`select public.bruff_automations('${w}','${model}','activate','${timed}',1)`);
+let v=await ruleView(timed);check(v.status,'active');check(Date.parse(v.endsAt)>Date.now(),true);
+await db.exec(`select public.bruff_automations('${w}','${model}','pause','${timed}',${v.version})`);
+v=await ruleView(timed);check(v.status,'paused');check(v.remainingSeconds>7100,true);
+await db.exec(`select public.bruff_automations('${w}','${model}','activate','${timed}',${v.version})`);
+v=await ruleView(timed);check(v.status,'active');
+await db.exec(`select public.bruff_automations('${w}','${model}','stop','${timed}',${v.version})`);
+v=await ruleView(timed);check(v.status,'completed');await reject(`select public.bruff_automations('${w}','${model}','activate','${timed}',${v.version})`);
+const expiry=await makeRule({...JSON.parse(config),...timing,type:'online',endMode:'duration',repeat:false});
+await db.exec(`select public.bruff_automations('${w}','${model}','activate','${expiry}',1);reset role;update bruff_private.automations set ends_at=now()-interval '1 second' where id='${expiry}';set role service_role`);
+check(await scalar(`select public.bruff_automation_worker('claim','test-only-secret') as value`),[]);
+await db.exec(`reset role;select set_config('request.jwt.claim.sub','${owner}',false);set role authenticated`);check((await ruleView(expiry)).status,'completed');
+await reject(`select public.bruff_automations('${other}','${foreign}')`);
+
 console.log(`${checks} team PostgreSQL checks passed: owner-only, scope, role changes, revocation, versions, invitation identity, service-only finalization and audit.`);
 }finally{await db.close()}

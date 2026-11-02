@@ -30,6 +30,18 @@ export async function runAutomationTick({token,rpc,providerKey,fetcher=fetch,wri
      const offset=Number(rule.cursor||0),ids=rule.config.recipients;
      if(!Number.isSafeInteger(offset)||offset<0)throw Error('Cursor no válido');
      page={fans:ids.slice(offset,offset+500).map(id=>({id})),cursor:offset+500<ids.length?String(offset+500):null,done:offset+500>=ids.length};
+    }else if(rule.config.type==='mass'&&rule.config.audience==='collections'){
+     const ids=new Set();
+     for(const listId of rule.config.listIds){
+      const list=await call(rule,'lists/'+encodeURIComponent(listId));
+      if(String(list.id)!==listId||!Array.isArray(list.users)||!Number.isSafeInteger(list.usersCount))throw Error('No se pudo confirmar la colección completa');
+      const members=[...new Set(list.users.map(f=>String(f.id)).filter(id=>/^\d{1,24}$/.test(id)))];
+      if(members.length!==list.usersCount)throw Error('Colección incompleta: no se enviará a una vista previa');
+      for(const id of members)ids.add(id);
+     }
+     const offset=Number(rule.cursor||0),members=[...ids].sort();
+     if(!Number.isSafeInteger(offset)||offset<0)throw Error('Cursor no válido');
+     page={fans:members.slice(offset,offset+500).map(id=>({id})),cursor:offset+500<members.length?String(offset+500):null,done:offset+500>=members.length};
     }else{
      const q=new URLSearchParams({pages:'1'});if(rule.cursor)q.set('cursor',rule.cursor);
      const type=rule.config.type;

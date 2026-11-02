@@ -1,5 +1,5 @@
 // One directory belongs to one verified user/workspace. No browser disk storage.
-export function createFanDirectory({request,workspace,ids,publish,now=Date.now,schedule=setTimeout,cancel=clearTimeout}){
+export function createFanDirectory({request,workspace,ids,publish,now=Date.now,schedule=setTimeout,cancel=clearTimeout,operation='collection_fans',field='fans'}){
  let stopped=false,timer,running=false,index=0;
  const models=Object.fromEntries(ids.map(id=>[id,{rows:[],complete:false,error:'',checked:null,cursor:null,seen:new Set(),next:0,head:0,refresh:0,failures:0,denied:false}]));
  const emit=()=>{if(!stopped)publish(Object.fromEntries(Object.entries(models).map(([id,m])=>[id,{rows:m.rows,complete:m.complete,error:m.error,checked:m.checked}])))};
@@ -8,9 +8,9 @@ export function createFanDirectory({request,workspace,ids,publish,now=Date.now,s
    if(m.complete&&m.refresh<=now()){m.complete=false;m.cursor=null;m.seen.clear()}
    const head=m.complete||(m.head<=now()&&m.cursor!==null);const cursor=head?null:m.cursor;
    if(m.complete&&m.head>now())continue;
-   try{const r=await request(workspace,'collection_fans',{creator_id:id,type:'all',...(cursor?{cursor}:{})});if(stopped)return;const d=r.data;if(!Array.isArray(d?.fans))throw Error('Respuesta de fans no válida.');
+   try{const r=await request(workspace,operation,{creator_id:id,...(operation==='collection_fans'?{type:'all'}:{}),...(cursor?{cursor}:{})});if(stopped)return;const d=r.data;if(!Array.isArray(d?.[field]))throw Error('Respuesta de fans no válida.');
     if(!head&&d.hasMore&&(!d.cursor||m.seen.has(d.cursor)))throw Error('La sincronización está incompleta: el proveedor repitió una página.');
-    m.rows=[...new Map([...m.rows,...d.fans].map(f=>[f.id,f])).values()];m.error='';m.failures=0;m.checked=now();m.next=now()+1000;
+    m.rows=[...new Map([...m.rows,...d[field]].map(f=>[f.id,f])).values()];m.error='';m.failures=0;m.checked=now();m.next=now()+1000;
     if(!cursor)m.head=now()+30000;
     if(!head&&!m.complete){if(d.cursor)m.seen.add(d.cursor);m.cursor=d.hasMore?d.cursor:null;if(!d.hasMore){m.complete=true;m.refresh=now()+300000}}
    }catch(e){if(stopped)return;m.failures++;m.error='Sincronización pendiente. Reintentando automáticamente; los fans ya cargados se conservan.';m.next=now()+Math.min(60000,2000*2**Math.min(m.failures,5));if(e.status===401||e.status===403){m.rows=[];m.denied=true;m.complete=false;m.error='No tienes acceso a los fans de esta modelo.'}}

@@ -1,8 +1,9 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useState,useRef} from 'react';
 import {liveRequest} from './LiveWorkspace.jsx';
 import {startPresenceScan,acceptPresencePage,failPresenceScan} from '../presence-scan.js';
 // Round-robin across all authorized models: one request at a time, independent cursors.
-export default function usePresence(workspace,accounts){
+export default function usePresence(workspace,accounts,fastModel=null){
+ const fast=useRef(fastModel);fast.current=fastModel;
  const scope=JSON.stringify(accounts.filter(a=>a.chat===true).map(a=>a.id).sort());
  const key=workspace+':'+scope;
  const [snapshot,setSnapshot]=useState({key:null,results:{}});
@@ -24,6 +25,7 @@ export default function usePresence(workspace,accounts){
     const r=await liveRequest(workspace,'presence',{creator_id:id,...(current.cursor?{cursor:current.cursor}:{})});
     if(!active)return;
     states[id]=acceptPresencePage(current,r.data,Date.now());
+    if(id===fast.current&&states[id].complete&&!states[id].issue)states[id]={...states[id],nextAt:Date.now()+3000};
    }catch(e){if(active)states[id]=failPresenceScan(current,{status:e.status},Date.now())}
    finally{inflight=false;if(active){publish();schedule()}}
   }
