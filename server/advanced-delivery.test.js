@@ -1,0 +1,17 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {deliverAdvanced} from './advanced-delivery.js';
+const now=Date.parse('2026-11-02T12:00:00Z');
+function fixture(){
+ const scope={workspace:'a',creator:'m',fan:'1'},calls=[];
+ const claim={id:'delivery',scope,activationId:'activation',status:'claimed',lease:'lease',revision:1,dueAt:new Date(now-1).toISOString(),expiresAt:new Date(now+60000).toISOString(),stepIndex:0,trigger:'mass',message:{text:'Hola {nombre}',nameMode:'custom_fan',fallback:'Mi cielo',firstName:true,media:[],paidMedia:false,paidText:false}};
+ const store={claim:async()=>claim,authorize:async()=>true,context:async()=>({scope,fanName:'John Smith',customName:'Johnny Bravo',replyAfterPrevious:false}),moderate:async()=>true,begin:async(c,p)=>{calls.push(['begin',p]);return true},finish:async(c,r)=>calls.push(['finish',r]),release:async(c,r)=>calls.push(['release',r])};
+ const provider={resolveMedia:async()=>({scope,verified:true,items:[]}),send:async(s,p,k)=>{calls.push(['send',s,p,k]);return{id:'12'}}};
+ return {claim,calls,store,provider,args:{delivery:claim,store,provider,enabled:true,now:()=>now}};
+}
+test('disabled advanced executor performs no claims or writes',async()=>{const f=fixture();f.store.claim=()=>{throw Error('must not claim')};assert.equal((await deliverAdvanced({...f.args,enabled:false})).status,'disabled')});
+test('each send uses scoped names and a stable delivery id',async()=>{const f=fixture();assert.equal((await deliverAdvanced(f.args)).status,'sent');const sent=f.calls.find(c=>c[0]==='send');assert.equal(sent[2].text,'Hola Johnny');assert.equal(sent[3].idempotencyKey,'bruff-advanced-delivery')});
+test('cross-agency/model/fan context never reaches provider',async()=>{for(const k of ['workspace','creator','fan']){const f=fixture();f.store.context=async()=>({scope:{...f.claim.scope,[k]:'other'}});assert.equal((await deliverAdvanced(f.args)).status,'blocked');assert.equal(f.calls.some(c=>c[0]==='send'),false)}});
+test('revocation or pause during preparation blocks the final write',async()=>{const f=fixture();f.store.begin=async()=>false;assert.equal((await deliverAdvanced(f.args)).status,'stopped');assert.equal(f.calls.some(c=>c[0]==='send'),false)});
+test('reply cancels followup and unknown reply state blocks it',async()=>{for(const reply of [true,undefined]){const f=fixture();f.claim.stepIndex=1;f.store.context=async()=>({scope:f.claim.scope,replyAfterPrevious:reply});assert.notEqual((await deliverAdvanced(f.args)).status,'sent');assert.equal(f.calls.some(c=>c[0]==='send'),false)}});
+test('stale online state, denied moderation and unverified media cannot send',async()=>{for(const kind of ['presence','moderation','media']){const f=fixture();if(kind==='presence'){f.claim.trigger='online';f.store.context=async()=>({scope:f.claim.scope,online:true,presenceAt:new Date(now-46000).toISOString()})}if(kind==='moderation')f.store.moderate=async()=>false;if(kind==='media')f.provider.resolveMedia=async()=>({scope:{...f.claim.scope,creator:'other'},verified:true});await deliverAdvanced(f.args);assert.equal(f.calls.some(c=>c[0]==='send'),false)}});
+test('provider failure after begin becomes uncertain, never releasable for retry',async()=>{const f=fixture();f.provider.send=async()=>{throw Error('timeout')};assert.equal((await deliverAdvanced(f.args)).status,'uncertain');assert.equal(f.calls.some(c=>c[0]==='release'),false);assert.equal(f.calls.at(-1)[1].status,'uncertain')});
