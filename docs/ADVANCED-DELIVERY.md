@@ -21,3 +21,9 @@ Validación: 7 casos nuevos, 244 pruebas totales y compilación correctas. Solo 
 Migración 019 aplicada en Supabase. Tablas privadas, RPC exclusiva de service_role y estados pending/claimed/sending/sent/uncertain/blocked. Reserva exclusiva con lease y revisión, payload persistido antes de escribir al proveedor, pausas y revocaciones comprobadas antes de begin. Estado sending expirado pasa a uncertain, nunca a pendiente. Ningún scheduler ni ruta de activación instalado. Adaptador server/advanced-store.js preparado.
 
 19 comprobaciones PostgreSQL locales correctas; 244 pruebas y compilación. Pendiente: descubrimiento y carga de la cola, controles autenticados de ejecución, resolución de contexto/medios, proveedor y programador. La cola vacía instalada no equivale a motor operativo.
+
+## Comprobación de audiencia masiva · 02/11
+
+Ruta `automation_audience` en bruff-live, desplegada como lectura sin activar ni encolar. Lee la versión guardada del borrador desde RPC, exige propietario/manager y permiso send, resuelve el binding desde la base de datos y revalida permisos en cada consulta. Recorre fans paginados o colecciones completas, deduplica y aplica exclusiones. Rechaza listas parciales, cursores repetidos, límites excedidos, cambios de versión y filtros aún sin resolver. La selección manual se contrasta con el directorio de la modelo. La interfaz ofrece «Comprobar audiencia guardada»; exige borrador cloud sin cambios pendientes.
+
+No es activación ni garantiza elegibilidad de entrega. Todavía faltan persistencia del descubrimiento para trabajos largos, encolado, controles de ejecución, programador y adaptadores de envío/contexto. Fuente contractual: https://ofmapi.com/openapi.json (fans y lists/{list_id}, consultada 02/11). Siete pruebas nuevas del resolver y ruta autenticada; 859 pruebas totales correctas. El despliegue conserva el bundle productivo anterior y añade solo la lectura; no instala el worker antiguo 014–015.

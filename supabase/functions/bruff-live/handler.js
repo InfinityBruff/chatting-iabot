@@ -1,3 +1,4 @@
+import {resolveMassAudience} from './advanced-audience.js';
 import {runAutomationTick} from './automation-worker.js';
 import {communityNames,communityAction} from './community.js';
 import {fanProfile,fanHistory,fanActivity} from './fan-profile.js';
@@ -87,18 +88,30 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
    let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['accounts','fan_profile','fan_history','fan_activity','fan_spend','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','accounts','fan_profile','fan_history','fan_activity','fan_spend','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids'].includes(k)))return reply(400,{error:'Consulta no válida'});
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('access');return r.json()};
    if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id}),writeEnabled,chatSafety:await rpc('bruff_chat_status',{w:input.workspace_id})});
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
-   const permission=['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
+   const permission=input.operation==='automation_audience'?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
    const authorize=async()=>{
     let p=permission;
-    if(communityNames.includes(input.operation)){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')} 
+    if(communityNames.includes(input.operation)||input.operation==='automation_audience'){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')} 
     if(input.operation==='profile'){const accounts=await rpc('bruff_live_accounts',{w:input.workspace_id});const a=accounts.find(a=>a.id===input.creator_id);if(!a)throw Error('access');p=a.chat?'read':a.analytics?'analytics':a.vault?'vault':null;if(!p)throw Error('access')}
     return rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p});
    };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
+   if(input.operation==='automation_audience'){
+    if(!uuid.test(input.draft_id)||!Number.isSafeInteger(input.expected_version)||input.expected_version<1)return reply(400,{error:'Guarda y vuelve a abrir el borrador antes de comprobar la audiencia'});
+    const stored=await rpc('bruff_auto_message_drafts',{w:input.workspace_id,c:input.creator_id,op:'list'});
+    const draft=stored.rows?.find(d=>d.id===input.draft_id&&!d.archived);
+    if(!draft||draft.version!==input.expected_version)return reply(409,{error:'El borrador ha cambiado. Actualiza antes de continuar'});
+    if(draft.trigger!=='mass')return reply(400,{error:'Esta comprobación corresponde a mensajes masivos'});
+    if(Object.entries(draft.audience||{}).some(([key,value])=>key!=='excludeLists'&&value?.enabled))return reply(400,{error:'Hay filtros avanzados sin resolver; no se omitirán al preparar destinatarios'});
+    const audience=await resolveMassAudience({config:draft,binding,authorize,providerKey,fetcher});
+    const latest=await rpc('bruff_auto_message_drafts',{w:input.workspace_id,c:input.creator_id,op:'list'});
+    if(!latest.rows?.some(d=>d.id===draft.id&&d.version===draft.version&&!d.archived))return reply(409,{error:'La campaña cambió durante la comprobación'});
+    return reply(200,{data:{...audience,draftId:draft.id,draftVersion:draft.version,creatorId:input.creator_id,activated:false}});
+   }
    if(communityNames.includes(input.operation))return reply(200,{data:await communityAction({input,binding,providerKey,fetcher,authorize,writeEnabled}),observedAt:new Date().toISOString()});
    if(input.operation==='presence'){
     if(input.cursor!=null&&(typeof input.cursor!=='string'||input.cursor.length>2048))return reply(400,{error:'Cursor inválido'});
