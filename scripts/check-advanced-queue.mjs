@@ -14,7 +14,7 @@ const login=async id=>{await db.exec(`reset role;select set_config('request.jwt.
 const rpc=(model,op='list',id=null,version=null,value=null,workspace=w)=>q('select public.bruff_auto_message_drafts($1,$2,$3,$4,$5,$6) as value',[workspace,model,op,id,version,value]);
 try{
  await db.exec("create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated;");
- for(const name of ['202610300001_private_foundation','202610310002_membership_rpc','202610310003_team','202610310004_role_scopes','202611020016_auto_message_drafts','202611020017_mass_message_drafts','202611020018_fan_custom_names','202611020019_advanced_delivery_queue','202611020020_audience_checkpoints'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
+ for(const name of ['202610300001_private_foundation','202610310002_membership_rpc','202610310003_team','202610310004_role_scopes','202611020016_auto_message_drafts','202611020017_mass_message_drafts','202611020018_fan_custom_names','202611020019_advanced_delivery_queue','202611020020_audience_checkpoints','202611020021_advanced_run_controls'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
  await db.exec(`insert into auth.users values('${owner}','o@example.test',now()),('${manager}','m@example.test',now()),('${worker}','c@example.test',now());insert into bruff_private.workspaces(id,name) values('${w}','Prueba A'),('${other}','Prueba B');insert into bruff_private.memberships(workspace_id,user_id,role,status) values('${w}','${owner}','owner','active'),('${w}','${manager}','admin','active'),('${w}','${worker}','operator','active');`);
  for(const [i,m]of models.entries())await db.query('insert into bruff_private.creator_accounts(workspace_id,id,display_name)values($1,$2,$3)',[w,m,'Modelo '+i]);
  await db.query('insert into bruff_private.creator_accounts(workspace_id,id,display_name)values($1,$2,$3)',[other,foreign,'Modelo ajena']);await login(owner);
@@ -75,5 +75,24 @@ try{
  await db.exec('reset role');await db.query("update bruff_private.audience_checkpoints set retry_at=now()-interval '1 second' where draft_id=$1",[aud.savedId]);await db.exec('set role service_role');
  const resumed=await cp('acquire');eq(resumed.checkpoint,page);eq(await cp('save',first.lease,page),false);
  await db.exec('reset role');await db.query("update bruff_private.memberships set status='disabled' where workspace_id=$1 and user_id=$2",[w,owner]);await db.exec('set role service_role');await reject(()=>cp('save',resumed.lease,page));
+
+ await db.exec('reset role');await db.query("update bruff_private.memberships set status='active' where workspace_id=$1 and user_id=$2",[w,owner]);
+ for(const model of models){
+  await login(owner);const cfg=newAutoMessage('mass');cfg.name='Control';cfg.messages[0].text='Prueba';const dr=await rpc(model,'save',null,null,autoMessagePayload(cfg));
+  await db.exec('reset role');const rid=(await db.query("insert into bruff_private.advanced_runs(workspace_id,creator_id,draft_id,draft_version,activated_by,activated_at,state,ends_at)values($1,$2,$3,1,$4,now(),'active',now()+interval '1 day')returning id",[w,model,dr.savedId,owner])).rows[0].id;
+  const did=(await db.query("insert into bruff_private.advanced_deliveries(run_id,fan_id,step_index,due_at)values($1,'789',0,now())returning id",[rid])).rows[0].id;
+  const control=(op,rev=null,c=model,work=w)=>q('select public.bruff_advanced_runs($1,$2,$3,$4,$5) as value',[work,c,op,rid,rev]);
+  const dc=(op,lease=null,rev=null,value=null)=>q('select public.bruff_advanced_delivery($1,$2,$3,$4,$5) as value',[op,did,lease,rev,value]);
+  await db.exec('set role service_role');const claimed=await dc('claim');eq(claimed.revision,1);
+  await login(worker);await reject(()=>control('pause',1));await login(owner);await reject(()=>control('pause',1,foreign));await reject(()=>control('pause',1,model,other));
+  const paused=await control('pause',1);eq(paused.state,'paused');eq(paused.revision,2);await reject(()=>control('resume',1));
+  await db.exec('reset role;set role service_role');eq(await dc('begin',claimed.lease,1,{text:'Prueba',media:[],price:0}),false);eq(await dc('claim'),null);
+  await login(manager);const resumed=await control('resume',2);eq(resumed.state,'active');eq(resumed.revision,3);
+  await db.exec('reset role;set role service_role');const claimed2=await dc('claim');eq(claimed2.revision,3);eq(await dc('begin',claimed2.lease,3,{text:'Prueba',media:[],price:0}),true);
+  await login(owner);const stopped=await control('stop',3);eq(stopped.state,'stopped');eq(stopped.inFlight,1);await reject(()=>control('resume',4));
+  await db.exec('reset role;set role service_role');eq(await dc('finish',claimed2.lease,3,{status:'sent',providerId:'999'}),true);eq(await dc('claim'),null);
+  await login(owner);const listed=await control('list');eq(listed.runs.find(x=>x.id===rid).counts.sent,1);eq(listed.activationReady,false);await reject(()=>control('activate',4));
+ }
+ await db.exec('reset role;set role anon');await reject(()=>q("select public.bruff_advanced_runs($1,$2) as value",[w,models[0]]));
  console.log(checks+' durable queue checks passed (including three-model end-to-end local DB integration; fake provider only)');
 }finally{await db.close()}

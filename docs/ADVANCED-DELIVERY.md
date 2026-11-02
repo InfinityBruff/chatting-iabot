@@ -42,3 +42,12 @@ La interfaz continúa automáticamente tras la espera indicada mientras el edito
 Validación local: 865 pruebas de aplicación, build y 57 comprobaciones PostgreSQL (incluyen 14 nuevas de checkpoint, aislamiento, reserva concurrente, espera, bloqueo de acceso anónimo/directo y revocación). Proveedor ficticio en pruebas; ningún envío real.
 
 Prueba productiva: migración 020 aplicada y bruff-live desplegado; dos peticiones consecutivas guardaron 2 páginas/20 fans en Supabase, sin lease retenido y sin envíos. Esto valida reanudación del directorio de Lana, no la totalidad de las tres modelos.
+
+## Controles de ejecuciones · 02/11
+Migración 021 instalada: RPC autenticada `bruff_advanced_runs` con consulta de estados/contadores y pausa, continuación y detención de ejecuciones existentes. Bloqueo compartido de agencia + ejecución, rol propietario/manager vigente, permiso por modelo, revisión optimista. Pausar invalida reservas anteriores a `begin`; detener bloquea pendientes y no permite continuar esa ejecución. Las entregas `sending` no se borran ni vuelven a pendientes: pueden finalizar y conservar su resultado después de pausar/detener. Continuar conserva horario original y exige borrador/revisión, conexión y autoridad de activación vigentes. No crea ni activa ejecuciones.
+
+Panel `AutomationRuns` conectado al RPC, dentro de borradores cloud, actualización visible cada 5 segundos, cambio de modelo/borrador invalida resultados pendientes. Confirma continuación/detención y muestra pendientes, en curso, enviados, inciertos y bloqueados; no inventa ejecuciones ni estadísticas.
+
+Planificador puro `server/advanced-schedule.js`: fechas futuras, intervalos, duración/final por fecha/número, ciclos anclados y omisión de intervalos perdidos para evitar ráfagas tras una interrupción. NO es un Cron desplegado. La propuesta técnica de ventana de entrega única de 24 h debe mostrarse en la revisión de activación antes de conectarlo; hoy no gobierna campañas reales.
+
+Validación: 870 pruebas de aplicación, compilación y 121 comprobaciones SQL aisladas; UI ficticia recorrió pausar/continuar/detener y cambio de modelo. Ninguna campaña real activada ni enviada. Faltan creación/activación de ejecuciones desde audiencia final, proveedor/contexto/medios, disparadores de bienvenida/presencia y scheduler. No interpretar la RPC de controles como un motor completo disponible.
