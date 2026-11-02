@@ -1,5 +1,11 @@
 # Ejecutor avanzado: coordinación de entregas
 
+## Publicación confirmada · 02/11
+
+Las migraciones 031–032 y el backend financial ya están publicados con autorización del propietario. Frontend productivo en `https://bruff-workspace.pages.dev/`, commit `051ec31bd7809c19eff6f6f37cdb24eb3d90f4ea`, Cloudflare success. La sección local y las posteriores conservan el historial anterior. Ver el último checkpoint de `PRODUCTION-PLAN.md` para hashes, copia previa, evidencias y límites.
+
+Verificación remota: RLS y permisos correctos, 3 modelos en RPC financiera bajo propietario dentro de transacción de solo lectura revertida, programador con heartbeat vigente, HTTP 401 sin sesión / 403 origen ajeno / 204 preflight autorizado. JavaScript público idéntico al build probado. Cero campañas activas, envíos/retiradas y colas ejecutables en las comprobaciones. Sin cambiar Cron/flags ni ejecutar mensajes reales. Continúan observándose algunas respuestas 503 que ya existían antes; causa no acreditada por los logs revisados. La publicación no equivale a prueba de entrega, retirada ni disponibilidad completa del proveedor.
+
 ## Estado actual · 02/11, última continuación local
 
 Las secciones siguientes conservan el historial de implementación. El runtime masivo y programador ya están publicados hasta la migración 030, según `PRODUCTION-PLAN.md`. Los cambios de retirada y filtros financieros 031–032 están implementados y verificados LOCALMENTE, pendientes de publicar; no interpretar el estado inicial de este documento como estado productivo actual.
