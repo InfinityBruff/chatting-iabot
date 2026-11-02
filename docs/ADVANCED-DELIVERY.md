@@ -1,5 +1,11 @@
 # Ejecutor avanzado: coordinación de entregas
 
+## Corrección de errores de lectura · 02/11
+
+El diagnóstico posterior identificó los 503 repetidos como 429 del proveedor en `collection_fans`, transformados incorrectamente por el adaptador de comunidad. La migración 033 y el backend read-guard ya coordinan una espera privada entre instancias y conservan estado/Retry-After. El middleware solo protege lecturas GET: no intercepta, reintenta ni reproduce escrituras ni activa campañas. No guarda claves ni datos de fans; RPC de coordinación solo service_role, tabla privada con RLS. Los fallos de coordinación bloquean la lectura.
+
+Frontend principal corregido: directorios solo en pantallas que los requieren, modelo activa, sin consultas en pestañas ocultas; reanudación exacta del cursor y respeto de Retry-After en directorio/notificaciones. Cloudflare commit `f67d70bc8b78000132f066bc4953c0e1f0042341`; asset público idéntico al build probado. 931 pruebas, 108 SQL locales y 14 pruebas de bundle correctas. Ver `PRODUCTION-PLAN.md` para hashes/evidencia y muestras reales posteriores sin 503, con esperas 429 explícitas. Siguen sin probarse entregas/retiradas reales por la restricción del usuario; no se realizó ninguna acción de mensaje ni activación.
+
 ## Publicación confirmada · 02/11
 
 Las migraciones 031–032 y el backend financial ya están publicados con autorización del propietario. Frontend productivo en `https://bruff-workspace.pages.dev/`, commit `051ec31bd7809c19eff6f6f37cdb24eb3d90f4ea`, Cloudflare success. La sección local y las posteriores conservan el historial anterior. Ver el último checkpoint de `PRODUCTION-PLAN.md` para hashes, copia previa, evidencias y límites.
