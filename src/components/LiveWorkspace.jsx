@@ -74,6 +74,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
     {view==='team'&&<LiveTeam workspace={workspace} currentUserId={currentUserId}/>}
     {view==='roles'&&<RolesPage onTeam={()=>setTab('team')}/>}
     {account&&view==='auto-messages'&&<AutoMessages key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={setSelected} presence={presence[account.id]}/>}
+    {account&&view==='mass-messages'&&<AutoMessages massOnly key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={setSelected} presence={presence[account.id]}/>}
     {account&&view==='automations'&&<Automations key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={setSelected} presence={presence[account.id]}/>}
     {account&&view==='bot'&&<BotPage workspace={workspace.id} account={account} onChat={()=>setTab('chat')}/>}
     {account&&view==='chat'&&<LiveInbox currentUserId={currentUserId} presence={presence[account.id]} workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
