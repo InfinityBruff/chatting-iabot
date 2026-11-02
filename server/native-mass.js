@@ -1,8 +1,8 @@
 import {preparationPlan} from './advanced-preparation.js';
 import {advancedProvider} from './advanced-provider.js';
 const safeId=x=>typeof x==='string'&&/^[1-9][0-9]*$/.test(x)&&Number.isSafeInteger(Number(x));
-export function nativeMassPayload(config,recipientIds){
- preparationPlan(config);
+export function nativeMassPayload(config,recipientIds,now=Date.now()){
+ preparationPlan(config,new Date(now).toISOString());
  if(config.bulk.repeat)throw Error('La repetición requiere el programador de BRUFF');
  const m=config.messages[0];
  if(m.text.includes('{nombre}'))throw Error('Los nombres por fan requieren el ejecutor personalizado');
@@ -10,13 +10,15 @@ export function nativeMassPayload(config,recipientIds){
  // Explicit recipients preserve exclusions and the exact audience reviewed by the owner.
  return {text:m.text,media:m.media.map(x=>Number(x.id)),price:m.paidMedia||m.paidText?Number(m.price):0,lockedText:m.paidText===true,recipients:recipientIds.map(Number),...(config.bulk.schedule==='scheduled'?{scheduleAt:new Date(config.bulk.at).toISOString()}: {})};
 }
-export async function submitNativeMass({record,store,providerKey,fetcher=fetch,enabled=false}){
+export async function submitNativeMass({record,store,providerKey,fetcher=fetch,enabled=false,now=()=>Date.now()}){
  if(!enabled)throw Error('Envíos masivos nativos deshabilitados');
- const payload=nativeMassPayload(record.config,record.recipients);
+ const payload=nativeMassPayload(record.config,record.recipients,now());
  const scope={workspace:record.workspace,creator:record.creator,fan:record.recipients[0]};
  const media=advancedProvider({scope,binding:record.binding,providerKey,authorize:()=>store.authorize(record),fetcher});
  await media.resolveMedia(scope,record.config.messages[0].media);
  if(!await store.moderate(record,payload.text))throw Error('Mensaje bloqueado por moderación');
+ // A long vault lookup must not turn a scheduled campaign into an immediate send.
+ nativeMassPayload(record.config,record.recipients,now());
  if(!await store.begin(record,payload))throw Error('La preparación ha cambiado o ya fue enviada');
  try{
   if(await store.authorize(record)!==record.binding)throw Error('Acceso retirado');

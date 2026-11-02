@@ -1,3 +1,4 @@
+import {manageNativeQueue} from '../../../server/native-queue.js';
 import {submitNativeMass} from '../../../server/native-mass.js';
 import {runAdvancedTick} from '../../../server/advanced-worker.js';
 import {preparationPlan} from '../../../server/advanced-preparation.js';
@@ -97,18 +98,31 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
    let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','accounts','fan_profile','fan_history','fan_activity','fan_spend','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids'].includes(k)))return reply(400,{error:'Consulta no válida'});
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('access');return r.json()};
    if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id}),writeEnabled,chatSafety:await rpc('bruff_chat_status',{w:input.workspace_id})});
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
-   const permission=['automation_audience','automation_prepare','native_activate'].includes(input.operation)?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
+   const permission=['automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
    const authorize=async()=>{
     let p=permission;
-    if(communityNames.includes(input.operation)||['automation_audience','automation_prepare','native_activate'].includes(input.operation)){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')} 
+    if(communityNames.includes(input.operation)||['automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')} 
     if(input.operation==='profile'){const accounts=await rpc('bruff_live_accounts',{w:input.workspace_id});const a=accounts.find(a=>a.id===input.creator_id);if(!a)throw Error('access');p=a.chat?'read':a.analytics?'analytics':a.vault?'vault':null;if(!p)throw Error('access')}
     return rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p});
    };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
+   if(['native_queue','native_cancel'].includes(input.operation)){
+    const cancel=input.operation==='native_cancel';
+    if(!serviceKey||cancel&&!writeEnabled)return reply(503,{error:'Gestión de cola no habilitada'});
+    if(!uuid.test(input.run_id))return reply(400,{error:'Ejecución inválida'});
+    const call=async(op,value=null)=>{
+     if(await authorize()!==binding)throw Error('access');
+     const r=await fetcher(url+'/rest/v1/rpc/bruff_native_queue',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,actor:identity.id,run_id:input.run_id,op,value}),signal:AbortSignal.timeout(15000)});
+     if(!r.ok)throw Error('No se pudo autorizar la gestión de esta cola');return r.json();
+    };
+    const record=await call(cancel?'cancel_context':'context');if(record.binding!==binding)throw Error('access');
+    const result=await manageNativeQueue({record,providerKey,fetcher,cancel,enabled:writeEnabled,store:{authorize:()=>call(cancel?'cancel_authorize':'authorize'),record:value=>call('record',value)}});
+    return reply(200,{data:{...result,id:record.id}});
+   }
    if(input.operation==='native_activate'){
     if(!writeEnabled||!serviceKey)return reply(503,{error:'Envíos nativos no habilitados'});
     if(!uuid.test(input.run_id)||!Number.isSafeInteger(input.expected_revision))return reply(400,{error:'Revisión de ejecución inválida'});

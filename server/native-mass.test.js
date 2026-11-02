@@ -29,3 +29,8 @@ test('native activation route uses stored campaign and durable begin before prov
  const response=await handler(new Request('https://bruff.test',{method:'POST',headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},body:JSON.stringify({operation:'native_activate',workspace_id:w,creator_id:c,run_id:id,expected_revision:1})}));
  assert.equal(response.status,200);assert.equal((await response.json()).data.state,'accepted');assert.equal(writes,1);
 });
+test('schedule expiring during preparation never reaches durable begin or provider write',async()=>{
+ const record=fixture();let time=Date.now(),begins=0,writes=0;record.config.bulk.schedule='scheduled';record.config.bulk.at=new Date(time+1000).toISOString();
+ await assert.rejects(submitNativeMass({record,enabled:true,providerKey:'fixture',now:()=>time,store:{authorize:async()=>record.binding,moderate:async()=>{time+=2000;return true},begin:async()=>{begins++;return true}},fetcher:async()=>{writes++;throw Error('unexpected')}}),/futura/);
+ assert.equal(begins,0);assert.equal(writes,0);
+});

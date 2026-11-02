@@ -1,3 +1,4 @@
+import NativeMassQueue from './NativeMassQueue.jsx';
 import React,{useEffect,useRef,useState} from 'react';
 import {preparationPlan} from '../../server/advanced-preparation.js';
 export default function MassExecutionPreparation({client,workspace,creator,draft,dirty,cloud}){
@@ -31,7 +32,7 @@ export default function MassExecutionPreparation({client,workspace,creator,draft
   try{
    const response=current.run.kind==='native'?await client.functions.invoke('bruff-live',{body:{operation:'native_activate',workspace_id:workspace,creator_id:creator,run_id:current.run.id,expected_revision:current.run.revision}}):await client.rpc('bruff_activate_mass',{w:workspace,c:creator,run_id:current.run.id,expected_revision:current.run.revision});if(response.error)throw response.error;const data=current.run.kind==='native'?response.data?.data:response.data;
    if(data?.id!==current.run.id||!['active','accepted','uncertain'].includes(data.state))throw Error('No se confirmó la activación');
-   if(turn===serial.current){setState({scope,activated:true,outcome:data.state});setReview(false)}
+   if(turn===serial.current){setState({scope,activated:true,outcome:data.state,run:current.run.kind==='native'?{...current.run,state:data.state,canActivate:false,queueId:data.queueId}:undefined});setReview(false)}
   }catch(e){if(turn===serial.current)setState(s=>({...s,busy:false,error:e.message}))}finally{locked.current=false}
  };
  const run=current.run,m=draft.messages[0];
@@ -43,6 +44,7 @@ export default function MassExecutionPreparation({client,workspace,creator,draft
  {run&&<div className="am-message-card"><h4>{run.kind==='native'?({prepared:'Masivo nativo · preparado',accepted:'Masivo aceptado por OnlyFans',submitting:'Envío pendiente de confirmación',uncertain:'Resultado incierto · no reenviar'}[run.state]||'Masivo nativo'):'Ejecución preparada · sin activar'}</h4><p><b>{run.count?.toLocaleString('es-ES')} destinatarios</b> · {run.plan?.cycles} ejecución(es)</p><p className="am-help">La selección queda fijada para esta ejecución. Las exclusiones se conservan. {run.plan?.singleDeliveryWindowHours===24?'El envío único tiene una ventana máxima de 24 horas desde el inicio.':''}</p>
  {run.kind!=='native'&&!run.workerReady&&<p role="status">Programador pendiente de conexión. La activación permanece bloqueada.</p>}{run.queueId&&<p>Referencia de cola de OnlyFans: <b>{run.queueId}</b></p>}{['accepted','uncertain','submitting'].includes(run.state)&&<p className="am-notice">{run.state==='accepted'?'Aceptado por el proveedor; no equivale a entrega confirmada a cada fan.':'No repitas esta campaña. Revisa su resultado en OnlyFans antes de crear otro envío.'}</p>}{!run.ownerAccess&&<p>Solo el propietario puede activar esta preparación.</p>}
  <button type="button" disabled={!run.canActivate||current.busy||dirty} onClick={()=>setReview(true)}>Revisar activación</button>
+ {run.kind==='native'&&run.queueId&&run.state==='accepted'&&<NativeMassQueue key={run.id} client={client} workspace={workspace} creator={creator} run={run}/>}
  {review&&<div role="group" aria-label="Confirmar activación masiva" className="am-notice"><h4>{draft.name}</h4><p>{m.text||'Contenido adjunto'}</p><p>{m.media.length} adjuntos · {m.paidMedia||m.paidText?`${m.price} USD`:'Gratis'}</p><p>{run.count} destinatarios · {draft.bulk.repeat?`Cada ${draft.bulk.intervalMinutes} minutos · ${run.plan.cycles} ejecuciones`:'Un único envío por fan'}</p><p>Inicio: {draft.bulk.schedule==='manual'?'Al activar':new Date(draft.bulk.at).toLocaleString('es-ES')}. Preparación válida durante 30 minutos. Al confirmar se habilitan envíos reales según el horario.</p><button type="button" disabled={current.busy||dirty} onClick={activate}>{run.kind==='native'?(draft.bulk.schedule==='scheduled'?'Programar en OnlyFans':'Enviar masivo en OnlyFans'):'Activar campaña'}</button><button type="button" onClick={()=>setReview(false)}>Cancelar</button></div>}
  </div>}
  </section>;
