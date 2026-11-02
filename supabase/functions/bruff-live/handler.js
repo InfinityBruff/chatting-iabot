@@ -1,3 +1,6 @@
+import {submitNativeMass} from '../../../server/native-mass.js';
+import {runAdvancedTick} from '../../../server/advanced-worker.js';
+import {preparationPlan} from '../../../server/advanced-preparation.js';
 import {discoverAudience} from './audience-discovery.js';
 import {resolveMassAudience,AudienceError} from './advanced-audience.js';
 import {runAutomationTick} from './automation-worker.js';
@@ -64,7 +67,7 @@ export function normalizeLive(operation,data,binding){
  }
  throw Error('operation');
 }
-export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabled=false,fetcher=fetch}){
+export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabled=false,advancedWriteEnabled=false,fetcher=fetch}){
  return async request=>{
   const origin=request.headers.get('origin');
   const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'}:{})};
@@ -73,6 +76,11 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
   if(request.method!=='POST')return reply(405,{error:'Método no permitido'});
   if(!url||!anonKey||!providerKey)return reply(503,{error:'Conector no configurado'});
+  if(request.headers.has('x-bruff-advanced-secret')){
+   if(origin||!serviceKey)return reply(403,{error:'No autorizado'});
+   const adminRpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('No autorizado');return r.json()};
+   try{return reply(200,await runAdvancedTick({token:request.headers.get('x-bruff-advanced-secret'),rpc:adminRpc,providerKey,fetcher,writeEnabled:advancedWriteEnabled===true}))}catch{return reply(403,{error:'No autorizado'})}
+  }
   if(request.headers.has('x-bruff-automation-secret')){
    if(origin||!serviceKey)return reply(403,{error:'No autorizado'});
    const adminRpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('No autorizado');return r.json()};
@@ -89,25 +97,42 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
    let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','accounts','fan_profile','fan_history','fan_activity','fan_spend','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','accounts','fan_profile','fan_history','fan_activity','fan_spend','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids'].includes(k)))return reply(400,{error:'Consulta no válida'});
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('access');return r.json()};
    if(input.operation==='accounts')return reply(200,{accounts:await rpc('bruff_live_accounts',{w:input.workspace_id}),writeEnabled,chatSafety:await rpc('bruff_chat_status',{w:input.workspace_id})});
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
-   const permission=input.operation==='automation_audience'?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
+   const permission=['automation_audience','automation_prepare','native_activate'].includes(input.operation)?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
    const authorize=async()=>{
     let p=permission;
-    if(communityNames.includes(input.operation)||input.operation==='automation_audience'){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')} 
+    if(communityNames.includes(input.operation)||['automation_audience','automation_prepare','native_activate'].includes(input.operation)){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')} 
     if(input.operation==='profile'){const accounts=await rpc('bruff_live_accounts',{w:input.workspace_id});const a=accounts.find(a=>a.id===input.creator_id);if(!a)throw Error('access');p=a.chat?'read':a.analytics?'analytics':a.vault?'vault':null;if(!p)throw Error('access')}
     return rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p});
    };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
-   if(input.operation==='automation_audience'){
+   if(input.operation==='native_activate'){
+    if(!writeEnabled||!serviceKey)return reply(503,{error:'Envíos nativos no habilitados'});
+    if(!uuid.test(input.run_id)||!Number.isSafeInteger(input.expected_revision))return reply(400,{error:'Revisión de ejecución inválida'});
+    const call=async(op,value=null)=>{
+     if(await authorize()!==binding)throw Error('access');
+     const r=await fetcher(url+'/rest/v1/rpc/bruff_native_mass',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,actor:identity.id,op,run_id:input.run_id,expected_revision:input.expected_revision,value}),signal:AbortSignal.timeout(15000)});
+     if(!r.ok)throw Error('No se pudo confirmar la ejecución nativa');return r.json();
+    };
+    const record=await call('context');if(record.binding!==binding)throw Error('access');
+    const result=await submitNativeMass({record,enabled:true,providerKey,fetcher,store:{authorize:()=>call('authorize'),begin:(_,payload)=>call('begin',payload),finish:(_,result)=>call('finish',result),moderate:async(_,body)=>{const r=await rpc('bruff_chat_screen',{w:input.workspace_id,c:input.creator_id,fan:record.recipients[0],body});return r?.allowed===true}}});
+    return reply(200,{data:{...result,id:record.id}});
+   }
+   if(['automation_audience','automation_prepare'].includes(input.operation)){
     if(!uuid.test(input.draft_id)||!Number.isSafeInteger(input.expected_version)||input.expected_version<1)return reply(400,{error:'Guarda y vuelve a abrir el borrador antes de comprobar la audiencia'});
     const stored=await rpc('bruff_auto_message_drafts',{w:input.workspace_id,c:input.creator_id,op:'list'});
     const draft=stored.rows?.find(d=>d.id===input.draft_id&&!d.archived);
     if(!draft||draft.version!==input.expected_version)return reply(409,{error:'El borrador ha cambiado. Actualiza antes de continuar'});
     if(draft.trigger!=='mass')return reply(400,{error:'Esta comprobación corresponde a mensajes masivos'});
     if(Object.entries(draft.audience||{}).some(([key,value])=>key!=='excludeLists'&&value?.enabled))return reply(400,{error:'Hay filtros avanzados sin resolver; no se omitirán al preparar destinatarios'});
+    let plan;
+    if(input.operation==='automation_prepare'){
+     if(!serviceKey)return reply(503,{error:'La preparación de ejecuciones no está configurada'});
+     try{plan=preparationPlan(draft)}catch(e){return reply(400,{error:e.message})}
+    }
     const checkpointRpc=async(op,lease_id=null,value=null,wait_seconds=0)=>{
      if(await authorize()!==binding)throw Error('access');
      const response=await fetcher(url+'/rest/v1/rpc/bruff_audience_checkpoint',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,d:draft.id,v:draft.version,actor:identity.id,binding_id:binding,op,lease_id,value,wait_seconds}),signal:AbortSignal.timeout(15000)});
@@ -118,7 +143,16 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
     if(audience.complete!==true)return reply(503,{error:(audience.message||'Hay una comprobación en curso o en espera.')+' Avance guardado en la nube. Vuelve a comprobar dentro de '+audience.retryAfter+' segundos.',retryAfter:audience.retryAfter,resumable:true});
     const latest=await rpc('bruff_auto_message_drafts',{w:input.workspace_id,c:input.creator_id,op:'list'});
     if(!latest.rows?.some(d=>d.id===draft.id&&d.version===draft.version&&!d.archived))return reply(409,{error:'La campaña cambió durante la comprobación'});
-    return reply(200,{data:{...audience,draftId:draft.id,draftVersion:draft.version,creatorId:input.creator_id,activated:false}});
+    let prepared;
+    if(input.operation==='automation_prepare'){
+     if(await authorize()!==binding)throw Error('access');
+     const native=!draft.bulk.repeat&&!draft.messages[0].text.includes('{nombre}');
+     const response=await fetcher(url+'/rest/v1/rpc/'+(native?'bruff_native_mass':'bruff_prepare_mass'),{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,d:draft.id,v:draft.version,actor:identity.id,binding_id:binding,recipients:audience.recipientIds,...(native?{op:'prepare'}:{plan})}),signal:AbortSignal.timeout(15000)});
+     if(!response.ok)return reply(503,{error:'No se pudo preparar la ejecución. No se ha activado ningún envío.'});
+     prepared=await response.json();
+     if(!uuid.test(prepared?.id)||(native?prepared.state!=='prepared':prepared.state!=='paused'||prepared.prepared!==true))return reply(409,{error:'La campaña ya tiene una ejecución. Revisa su estado antes de continuar.'});
+    }
+    return reply(200,{data:{...audience,...(prepared?{execution:prepared}:{}),draftId:draft.id,draftVersion:draft.version,creatorId:input.creator_id,activated:false}});
    }
    if(communityNames.includes(input.operation))return reply(200,{data:await communityAction({input,binding,providerKey,fetcher,authorize,writeEnabled}),observedAt:new Date().toISOString()});
    if(input.operation==='presence'){

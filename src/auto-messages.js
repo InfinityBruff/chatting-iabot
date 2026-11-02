@@ -100,7 +100,7 @@ export function autoMessageRuleSummary(d){
  return parts.join(' · ');
 }
 export function autoMessagePreparationIssues(d){
- const issues=['El ejecutor de Auto Messages todavía no está conectado. Guardar no activa ni envía.'];
+ const issues=[d.trigger==='mass'&&!d.bulk.repeat&&!d.messages.some(m=>m.text.includes('{nombre}'))?'Masivo nativo: prepara los destinatarios y revisa el envío antes de confirmar. Las opciones incompatibles se bloquean. Guardar no envía.':'El ejecutor personalizado o recurrente todavía no está habilitado. Guardar no activa ni envía.'];
  if(d.action==='assistant'||d.startAiOnReply)issues.push('BRUFF IA necesita un modelo conectado y controles de activación verificados.');
  if(d.audience.buyingPower.enabled)issues.push('Buying Power es una métrica de OnlyMonster: OFMAPI no ofrece una equivalencia verificada.');
  if(d.audience.agencySpend.enabled||d.audience.agencyPurchase.enabled)issues.push('Los filtros de agencia necesitan un histórico unificado autorizado; no se estiman con las páginas visibles.');
