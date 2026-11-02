@@ -1,3 +1,4 @@
+import {personalizeMessage} from './dynamic-name.js';
 import {scheduleDefaults,validateSchedule,scheduleSummary,durationLabel} from './automation-schedule.js';
 // Configurations only. These drafts are never passed to the v2 sending worker.
 export const autoMessageTriggers = {
@@ -86,10 +87,8 @@ export function saveLocalAutoMessage(rows,draft,scope,now=new Date().toISOString
  return {row,rows:[row,...rows.filter(r=>r.id!==row.id)]};
 }
 export function duplicateAutoMessage(row){const next={...structuredClone(row),id:'',name:(row.name+' · copia').slice(0,80),status:'draft',archived:false,messages:row.messages.map(m=>({...m,id:crypto.randomUUID()}))};for(const k of ['version','scope','createdAt','updatedAt','counts','history'])delete next[k];return next}
-export function previewAutoMessage(step,{fan='Alex',custom='Álex',example=true}={}){
- let name=({custom,fan,fan_custom:fan||custom,custom_fan:custom||fan})[step.nameMode]||step.fallback;
- if(step.firstName)name=name?.trim().split(/\s+/)[0];
- return step.text.replaceAll('{nombre}',step.nameMode==='none'?'':name||step.fallback||'');
+export function previewAutoMessage(step,{fan='Alex',custom='Álex'}={}){
+ return personalizeMessage(step,{fan,custom}).text;
 }
 export function autoMessageRuleSummary(d){
  if(d.trigger==='mass')return scheduleSummary({...d.bulk,type:'mass'});
