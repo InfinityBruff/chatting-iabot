@@ -10,7 +10,8 @@ export function coordinateProviderReads({fetcher,slot,cache,now=Date.now,sleep=m
  return async(url,options={})=>{
   const u=providerRead(url,options);if(!u||!slot)return fetcher(url,options);
   const head=/\/inbox$/.test(u.pathname),messages=/\/conversations\/\d+$/.test(u.pathname),ttl=head?5000:messages?(u.searchParams.has('cursor')?15000:4000):0;
-  const key=u.href,priority=head||messages?'foreground':'background',deadline=now()+maxWait;let token;
+  const {readPriority,...providerOptions}=options;
+  const key=u.href,priority=readPriority==='background'?'background':head||messages?'foreground':'background',deadline=now()+maxWait;let token;
   while(!token){
    if(ttl){const hit=cache?.get(key);if(hit)return hit}
    if(options.signal?.aborted)throw options.signal.reason||Error('read_slot');
@@ -19,7 +20,7 @@ export function coordinateProviderReads({fetcher,slot,cache,now=Date.now,sleep=m
    else if(state?.allowed===false&&Number.isInteger(state.retryAfterMs)&&state.retryAfterMs>=50&&state.retryAfterMs<=1000){if(now()>=deadline)return new Response(JSON.stringify({code:'bruff.read_busy'}),{status:429,headers:{'Content-Type':'application/json','Retry-After':'1'}});await sleep(Math.min(state.retryAfterMs,Math.max(1,deadline-now())))}
    else throw Error('read_slot');
   }
-  try{if(ttl){const hit=cache?.get(key);if(hit)return hit}const response=await fetcher(url,options);if(ttl)await cache?.put(key,response,ttl);return response}
+  try{if(ttl){const hit=cache?.get(key);if(hit)return hit}const response=await fetcher(url,providerOptions);if(ttl)await cache?.put(key,response,ttl);return response}
   finally{try{await slot('release',token,priority)}catch{console.error(JSON.stringify({event:'bruff_read_slot_release_failure'}))}}
  };
 }
