@@ -33,3 +33,12 @@ La comprobación de audiencia está publicada en Sites y en `bruff-live`, proteg
 
 Esto NO valida todavía la audiencia completa de las tres modelos ni la ejecución automática. Pendiente: sincronización persistente/reanudable con control de cuota, adaptación real del proveedor a la cola, activación/pausa y planificador. Las pruebas locales y la compilación pasan, pero no equivalen a una validación de entrega en producción.
 
+
+## Reanudación persistente · 02/11
+Migración 020 y módulo `audience-discovery.js`: checkpoint privado por agencia/modelo/borrador/revisión/conexión, reserva exclusiva de 90 s y caducidad de 30 minutos. Cada página válida se confirma antes de continuar; una consulta posterior retoma el cursor sin volver a leer páginas anteriores. HTTP 429 respeta Retry-After (30 s–24 h); no activa, encola ni envía. RPC únicamente service_role, comprobaciones actuales de propietario/manager y modelo conectado, sin acceso directo de navegador. El endpoint vuelve a verificar la sesión y los permisos antes de cada RPC.
+
+La interfaz continúa automáticamente tras la espera indicada mientras el editor permanezca abierto, muestra cuenta atrás y permite detener la comprobación. Cambiar modelo/borrador o salir cancela la continuación del navegador; una lectura ya iniciada puede terminar de guardar su página. No hay scheduler de descubrimiento ni envíos. La cuota no se coordina globalmente entre otras funciones de OFMAPI. Colecciones se siguen verificando íntegramente en cada intento; el checkpoint guarda el directorio paginado de fans. No presentar esta fase como ejecución completa de automatizaciones.
+
+Validación local: 865 pruebas de aplicación, build y 57 comprobaciones PostgreSQL (incluyen 14 nuevas de checkpoint, aislamiento, reserva concurrente, espera, bloqueo de acceso anónimo/directo y revocación). Proveedor ficticio en pruebas; ningún envío real.
+
+Prueba productiva: migración 020 aplicada y bruff-live desplegado; dos peticiones consecutivas guardaron 2 páginas/20 fans en Supabase, sin lease retenido y sin envíos. Esto valida reanudación del directorio de Lana, no la totalidad de las tres modelos.

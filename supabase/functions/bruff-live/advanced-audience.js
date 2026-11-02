@@ -1,14 +1,16 @@
 export class AudienceError extends Error {}
+export class AudiencePending extends AudienceError { constructor(message,retryAfter=5){super(message);this.retryAfter=retryAfter} }
 // Server-only audience preparation. Reads provider data; never sends or activates.
 const fanId=value=>typeof value==='string'&&/^[0-9]{1,24}$/.test(value)?value:typeof value==='number'&&Number.isSafeInteger(value)&&value>0?String(value):null;
-export async function resolveMassAudience({config,binding,authorize,providerKey,fetcher=fetch,maxPages=200,maxFans=100000}){
+export async function resolveMassAudience({config,binding,authorize,providerKey,fetcher=fetch,maxPages=200,maxFans=100000,checkpoint=null,saveCheckpoint=async()=>{},pageBudget=200}){
  if(config?.trigger!=='mass'||!['all','selected','collections'].includes(config.bulk?.audience))throw new AudienceError('Audiencia de masivo inválida');
  if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw new AudienceError('Modelo sin conexión');
  const ensure=async()=>{if(await authorize()!==binding)throw new AudienceError('Acceso retirado o conexión modificada')};
  const read=async path=>{
   await ensure();
   const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path,{method:'GET',headers:{Authorization:'Bearer '+providerKey},redirect:'error',signal:AbortSignal.timeout(20000)});
-  if(!response.ok)throw new AudienceError(response.status===429?'El proveedor limita las consultas. Reintenta más tarde.':'No se pudo completar la audiencia');
+  if(response.status===429){const raw=response.headers?.get('retry-after');const seconds=/^\d+$/.test(raw||'')?Number(raw):Math.ceil((Date.parse(raw)-Date.now())/1000);throw new AudiencePending('El proveedor limita las consultas. Se conserva el avance.',Math.min(86400,Math.max(30,Number.isFinite(seconds)?seconds:60)))}
+  if(!response.ok)throw new AudienceError('No se pudo completar la audiencia');
   const data=await response.json();await ensure();return data;
  };
  const lists=new Map();
@@ -28,15 +30,20 @@ export async function resolveMassAudience({config,binding,authorize,providerKey,
   for(const id of config.bulk.listIds)for(const fan of await members(id))add(fan);
  }else{
   // Selected IDs are intersected with the complete account directory, not trusted from the client.
-  const cursors=new Set();let cursor=null,complete=false;
-  for(let page=0;page<maxPages;page++){
+  if(checkpoint&&(!Array.isArray(checkpoint.ids)||checkpoint.ids.some(id=>!fanId(id))||!Array.isArray(checkpoint.cursors)||checkpoint.cursors.some(c=>typeof c!=='string'||!c||c.length>2048)||!Number.isSafeInteger(checkpoint.pages)||checkpoint.pages<0||typeof checkpoint.complete!=='boolean'||(checkpoint.cursor!==null&&typeof checkpoint.cursor!=='string')))throw new AudienceError('Avance guardado inválido');
+  const cursors=new Set(checkpoint?.cursors||[]);let cursor=checkpoint?.cursor||null,complete=checkpoint?.complete===true;
+  for(const id of checkpoint?.ids||[])add(id);
+  const startPage=checkpoint?.pages||0;
+  for(let page=startPage;!complete&&page<maxPages;page++){
+   if(page-startPage>=pageBudget)throw new AudiencePending('Avance guardado. La comprobación continuará desde la última página.',5);
    const params=new URLSearchParams({type:'all',pages:'1'});if(cursor)params.set('cursor',cursor);
    const data=await read('fans?'+params);
    if(!Array.isArray(data.fans)||typeof data.hasMore!=='boolean')throw new AudienceError('Directorio incompleto');
    for(const row of data.fans){const id=fanId(row.id);if(!id)throw new AudienceError('Identificador de fan inválido');add(id)}
-   if(!data.hasMore){complete=true;break}
+   if(!data.hasMore){complete=true;await saveCheckpoint({ids:[...included],cursors:[...cursors],cursor,pages:page+1,complete:true});break}
    if(typeof data.cursor!=='string'||!data.cursor||data.cursor.length>2048||cursors.has(data.cursor))throw new AudienceError('No se puede continuar la paginación de fans');
    cursors.add(data.cursor);cursor=data.cursor;
+   await saveCheckpoint({ids:[...included],cursors:[...cursors],cursor,pages:page+1,complete:false});
   }
   if(!complete)throw new AudienceError('No se ha completado el directorio; no se devolverá una audiencia parcial');
   if(config.bulk.audience==='selected'){

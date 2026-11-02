@@ -1,3 +1,4 @@
+import {discoverAudience} from './audience-discovery.js';
 import {resolveMassAudience,AudienceError} from './advanced-audience.js';
 import {runAutomationTick} from './automation-worker.js';
 import {communityNames,communityAction} from './community.js';
@@ -107,7 +108,14 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,writeEnabl
     if(!draft||draft.version!==input.expected_version)return reply(409,{error:'El borrador ha cambiado. Actualiza antes de continuar'});
     if(draft.trigger!=='mass')return reply(400,{error:'Esta comprobación corresponde a mensajes masivos'});
     if(Object.entries(draft.audience||{}).some(([key,value])=>key!=='excludeLists'&&value?.enabled))return reply(400,{error:'Hay filtros avanzados sin resolver; no se omitirán al preparar destinatarios'});
-    let audience;try{audience=await resolveMassAudience({config:draft,binding,authorize,providerKey,fetcher})}catch(e){if(e instanceof AudienceError)return reply(503,{error:e.message});throw e}
+    const checkpointRpc=async(op,lease_id=null,value=null,wait_seconds=0)=>{
+     if(await authorize()!==binding)throw Error('access');
+     const response=await fetcher(url+'/rest/v1/rpc/bruff_audience_checkpoint',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({w:input.workspace_id,c:input.creator_id,d:draft.id,v:draft.version,actor:identity.id,binding_id:binding,op,lease_id,value,wait_seconds}),signal:AbortSignal.timeout(15000)});
+     if(!response.ok)throw new AudienceError('No se pudo guardar el avance de destinatarios. No se enviará nada.');
+     return response.json();
+    };
+    let audience;try{audience=serviceKey?await discoverAudience({config:draft,binding,authorize,providerKey,fetcher,checkpointRpc}):await resolveMassAudience({config:draft,binding,authorize,providerKey,fetcher})}catch(e){if(e instanceof AudienceError)return reply(503,{error:e.message});throw e}
+    if(audience.complete!==true)return reply(503,{error:(audience.message||'Hay una comprobación en curso o en espera.')+' Avance guardado en la nube. Vuelve a comprobar dentro de '+audience.retryAfter+' segundos.',retryAfter:audience.retryAfter,resumable:true});
     const latest=await rpc('bruff_auto_message_drafts',{w:input.workspace_id,c:input.creator_id,op:'list'});
     if(!latest.rows?.some(d=>d.id===draft.id&&d.version===draft.version&&!d.archived))return reply(409,{error:'La campaña cambió durante la comprobación'});
     return reply(200,{data:{...audience,draftId:draft.id,draftVersion:draft.version,creatorId:input.creator_id,activated:false}});
