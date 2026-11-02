@@ -1,7 +1,8 @@
 import {useEffect} from 'react';
 import {liveRequest} from './LiveData.jsx';
-export function useInboxSpend(workspace,account,result,update){
- const ids=(result?.data.conversations||[]).filter(f=>!f.spend?.available).map(f=>String(f.userId??f.id)).filter(id=>/^\d{1,24}$/.test(id)).join(',');
+export function useInboxSpend(workspace,account,result,update,visibleIds){
+ const shown=visibleIds?new Set(visibleIds):null;
+ const ids=(result?.data.conversations||[]).filter(f=>(!shown||shown.has(String(f.userId??f.id)))&&!f.spend?.available).map(f=>String(f.userId??f.id)).filter(id=>/^\d{1,24}$/.test(id)).join(',');
  useEffect(()=>{if(!ids)return;let cancelled=false,timer;
   const batches=ids.split(',');let offset=0;
   async function next(){const batch=batches.slice(offset,offset+20);if(cancelled||!batch.length)return;if(document.visibilityState!=='visible'){timer=setTimeout(next,2000);return}

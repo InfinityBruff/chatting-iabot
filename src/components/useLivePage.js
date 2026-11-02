@@ -14,7 +14,7 @@ export function useLivePage(request,workspace,account,operation,args,field,polic
   const requested=cursor||retryCursor.current;
   setState(s=>({scope,result:s.scope===scope?s.result:readPageCache(scope),error:'',waiting:false,busy:true,requestCursor:requested||null}));
   try{
-   const next=await request(workspace,operation,{creator_id:account,...JSON.parse(signature),...(requested?{cursor:requested}:{})},{active:()=>active.current&&gen===generation.current&&epoch===pageCacheEpoch()});
+   const next=await request(workspace,operation,{creator_id:account,...JSON.parse(signature),...(requested?{cursor:requested}:{})},{priority:requested?'pagination':readPageCache(scope)?'refresh':'interactive',active:()=>active.current&&gen===generation.current&&epoch===pageCacheEpoch()});
    if(active.current&&gen===generation.current&&epoch===pageCacheEpoch()){failures.current=0;limited.current=false;retryCursor.current=null;setState(s=>{const result=mergePage(s.scope===scope?s.result:null,next,field,{append:!!requested,retain});writePageCache(scope,result,epoch);return {scope,result,error:'',waiting:false,busy:false,requestCursor:requested||null}});return true}
   }catch(e){if(active.current&&gen===generation.current){const failure=readFailureState(e);limited.current=failure.waiting;failures.current=limited.current?0:Math.min(failures.current+1,4);retryCursor.current=requested||null;waitUntil.current=failure.retryAt;if(failure.denied)clearPageCache();setState(s=>({scope,result:failure.denied?null:s.scope===scope?s.result:null,error:failure.error,waiting:failure.waiting,busy:false,requestCursor:requested||null}));if(limited.current)retryWake.current(Math.max(1000,waitUntil.current-Date.now()));}}
   finally{if(gen===generation.current)running.current=false;}

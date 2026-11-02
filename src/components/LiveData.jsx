@@ -4,7 +4,7 @@ import {authClient} from '../auth.js';
 import {useLivePage} from './useLivePage.js';
 export async function liveRequest(workspace,operation,extra={},options={}){
  const run=()=>invokeLive(workspace,operation,extra);
- return secondaryReads.has(operation)?liveReads.secondary(run,options.active):['inbox','messages'].includes(operation)?liveReads.primary(run,options.active):run();
+ return secondaryReads.has(operation)?liveReads.secondary(run,options.active):['inbox','messages'].includes(operation)?liveReads.primary(run,options.active,options.priority):run();
 }
 let quotaLogKey='';
 async function invokeLive(workspace,operation,extra){
