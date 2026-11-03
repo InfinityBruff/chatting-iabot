@@ -3,18 +3,18 @@ export function createHistoryReader({read,cacheEpoch=()=>0,visible=()=>true,onDe
  let active=false,generation=0,stage=null,attempted=null,demanding=0,status='idle';const listeners=new Set();
  const emit=value=>{status=value;for(const listener of listeners)listener()};
  const abort=()=>Object.assign(Error('Consulta cancelada'),{name:'AbortError'});
- function discard(){if(stage){stage.active=false;cancel(stage.timer);stage=null}emit('idle')}
+ function discard(){if(stage){stage.active=false;cancel(stage.timer);stage.controller.abort();stage=null}emit('idle')}
  function prepare(result,epoch=cacheEpoch()){
   const cursor=result?.data?.hasMore&&result.data.cursor;
   if(!active||epoch!==cacheEpoch()||!visible()||demanding)return;
   if(!cursor){discard();attempted=null;return}
   if(stage?.cursor===cursor&&stage.epoch===epoch||attempted===cursor)return;
   discard();attempted=cursor;
-  const gen=generation,item={cursor,epoch,active:true,started:false,value:null,at:0,promise:null,timer:null};stage=item;emit('scheduled');
+  const gen=generation,item={cursor,epoch,active:true,started:false,value:null,at:0,promise:null,timer:null,controller:new AbortController()};stage=item;emit('scheduled');
   const valid=()=>active&&generation===gen&&item.active&&cacheEpoch()===epoch;
   item.timer=schedule(()=>{
    if(!valid()||!visible()){if(stage===item){discard();attempted=null}return}
-   emit('queued');item.promise=Promise.resolve().then(()=>valid()&&visible()?read(cursor,false,valid,()=>{item.started=true;emit('loading')},true):null).then(value=>{
+   emit('queued');item.promise=Promise.resolve().then(()=>valid()&&visible()?read(cursor,false,valid,()=>{item.started=true;emit('loading')},true,item.controller.signal):null).then(value=>{
     if(!value||!valid()||JSON.stringify(value).length*2>maxBytes)return null;
     item.value=value;item.at=now();emit('ready');return value;
    }).catch(error=>{if(valid()){emit(error?.status===429?'limited':'failed');if(error?.status===401||error?.status===403)onDenied(error)}return null});
@@ -26,7 +26,7 @@ export function createHistoryReader({read,cacheEpoch=()=>0,visible=()=>true,onDe
   start(){if(active)return;active=true;generation++;attempted=null},
   stop(){active=false;generation++;discard();attempted=null},
   prepare,
-  async read(cursor,background,valid){
+  async read(cursor,background,valid,_onStart,_preparing,signal){
    if(cursor)demanding++;
    try{
    const item=stage;
@@ -36,7 +36,7 @@ export function createHistoryReader({read,cacheEpoch=()=>0,visible=()=>true,onDe
     else if(item.promise&&item.started&&!item.value){const value=await item.promise;if(stage===item)discard();if(!valid())throw abort();if(value)return value}
     else discard(); // A queued preparation never makes an explicit history request wait.
    }
-   if(!valid())throw abort();return await read(cursor,background,valid);
+   if(!valid())throw abort();return await read(cursor,background,valid,undefined,false,signal);
    }finally{if(cursor)demanding--}
   }
  };

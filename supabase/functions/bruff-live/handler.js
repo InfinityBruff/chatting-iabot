@@ -139,6 +139,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
    firstMessageRead=input.operation==='messages'&&input.cursor==null&&input.background!==true;
+   if(input.operation==='messages'&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(['native_queue','native_cancel'].includes(input.operation)){
     const cancel=input.operation==='native_cancel';
     if(!serviceKey||cancel&&!writeEnabled)return reply(503,{error:'Gestión de cola no habilitada'});
@@ -246,10 +247,13 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     params.set('start',new Date(start).toISOString());
     path=input.operation==='earnings'?'earnings/chart':'transactions';if(input.operation==='earnings')params.set('end',new Date(end).toISOString());
    }
-   const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{...(readSlotEnabled&&input.background===true?{readPriority:'background'}:{}),headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(25000),redirect:'error'});
+   const providerSignal=input.operation==='messages'?AbortSignal.any([request.signal,AbortSignal.timeout(25000)]):AbortSignal.timeout(25000);
+   const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{...(readSlotEnabled&&input.background===true?{readPriority:'background'}:{}),headers:{Authorization:'Bearer '+providerKey},signal:providerSignal,redirect:'error'});
+   if(input.operation==='messages'&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(!response.ok){const retryAfter=response.status===429?retrySeconds(response.headers):null;if(retryAfter)headers['Retry-After']=String(retryAfter);
     return reply(response.status===429?429:502,{error:response.status===429?'OFMAPI ha limitado las consultas. Se conserva el avance; espera antes de actualizar.':'OFMAPI no pudo consultar esta cuenta. Revisa su conexión o inténtalo más tarde.',providerStatus:response.status,...(retryAfter?{retryAfter}:{})});}
    const payload=await response.json();
+   if(input.operation==='messages'&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(input.operation==='earnings'){
     // The provider defaults to total. Each other category must be requested explicitly.
     const series={...payload.series},unavailableCategories=[];
@@ -297,8 +301,9 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    }
    // Recheck after provider latency so revoked membership cannot receive a pending result.
    if(!readContextVerified&&await authorize()!==binding)throw Error('access');
+   if(input.operation==='messages'&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    return reply(200,{data,observedAt:new Date().toISOString()});
-  }catch(e){failureKind=['TypeError','ReferenceError','SyntaxError','TimeoutError','AbortError'].includes(e?.name)?e.name:['schema','provider','input','category','read_guard','read_slot'].includes(e?.message)?e.message:'unexpected';providerStatus=e?.providerStatus;
+  }catch(e){if(diagnosticOperation==='messages'&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});failureKind=['TypeError','ReferenceError','SyntaxError','TimeoutError','AbortError'].includes(e?.name)?e.name:['schema','provider','input','category','read_guard','read_slot'].includes(e?.message)?e.message:'unexpected';providerStatus=e?.providerStatus;
    if(e?.providerStatus===429){const retryAfter=Number.isInteger(e.retryAfter)&&e.retryAfter>0?e.retryAfter:60;headers['Retry-After']=String(retryAfter);return reply(429,{error:'El proveedor limita las consultas. Se conserva el avance; espera antes de actualizar.',providerStatus:429,retryAfter})}
    return reply(e.message==='access'?403:['ticket','input'].includes(e.message)?400:503,{error:e.message==='access'?'No tienes acceso a esta modelo o apartado.':e.message==='input'?'Revisa los parámetros de la consulta.':e.message==='ticket'?'La selección ha caducado o no pertenece a esta cuenta. Vuelve a seleccionar los archivos.':'No se pudo confirmar la operación. Si estabas enviando, conserva la revisión y consulta el historial antes de crear otro mensaje.'})}
  };
