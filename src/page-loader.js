@@ -15,7 +15,9 @@ export function createPageLoader({read,field,retain=false,initial=null,write=()=
   const valid=()=>active&&!denied&&generation===gen&&cacheEpoch()===epoch;
   cancel(target.timer);target.running=token;target.error='';target.limited=false;initialPending=false;if(cursor)lastCursor=cursor;emit();
   try{
-   let next=await read(cursor,retain&&!cursor&&!!result,valid);
+   // Saved profiles have no message previews or usable cursor yet: their first
+   // remote page is an opening read, not a background refresh.
+   let next=await read(cursor,retain&&!cursor&&!!result&&!result.cachedProfiles,valid);
    if(!valid())return false;
    if(field==='conversations'&&Array.isArray(next?.data?.conversations))next={...next,data:{...next.data,conversations:next.data.conversations.map(f=>({...f,profileSnapshot:false}))}};
    authorizedEpoch=epoch;result=mergePage(result,next,field,{append:!!cursor,retain});write(result,epoch);
