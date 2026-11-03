@@ -12,7 +12,7 @@ export function coordinateProviderReads({fetcher,slot,cache,now=Date.now,sleep=m
   const u=providerRead(url,options);if(!u||!slot)return fetcher(url,options);
   const head=/\/inbox$/.test(u.pathname),messages=/\/conversations\/\d+$/.test(u.pathname),ttl=head?5000:messages?(u.searchParams.has('cursor')?15000:4000):0;
   const {readPriority,...providerOptions}=options;
-  const key=u.href,priority=readPriority==='background'?'background':head||messages?'foreground':'background',deadline=now()+maxWait,ticket=crypto.randomUUID();let token,queued=false;
+  const key=u.href,priority=readPriority==='background'?'background':head||messages||/\/vault\/(media|categories)$/.test(u.pathname)?'foreground':'background',deadline=now()+maxWait,ticket=crypto.randomUUID();let token,queued=false;
   try{
   while(!token){
    if(ttl){const hit=cache?.get(key);if(hit)return hit}

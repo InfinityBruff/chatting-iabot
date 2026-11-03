@@ -1,6 +1,7 @@
 // One state per authorized agency/model. Timestamps belong to individual pages,
 // never to the end of a scan (which could make old confirmations look fresh).
 const ttl=60000;
+export function presenceModelIds(accounts,section,activeModel){return ['chat','automations','auto-messages','mass-messages'].includes(section)?accounts.filter(a=>a.chat===true&&a.id===activeModel).map(a=>a.id):[]}
 const fresh=(rows,now)=>Object.fromEntries(Object.entries(rows||{}).filter(([,stamp])=>{const t=Date.parse(stamp);return Number.isFinite(t)&&t<=now&&now-t<ttl}));
 export function startPresenceScan(previous={},now=Date.now()){
  return {confirmations:fresh(previous.confirmations,now),cycleConfirmations:{},cursor:null,seenCursors:[],fingerprints:[],pagesScanned:0,complete:false,scanning:true,issue:null,failures:0,nextAt:now,scope:'followings'};

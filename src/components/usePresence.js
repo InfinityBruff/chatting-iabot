@@ -11,6 +11,7 @@ export default function usePresence(workspace,accounts,fastModel=null){
   let active=true,timer,inflight=false;
   const ids=JSON.parse(scope),states=Object.fromEntries(ids.map(id=>[id,startPresenceScan()]));
   setSnapshot({key,results:{}});
+  if(!ids.length)return()=>{active=false};
   const publish=()=>{if(active)setSnapshot({key,results:{...states}})};
   const schedule=()=>{if(active)timer=setTimeout(tick,350)};
   async function tick(){

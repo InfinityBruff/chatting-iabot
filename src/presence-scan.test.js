@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {startPresenceScan,acceptPresencePage,failPresenceScan,presenceStatus} from './presence-scan.js';
+import {presenceModelIds,startPresenceScan,acceptPresencePage,failPresenceScan,presenceStatus} from './presence-scan.js';
 import {isFanOnline,applyPresence} from './fan-presence.js';
 const t=Date.parse('2026-11-01T12:00:00Z');
 const page=(ids,more,cursor,now=t)=>({onlineIds:ids,hasMore:more,cursor,checkedAt:new Date(now).toISOString()});
@@ -36,3 +36,5 @@ test('invalid timestamps or non-boolean pagination never claim complete; empty c
  assert.equal(acceptPresencePage(startPresenceScan({},t),page([],false,null,t+1000),t).issue,'schema');
  const s=acceptPresencePage(startPresenceScan({},t),page([],false,null),t);assert.equal(s.complete,true);assert.deepEqual(s.confirmations,{});
 });
+
+test('presence polls only the authorized active model in workflows that display it',()=>{const accounts=[{id:'a',chat:true},{id:'b',chat:true},{id:'denied',chat:false}];for(const view of ['chat','automations','auto-messages','mass-messages'])assert.deepEqual(presenceModelIds(accounts,view,'b'),['b']);for(const view of ['vault','accounts','analytics','team'])assert.deepEqual(presenceModelIds(accounts,view,'b'),[]);assert.deepEqual(presenceModelIds(accounts,'chat','denied'),[]);assert.deepEqual(presenceModelIds(accounts,'chat','missing'),[])});

@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {protectProviderReads,retrySeconds} from '../supabase/functions/bruff-live/provider-read-guard.js';
+import {protectProviderReads,retrySeconds,providerGateChecked} from '../supabase/functions/bruff-live/provider-read-guard.js';
 import {createLiveHandler as sourceHandler} from '../supabase/functions/bruff-live/handler.js';
 import {readFile} from 'node:fs/promises';
 const createLiveHandler=process.env.BRUFF_TEST_BUNDLE?await(async()=>{
@@ -52,3 +52,5 @@ test('authenticated fan-directory requests preserve real 429 and its delay acros
  assert.equal(reads,1);assert.equal(checks,2);assert.deepEqual(failures,[]);
 });
 test('quota observations include only bounded numeric headers, never credentials or payloads',async()=>{const seen=[];const read=protectProviderReads({gate:async()=>({allowed:true}),onQuota:q=>seen.push(q),fetcher:async()=>new Response('{}',{headers:{'x-ratelimit-limit':'60','x-ratelimit-remaining':'2','x-ratelimit-reset':'1793657000','x-ratelimit-window':'60',authorization:'private-fixture'}})});await read(endpoint);assert.deepEqual(seen,[{limit:60,remaining:2,reset:1793657000,window:60}]);assert.equal(JSON.stringify(seen).includes('private-fixture'),false)});
+
+test('combined read checks use only an internal symbol; browser fields cannot bypass the gate',async()=>{let gates=0,reads=0;const run=protectProviderReads({gate:async()=>{gates++;return {allowed:true}},fetcher:async(_url,options)=>{reads++;assert.equal(Object.getOwnPropertySymbols(options).length,0);return new Response('{}')}});const url='https://api.ofmapi.com/v1/accounts/acct_fixture/inbox';await run(url,{gateChecked:true});assert.equal(gates,1);await run(url,{[providerGateChecked]:true});assert.equal(gates,1);assert.equal(reads,2)});

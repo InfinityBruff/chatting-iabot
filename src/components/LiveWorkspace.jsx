@@ -6,6 +6,7 @@ import {useNotifications,NotificationToasts,NotificationsPage,CollectionsPage} f
 import {readSession,writeSession,sessionKey} from '../chat-sync.js';
 import {ModelProfiles,ModelSelect} from './ModelIdentity.jsx';
 import usePresence from './usePresence.js';
+import {presenceModelIds} from '../presence-scan.js';
 import {useInboxWarmup} from './useInboxWarmup.js';
 import {startAccessReadPoll} from '../access-read-poll.js';
 import Brand from './Brand.jsx';
@@ -54,10 +55,11 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const [accounts,setAccounts]=useState(null),[selected,setSelected]=useState(saved.current?.account||''),[tab,setTab]=useState(saved.current?.tab||'chat'),[collapsed,setCollapsed]=useState(saved.current?.collapsed??false),[writeEnabled,setWriteEnabled]=useState(false),[chatBlocked,setChatBlocked]=useState(false),[error,setError]=useState('');
  useEffect(()=>{const polling=startAccessReadPoll({read:()=>liveRequest(workspace.id,'accounts'),onValue:r=>{setAccounts(previous=>JSON.stringify(previous)===JSON.stringify(r.accounts)?previous:r.accounts);setWriteEnabled(r.writeEnabled===true);setChatBlocked(r.chatSafety?.blocked===true);setError('')},onError:e=>{setAccounts(null);setWriteEnabled(false);setChatBlocked(true);setError(e.message)}});const visible=()=>polling.resume();document.addEventListener('visibilitychange',visible);return()=>{polling.stop();document.removeEventListener('visibilitychange',visible)}},[workspace.id]);
  const available=accounts||[];
- const presence=usePresence(workspace.id,available,['automations','auto-messages'].includes(tab)?selected:null);
- const notifications=useNotifications(currentUserId,workspace.id,available,workspace.role);
  const sections=navigationSections(workspace.role,available),view=resolveSection(tab,workspace.role,available);
  const account=sectionAccount(view,available,selected);
+ const presenceIds=presenceModelIds(available,view,account?.id);
+ const presence=usePresence(workspace.id,available.filter(a=>presenceIds.includes(a.id)),['automations','auto-messages'].includes(view)?account?.id:null);
+ const notifications=useNotifications(currentUserId,workspace.id,available,workspace.role);
  useInboxWarmup(workspace.id,available,account?.id,view==='chat');
  useEffect(()=>{if(accounts)writeSession(viewKey,{account:account?.id||selected,tab:view,collapsed})},[viewKey,accounts,account?.id,selected,view,collapsed]);
  const activeSection=sections.find(s=>s.id===view);
