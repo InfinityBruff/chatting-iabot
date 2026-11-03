@@ -266,14 +266,25 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     // Presence is queried separately so a provider-wide scan never blocks inbox.
     data.conversations=data.conversations.map(f=>({...f,spend:amounts.get(String(f.userId??f.id))??normalizeSpend(null)}));
    }
+   let readContextVerified=false;
    if(input.operation==='messages'){
     const ids=data.messages.filter(m=>m.isFromMe===true).map(m=>String(m.id)).filter(id=>/^\d{1,24}$/.test(id));
     let authors={},available=true;
-    try{for(let i=0;i<ids.length;i+=500)Object.assign(authors,await rpc('bruff_message_authors',{w:input.workspace_id,c:input.creator_id,fan:input.conversation_id,ids:ids.slice(i,i+500)}))}catch{available=false}
+    if(ids.length>0&&ids.length<=500){
+     // A single DB round trip, with the same final access/binding check after attribution.
+     // Legacy fallback supports transient metadata failures and rolling deployment.
+     let contextResponse=null,context=null;
+     try{contextResponse=await fetcher(url+'/rest/v1/rpc/bruff_message_read_context',{method:'POST',headers:authHeaders,body:JSON.stringify({w:input.workspace_id,c:input.creator_id,fan:input.conversation_id,ids,expected_binding:binding}),signal:AbortSignal.timeout(15000)})}catch{}
+     if(contextResponse?.status===401||contextResponse?.status===403)throw Error('access');
+     if(contextResponse?.ok)try{context=await contextResponse.json()}catch{}
+     if(context&&typeof context==='object'&&'binding'in context&&context.binding!==binding)throw Error('access');
+     if(context?.binding===binding&&context.authors&&typeof context.authors==='object'&&!Array.isArray(context.authors)){authors=context.authors;readContextVerified=true}
+    }
+    if(!readContextVerified)try{for(let i=0;i<ids.length;i+=500)Object.assign(authors,await rpc('bruff_message_authors',{w:input.workspace_id,c:input.creator_id,fan:input.conversation_id,ids:ids.slice(i,i+500)}))}catch{available=false}
     data.messages=data.messages.map(m=>({...m,...(m.isFromMe===true?{sentBy:available&&typeof authors[String(m.id)]==='string'?authors[String(m.id)]:null,attributionAvailable:available}:{})}));
    }
    // Recheck after provider latency so revoked membership cannot receive a pending result.
-   if(await authorize()!==binding)throw Error('access');
+   if(!readContextVerified&&await authorize()!==binding)throw Error('access');
    return reply(200,{data,observedAt:new Date().toISOString()});
   }catch(e){failureKind=['TypeError','ReferenceError','SyntaxError','TimeoutError','AbortError'].includes(e?.name)?e.name:['schema','provider','input','category','read_guard','read_slot'].includes(e?.message)?e.message:'unexpected';providerStatus=e?.providerStatus;
    if(e?.providerStatus===429){const retryAfter=Number.isInteger(e.retryAfter)&&e.retryAfter>0?e.retryAfter:60;headers['Retry-After']=String(retryAfter);return reply(429,{error:'El proveedor limita las consultas. Se conserva el avance; espera antes de actualizar.',providerStatus:429,retryAfter})}
