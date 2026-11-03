@@ -27,8 +27,31 @@ test('leaving a folder cancels unfinished requests and never starts its queued t
 test('clearing access cancels images and late callbacks, clears cache, and retains rate budget',()=>{
  const f=setup({concurrency:1,budget:1,windowMs:1000}),events=[];f.loader.subscribe(['a'],x=>events.push(x));let reset=0;f.loader.onReset(()=>reset++);const old=f.images[0].onload;f.loader.clear();old();assert.equal(reset,1);assert.equal(events.at(-1).state,'loading');f.loader.subscribe(['b'],()=>{});assert.equal(f.images.length,1);f.advance(1000);assert.equal(f.images.length,2);
 });
-test('stalled images time out and a ready cache expires without persistent media storage',()=>{
- const f=setup({concurrency:1,ttl:1000}),states=[];const stop=f.loader.subscribe(['a'],x=>states.push(x));f.advance(20000);assert.equal(states.at(-1).state,'error');stop();const off=f.loader.subscribe(['b'],()=>{});f.ok(1);off();f.advance(1001);f.loader.subscribe(['b'],()=>{});assert.equal(f.images.length,3);
+test('a valid image completing after twelve seconds stays in flight and becomes ready before the thirty-second deadline',()=>{
+ const f=setup(),states=[];f.loader.subscribe(['slow-but-valid'],x=>states.push(x));
+ f.advance(12001);assert.equal(states.at(-1).state,'loading');assert.equal(f.images[0].src,'slow-but-valid');
+ f.advance(7999);f.ok(0);assert.equal(states.at(-1).state,'ready');assert.equal(states.at(-1).src,'slow-but-valid');
+ f.advance(10000);assert.equal(states.at(-1).state,'ready');assert.deepEqual(f.starts,['slow-but-valid']);
+});
+test('a genuinely hung image is canceled at thirty seconds and releases its slot exactly once',()=>{
+ const f=setup({concurrency:1}),states=[];f.loader.subscribe(['hung'],x=>states.push(x));const late=f.images[0].onload;
+ f.loader.subscribe(['healthy'],()=>{});f.advance(29999);assert.equal(states.at(-1).state,'loading');assert.deepEqual(f.starts,['hung']);
+ f.advance(1);assert.equal(states.at(-1).state,'error');assert.equal(f.images[0].src,'');assert.deepEqual(f.starts,['hung','healthy']);
+ late();assert.equal(states.at(-1).state,'error');f.loader.subscribe(['third'],()=>{});assert.deepEqual(f.starts,['hung','healthy']);
+ f.ok(1);assert.deepEqual(f.starts,['hung','healthy','third']);
+});
+test('the image deadline is configurable without changing concurrency or retries',()=>{
+ const f=setup({concurrency:1,timeoutMs:5000}),states=[];f.loader.subscribe(['hung'],x=>states.push(x));f.loader.subscribe(['next'],()=>{});
+ f.advance(4999);assert.equal(states.at(-1).state,'loading');assert.equal(f.starts.length,1);
+ f.advance(1);assert.equal(states.at(-1).state,'error');assert.deepEqual(f.starts,['hung','next']);
+});
+test('an immediate image error such as HTTP 410 still fails immediately without automatic grid fanout',()=>{
+ const f=setup({concurrency:1}),states=[];f.loader.subscribe(['refused-thumb','other-variant','original'],x=>states.push(x));f.loader.subscribe(['healthy'],()=>{});
+ f.images[0].onerror({type:'error',status:410});assert.equal(states.at(-1).state,'error');assert.deepEqual(f.starts,['refused-thumb','healthy']);
+ f.ok(1);f.advance(30000);assert.deepEqual(f.starts,['refused-thumb','healthy']);assert.equal(states.at(-1).state,'error');
+});
+test('a ready cache expires without persistent media storage',()=>{
+ const f=setup({ttl:1000});const off=f.loader.subscribe(['a'],()=>{});f.ok(0);off();f.advance(1001);f.loader.subscribe(['a'],()=>{});assert.equal(f.images.length,2);
 });
 test('locked media has no source and a viewer reuses the lightweight thumbnail before larger files',()=>{
  const item={type:'photo',preview:'thumb',previewSources:['thumb','square','preview','full'],url:'original'};assert.deepEqual(previewSources({...item,canView:false}),[]);assert.equal(previewSources(item)[0],'thumb');assert.equal(previewSources(item,true)[0],'thumb');assert.deepEqual(previewSources({type:'video',url:'video-file'}),[]);

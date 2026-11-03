@@ -11,7 +11,7 @@ export function previewSources(item,large=false){
 export function previewsExpired(sources,now=Date.now()){
  return sources.length>0&&sources.every(src=>{try{const exp=Number(new URL(src).searchParams.get('exp'));return exp>0&&exp*1000<=now}catch{return false}});
 }
-export function createMediaPreviewLoader({createImage=()=>new Image(),now=Date.now,schedule=setTimeout,cancel=clearTimeout,concurrency=3,budget=72,windowMs=60000,maxEntries=128,ttl=120000}={}){
+export function createMediaPreviewLoader({createImage=()=>new Image(),now=Date.now,schedule=setTimeout,cancel=clearTimeout,concurrency=3,budget=72,windowMs=60000,maxEntries=128,ttl=120000,timeoutMs=30000}={}){
  const entries=new Map(),queue=[],resets=new Set();let active=0,starts=[],timer=null,sequence=0;
  const waiting=priority=>starts.length>=(priority>=4?budget:budget-Math.min(4,Math.floor(budget/8)))?starts[0]+windowMs:0;
  function prune(){const time=now();starts=starts.filter(t=>time-t<windowMs);for(const [key,row]of entries)if(!row.listeners.size&&row.state!=='loading'&&(time-row.at>ttl||entries.size>maxEntries)){entries.delete(key)}}
@@ -33,7 +33,7 @@ export function createMediaPreviewLoader({createImage=()=>new Image(),now=Date.n
    if(waiting(queue[0].priority)>now()){timer=schedule(pump,Math.max(1,waiting(queue[0].priority)-now()));return}
    const row=queue.shift();if(entries.get(row.key)!==row)continue;if(!row.listeners.size){entries.delete(row.key);continue}
    active++;starts.push(now());row.state='loading';row.image=row.element||createImage();row.image.referrerPolicy='no-referrer';row.image.decoding='async';emit(row,'loading');
-   row.image.onload=()=>finish(row,true);row.image.onerror=()=>finish(row,false);row.timeout=schedule(()=>finish(row,false),12000);row.image.src=row.sources[row.index];
+   row.image.onload=()=>finish(row,true);row.image.onerror=()=>finish(row,false);row.timeout=schedule(()=>finish(row,false),timeoutMs);row.image.src=row.sources[row.index];
   }
  }
  return {
