@@ -13,12 +13,12 @@ export function createMediaPreviewLoader({createImage=()=>new Image(),now=Date.n
  function emit(row,state,src){row.state=state;row.src=src;row.at=now();for(const fn of row.listeners)fn({state,src})}
  function finish(row,ok){
   if(row.state!=='loading')return;cancel(row.timeout);row.image.onload=row.image.onerror=null;if(!ok)row.image.src='';row.image=null;active--;
-  if(ok){failures=0;emit(row,'ready',row.sources[row.index])}
+  if(ok){row.element=null;failures=0;emit(row,'ready',row.sources[row.index])}
   else{
    failures++;if(failures>=4){blockedUntil=Math.max(blockedUntil,now()+30000);failures=0}
    // At most one alternative, through the same queue and rolling budget.
    // Never walk every variant of every failed file at once.
-   if(row.index===0&&row.sources.length>1){row.index++;emit(row,'queued');queue.push(row)}else emit(row,'error');
+   if(row.index===0&&row.sources.length>1){row.index++;emit(row,'queued');queue.push(row)}else{row.element=null;emit(row,'error')}
   }
   pump();
  }
