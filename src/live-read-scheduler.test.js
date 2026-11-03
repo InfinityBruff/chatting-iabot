@@ -1,4 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createReadScheduler,secondaryReads,foregroundReads} from './live-read-scheduler.js';
+import {createPageLoader} from './page-loader.js';
 function fixture(){let at=0;const tasks=new Map();return {now:()=>at,tasks,schedule:(fn,ms)=>{tasks.set(fn,at+ms);return fn},cancel:fn=>tasks.delete(fn),flush:async()=>{const sorted=[...tasks].sort((a,b)=>a[1]-b[1]);if(!sorted.length)return;const [fn,due]=sorted[0];tasks.delete(fn);at=Math.max(at,due);await fn()},advance:ms=>at+=ms}}
 test('chat takes priority over queued secondary reads',async()=>{const c=fixture(),s=createReadScheduler(c),calls=[];const secondary=s.secondary(async()=>calls.push('secondary'));await s.primary(async()=>calls.push('chat'));assert.deepEqual(calls,['chat']);await c.flush();await secondary;assert.deepEqual(calls,['chat','secondary'])});
 test('reads never overlap and pending chat goes before the next background read',async()=>{const c=fixture(),s=createReadScheduler(c),calls=[];let release;const gate=new Promise(r=>release=r);const a=s.secondary(async()=>{calls.push('background-start');await gate;calls.push('background-end')});const first=c.flush();await Promise.resolve();const b=s.secondary(async()=>calls.push('background-next')),p=s.primary(async()=>calls.push('chat'));assert.deepEqual(calls,['background-start']);release();await first;await a;await c.flush();await p;await c.flush();await b;assert.deepEqual(calls,['background-start','background-end','chat','background-next'])});
@@ -14,3 +15,37 @@ test('cold inbox and selected conversation may overlap, but a third read must wa
 test('conversation opening and explicit history precede sidebar pagination; read-ahead cannot delay startup inbox',async()=>{const c=fixture(),s=createReadScheduler(c),calls=[];let release;const occupied=s.primary(()=>new Promise(r=>release=r));const prepare=s.primary(async()=>calls.push('prepare'),undefined,'history-prepare'),inbox=s.primary(async()=>calls.push('inbox'),undefined,'interactive'),page=s.primary(async()=>calls.push('sidebar-page'),undefined,'pagination'),history=s.primary(async()=>calls.push('history'),undefined,'history'),opening=s.primary(async()=>calls.push('conversation'),undefined,'conversation');release();await occupied;for(let i=0;i<5;i++)await c.flush();await Promise.all([prepare,inbox,page,history,opening]);assert.deepEqual(calls,['conversation','inbox','history','sidebar-page','prepare'])});
 
 test('vault reads get interactive capacity while audience scans remain background and mutations bypass both',async()=>{for(const op of ['vault_media','vault_categories'])assert.equal(foregroundReads.has(op),true);for(const op of ['collections','collection_fans','collection_detail'])assert.equal(secondaryReads.has(op),true);for(const op of ['upload','prepare_send','send_message','like_message','native_activate','native_cancel','collection_add']){assert.equal(secondaryReads.has(op),false);assert.equal(foregroundReads.has(op),false)}const c=fixture(),scheduler=createReadScheduler(c),order=[];const scan=scheduler.secondary(async()=>order.push('audience'));await scheduler.primary(async()=>order.push('vault'));await c.flush();await scan;assert.deepEqual(order,['vault','audience'])});
+
+const financialReads=['earnings','monthly','balances','transactions'];
+const scheduleRead=(scheduler,operation,run,active)=>secondaryReads.has(operation)?scheduler.secondary(run,active):foregroundReads.has(operation)?scheduler.primary(run,active,'conversation'):run();
+test('chat opening overtakes queued financial reads and their starts retain background spacing',async()=>{
+ const clock=fixture(),scheduler=createReadScheduler(clock),starts=[];
+ const reports=financialReads.map(operation=>scheduleRead(scheduler,operation,async()=>starts.push([operation,clock.now()])));
+ await scheduleRead(scheduler,'messages',async()=>starts.push(['messages',clock.now()]));
+ assert.deepEqual(starts,[['messages',0]]);
+ for(let i=0;i<financialReads.length;i++)await clock.flush();await Promise.all(reports);
+ assert.deepEqual(starts.map(([operation])=>operation),['messages',...financialReads]);
+ assert.ok(starts.slice(2).every(([,at],index)=>at-starts[index+1][1]>=2500));
+});
+test('leaving the analytics view invalidates page-loader callbacks before queued provider reads start',async()=>{
+ const clock=fixture(),scheduler=createReadScheduler(clock),calls=[],written=[];
+ const loaders=financialReads.map(operation=>createPageLoader({...clock,read:(_cursor,_background,active)=>scheduleRead(scheduler,operation,async()=>{calls.push(operation);return {data:{report:operation}}},active),write:value=>written.push(value)}));
+ for(const loader of loaders)loader.start();for(const loader of loaders)loader.stop();
+ await clock.flush();await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(calls,[]);assert.deepEqual(written,[]);assert.ok(loaders.every(loader=>loader.getSnapshot().result===null));
+});
+test('an analytics request already in flight can finish while chat opens and its abandoned result stays discarded',async()=>{
+ const clock=fixture(),scheduler=createReadScheduler({...clock,maxConcurrent:2}),calls=[],written=[];let finishReport,receivedSignal;
+ const loader=createPageLoader({...clock,read:(_cursor,_background,active,_start,_preparing,signal)=>{receivedSignal=signal;return scheduleRead(scheduler,'earnings',()=>new Promise(resolve=>{calls.push('earnings started');finishReport=()=>{calls.push('earnings completed');resolve({data:{report:'finished'}})} }),active)},write:value=>written.push(value)});
+ loader.start();const report=clock.flush();await Promise.resolve();assert.deepEqual(calls,['earnings started']);loader.stop();
+ const chat=scheduleRead(scheduler,'messages',async()=>calls.push('chat opened'));await clock.flush();await chat;
+ assert.deepEqual(calls,['earnings started','chat opened']);assert.equal(receivedSignal,undefined);
+ finishReport();await report;await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(calls,['earnings started','chat opened','earnings completed']);assert.deepEqual(written,[]);assert.equal(loader.getSnapshot().result,null);
+});
+test('financial read classification never routes writes through a blocked or hidden read queue',async()=>{
+ const clock=fixture(),scheduler=createReadScheduler({...clock,visible:()=>false}),calls=[];scheduler.block(3600);
+ const writes=['send_message','prepare_send','upload','like_message','native_activate','native_cancel','collection_create','collection_rename','collection_add','collection_remove'];
+ for(const operation of writes){assert.equal(secondaryReads.has(operation),false);assert.equal(foregroundReads.has(operation),false);await scheduleRead(scheduler,operation,async()=>calls.push(operation))}
+ assert.deepEqual(calls,writes);assert.equal(clock.tasks.size,0);
+});

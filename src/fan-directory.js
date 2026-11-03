@@ -13,7 +13,7 @@ export function createFanDirectory({request,workspace,ids,publish,now=Date.now,s
    if(!m.retrying&&m.complete&&m.refresh<=now()){m.complete=false;m.cursor=null;m.seen.clear()}
    const head=m.retrying?m.retryHead:m.complete||(m.head<=now()&&m.cursor!==null);const cursor=m.retrying?m.retryCursor:head?null:m.cursor;
    if(!m.retrying&&m.complete&&m.head>now())continue;
-   try{const r=await request(workspace,operation,{creator_id:id,...(operation==='collection_fans'?{type:'all'}:{}),...(cursor?{cursor}:{})});if(stopped)return;const d=r.data;if(!Array.isArray(d?.[field]))throw Error('Respuesta de fans no válida.');
+   try{const r=await request(workspace,operation,{creator_id:id,...(operation==='collection_fans'?{type:'all'}:{}),...(cursor?{cursor}:{})},{active:()=>!stopped});if(stopped)return;const d=r.data;if(!Array.isArray(d?.[field]))throw Error('Respuesta de fans no válida.');
     if(!head&&d.hasMore&&(!d.cursor||m.seen.has(d.cursor)))throw Error('La sincronización está incompleta: el proveedor repitió una página.');
     m.rows=[...new Map([...m.rows,...d[field]].map(f=>[f.id,f])).values()];m.error='';m.failures=0;m.retrying=false;m.checked=now();m.next=now()+1000;
     if(!cursor)m.head=now()+30000;

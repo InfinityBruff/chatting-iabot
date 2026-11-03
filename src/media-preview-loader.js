@@ -22,7 +22,7 @@ export function createMediaPreviewLoader({createImage=()=>new Image(),now=Date.n
   else{
    // A broken file never pauses healthy files. Only a deliberately opened
    // preview gets one lightweight alternative; the grid does not fan out.
-   if(row.allowFallback&&row.index===0&&row.sources.length>1){row.index++;emit(row,'queued');queue.push(row)}else{row.element=null;emit(row,'error')}
+   if(row.allowFallback&&!row.retryOnly&&row.index===0&&row.sources.length>1){row.index++;emit(row,'queued');queue.push(row)}else{row.element=null;emit(row,'error')}
   }
   pump();
  }
@@ -41,11 +41,20 @@ export function createMediaPreviewLoader({createImage=()=>new Image(),now=Date.n
    const key=sources.join('|');if(!key){listener({state:'unavailable'});return()=>{}}
    prune();let row=entries.get(key);
    if(row&&row.state==='error'&&retry){entries.delete(key);row=null}
-   if(row&&row.state==='error'&&allowFallback&&row.index===0&&sources.length>1){row.index=1;row.element=element;emit(row,'queued');queue.push(row)}
+   if(row&&row.state==='error'&&allowFallback&&row.index===0&&sources.length>1){row.index=1;row.element=element;row.retryOnly=false;emit(row,'queued');queue.push(row)}
    if(!row){row={key,sources:[...sources],index:0,state:'queued',priority,element,sequence:sequence++,listeners:new Set(),at:now()};entries.set(key,row);queue.push(row)}
    row.allowFallback||=allowFallback;
    row.priority=Math.max(row.priority,priority);row.listeners.add(listener);listener({state:row.state,src:row.src});pump();
    return()=>{row.listeners.delete(listener);if(!row.listeners.size&&row.state==='queued')entries.delete(key);if(!row.listeners.size&&row.state==='loading'){cancel(row.timeout);row.image.onload=row.image.onerror=null;row.image.src='';row.image=null;row.state='cancelled';entries.delete(key);active--;pump()}};
+  },
+  retryFailed(sources,token,{element}={}){
+   const row=entries.get(sources.join('|'));
+   if(!row||token==null||row.retryToken===token)return;
+   // Consume each explicit refresh even for a ready/in-flight row. Other
+   // consumers of the same file cannot turn it into an automatic retry loop.
+   row.retryToken=token;
+   if(row.state!=='error'||!row.listeners.size||previewsExpired(sources,now()))return;
+   row.index=0;row.element=element;row.retryOnly=true;emit(row,'queued');queue.push(row);pump();
   },
   onReset(listener){resets.add(listener);return()=>resets.delete(listener)},
   clear(){cancel(timer);timer=null;queue.length=0;for(const row of entries.values()){cancel(row.timeout);row.state='cancelled';if(row.image){row.image.onload=row.image.onerror=null;row.image.src='';row.image=null}}entries.clear();active=0;for(const listener of resets)listener();/* Keep the rolling request budget across access changes. */},

@@ -1,4 +1,5 @@
 // Capability tickets bind attachments and reviewed sends to one authenticated actor/model.
+import {retrySeconds} from './provider-read-guard.js';
 const encode=value=>btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value)))).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
 const bytes=value=>Uint8Array.from(atob(value.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0));
 export async function tickets(secret,scope){
@@ -27,7 +28,7 @@ export async function liveAction({input,identity,binding,providerKey,fetcher,aut
    if(input.type){if(!['all','photo','video','audio','gif'].includes(input.type))return reply(400,{error:'Tipo inválido'});params.set('type',input.type)}
    if(input.query){if(typeof input.query!=='string'||input.query.length>150)return reply(400,{error:'Búsqueda inválida'});params.set('query',input.query)}
   }
-  const r=await upstream((op==='vault_media'?'vault/media':'vault/categories')+'?'+params);if(!r.ok)return fail(r);const data=await r.json();const field=op==='vault_media'?'media':'categories';if(!Array.isArray(data[field]))throw Error('schema');
+  const r=await upstream((op==='vault_media'?'vault/media':'vault/categories')+'?'+params);if(!r.ok){if(r.status===429)throw Object.assign(Error('provider'),{providerStatus:429,retryAfter:retrySeconds(r.headers)});return reply(502,{error:r.status===403?'OFMAPI no autoriza consultar el baúl. Revisa el permiso de lectura de la clave.':'OFMAPI no pudo consultar el baúl de esta cuenta. Inténtalo más tarde.',providerStatus:r.status})}const data=await r.json();const field=op==='vault_media'?'media':'categories';if(!Array.isArray(data[field]))throw Error('schema');
   const rows=await Promise.all(data[field].map(async x=>field==='categories'?{id:x.id,name:x.name,photosCount:x.photosCount,videosCount:x.videosCount,audiosCount:x.audiosCount,gifsCount:x.gifsCount}:{...mediaView(x,binding),attachment:x.canView===true&&x.isReady===true&&!x.hasError&&/^\d+$/.test(String(x.id))&&Number.isSafeInteger(Number(x.id))?await capability.sign('attachment',Number(x.id)):null}));
   if(await authorize()!==binding)throw Error('access');return reply(200,{data:{[field]:rows,cursor:typeof data.cursor==='string'?data.cursor:null,hasMore:data.hasMore===true},observedAt:new Date().toISOString()});
  }

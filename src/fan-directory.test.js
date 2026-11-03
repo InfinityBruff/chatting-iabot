@@ -1,4 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createFanDirectory,directoryModelIds,demandedDirectoryIds} from './fan-directory.js';
+import {createReadScheduler} from './live-read-scheduler.js';
 const flush=()=>new Promise(r=>setImmediate(r));
 test('idle campaign lists generate neither provider reads nor a polling timer',async()=>{let reads=0,timers=0;const d=createFanDirectory({workspace:'w',ids:[],request:async()=>{reads++},publish:()=>{},schedule:()=>++timers,cancel:()=>{}});await flush();assert.equal(reads,0);assert.equal(timers,0);d.stop()});
 test('audience demand is separate for fans and collections and cannot widen authorized model scope',()=>{const key=(kind,id)=>JSON.stringify([kind,id]);const demand={[key('fans','A')]:2,[key('lists','B')]:1,[key('fans','C')]:1};assert.deepEqual(demandedDirectoryIds(['A','B'],{},'fans'),[]);assert.deepEqual(demandedDirectoryIds(['A','B'],demand,'fans'),['A']);assert.deepEqual(demandedDirectoryIds(['A','B'],demand,'lists'),['B']);assert.deepEqual(demandedDirectoryIds([],demand,'fans'),[]);assert.deepEqual(demandedDirectoryIds(['B'],demand,'fans'),[])});
@@ -19,4 +20,29 @@ test('429 preserves the pending cursor and honors long Retry-After; hidden tabs 
  await flush();t=1000;await job();assert.equal(calls,2);assert.equal(state.A.complete,false);assert.equal(state.A.rows.length,1);
  t=180000;await job();assert.equal(calls,2);t=181000;visible=false;await job();assert.equal(calls,2);
  visible=true;await job();assert.equal(calls,3);assert.equal(cursors[1],cursors[2]);directory.stop();
+});
+test('closing a directory cancels queued fan and list reads before the provider starts',async()=>{
+ for(const [operation,field] of [['collection_fans','fans'],['collections','lists']]){
+  let drain,reads=0,published=0;
+  const scheduler=createReadScheduler({schedule:fn=>(drain=fn,1),cancel:()=>{}});
+  const directory=createFanDirectory({workspace:'w',ids:['A'],operation,field,publish:()=>published++,request:(w,op,args,options)=>scheduler.secondary(async()=>{reads++;return {data:{[field]:[],hasMore:false}}},options?.active),schedule:()=>assert.fail('a stopped directory must not poll'),cancel:()=>{}});
+  directory.stop();await drain();await flush();
+  assert.equal(reads,0,operation);assert.equal(published,1,operation);
+ }
+});
+test('canceling one queued consumer preserves another consumer pagination and Retry-After',async()=>{
+ let at=0,drain,job,state;const reads=[];
+ const scheduler=createReadScheduler({now:()=>at,schedule:fn=>(drain=fn,1),cancel:()=>{}});
+ const request=(w,op,args,options)=>scheduler.secondary(async()=>{
+  reads.push(args.cursor||'head');
+  if(reads.length===2)throw Object.assign(Error('quota'),{status:429,retryAfter:180});
+  return {data:{fans:[{id:args.cursor?'2':'1'}],hasMore:!args.cursor,cursor:args.cursor?null:'page2'}};
+ },options?.active);
+ const stopped=createFanDirectory({workspace:'w',ids:['A'],request,publish:()=>{},schedule:()=>assert.fail('a stopped consumer must not poll'),cancel:()=>{}});
+ const active=createFanDirectory({workspace:'w',ids:['A'],request,publish:value=>state=value,now:()=>at,schedule:fn=>(job=fn,1),cancel:()=>{}});
+ stopped.stop();at=200;await drain();await flush();assert.deepEqual(reads,['head']);assert.equal(state.A.complete,false);
+ at=1200;const second=job();at=3000;await drain();await second;assert.deepEqual(reads,['head','page2']);assert.equal(state.A.complete,false);assert.equal(state.A.rows.length,1);
+ at=182999;await job();assert.equal(reads.length,2);
+ at=183000;const retry=job();at=183200;await drain();await retry;
+ assert.deepEqual(reads,['head','page2','page2']);assert.equal(state.A.complete,true);assert.deepEqual(state.A.rows.map(row=>row.id),['1','2']);active.stop();
 });

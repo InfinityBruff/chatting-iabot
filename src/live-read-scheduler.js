@@ -1,5 +1,5 @@
 // Only explicitly listed GET-backed reads enter this scheduler. Writes bypass it.
-export const secondaryReads=new Set(['profile','presence','notifications','fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','collections','collection_fans','collection_detail']);
+export const secondaryReads=new Set(['profile','presence','notifications','fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','collections','collection_fans','collection_detail','earnings','monthly','balances','transactions']);
 export const foregroundReads=new Set(['inbox','messages','vault_media','vault_categories']);
 export function createReadScheduler({schedule=setTimeout,cancel=clearTimeout,settleMs=150,backgroundInterval=2500,minimumGap=200,backgroundIdle=0,startupGrace=0,maxConcurrent=1,now=Date.now,visible=()=>typeof document==='undefined'||document.visibilityState==='visible'}={}){
  let running=0,backgroundRunning=false,timer,lastRead=-Infinity,lastBackground=-Infinity,lastPrimary=-Infinity,blockedUntil=0,quota=null;const primary=[],secondary=[],started=now();

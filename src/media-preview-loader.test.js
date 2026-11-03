@@ -38,3 +38,57 @@ test('a mounted image element is used directly, avoiding a second preload/downlo
 });
 
 test('only known expired signed URLs request a listing renewal',()=>{assert.equal(previewsExpired(['https://api.ofmapi.com/image?exp=1'],2000),true);assert.equal(previewsExpired(['https://api.ofmapi.com/image?exp=3'],2000),false);assert.equal(previewsExpired(['blob:local'],2000),false);assert.equal(previewsExpired([],2000),false)});
+
+test('an explicit refresh recovers a persistent error with unchanged URLs for all live consumers',()=>{
+ const f=setup(),grid=[],selected=[];
+ f.loader.subscribe(['account-a/thumb'],v=>grid.push(v));f.fail(0);
+ f.advance(300000);f.loader.subscribe(['account-a/thumb'],v=>selected.push(v));
+ assert.deepEqual(f.starts,['account-a/thumb']);assert.equal(selected.at(-1).state,'error');
+ f.loader.retryFailed(['account-a/thumb'],'refresh-1');
+ f.loader.retryFailed(['account-a/thumb'],'refresh-1');
+ assert.deepEqual(f.starts,['account-a/thumb','account-a/thumb']);f.ok(1);
+ assert.equal(grid.at(-1).state,'ready');assert.equal(selected.at(-1).state,'ready');
+});
+
+test('refresh leaves ready files, in-flight requests and errors from other accounts intact',()=>{
+ const f=setup(),other=[];
+ f.loader.subscribe(['ready'],()=>{});f.ok(0);
+ f.loader.subscribe(['loading'],()=>{});const liveImage=f.images[1];
+ f.loader.subscribe(['account-b/error'],v=>other.push(v));f.fail(2);
+ f.loader.retryFailed(['ready'],'refresh-1');f.loader.retryFailed(['loading'],'refresh-1');
+ assert.equal(liveImage.src,'loading');assert.equal(f.images.length,3);
+ f.fail(1);f.loader.retryFailed(['loading'],'refresh-1');
+ assert.equal(f.images.length,3);assert.equal(other.at(-1).state,'error');
+ f.loader.retryFailed(['loading'],'refresh-2');assert.equal(f.images.length,4);
+ assert.equal(other.at(-1).state,'error');
+});
+
+test('manual thumbnail retries keep the rolling budget and concurrency limits',()=>{
+ const f=setup({concurrency:1,budget:2,windowMs:1000});
+ f.loader.subscribe(['thumb'],()=>{});f.fail(0);f.loader.subscribe(['busy'],()=>{});
+ f.loader.retryFailed(['thumb'],'refresh-1');assert.deepEqual(f.starts,['thumb','busy']);
+ f.ok(1);assert.deepEqual(f.starts,['thumb','busy']);f.advance(999);assert.equal(f.starts.length,2);
+ f.advance(1);assert.deepEqual(f.starts,['thumb','busy','thumb']);
+});
+
+test('an explicit thumbnail refresh never cascades through alternatives or the original',()=>{
+ const f=setup(),states=[];
+ f.loader.subscribe(['thumb','square','original'],v=>states.push(v),{allowFallback:true});
+ f.fail(0);f.fail(1);assert.deepEqual(f.starts,['thumb','square']);
+ f.loader.retryFailed(['thumb','square','original'],'refresh-1');f.fail(2);
+ f.loader.retryFailed(['thumb','square','original'],'refresh-1');
+ assert.deepEqual(f.starts,['thumb','square','thumb']);assert.equal(states.at(-1).state,'error');
+});
+
+test('refresh skips expired or unobserved errors and cancelled retries release their slot',()=>{
+ const f=setup({concurrency:1}),expired='https://example.test/thumb?exp=1';
+ f.loader.subscribe([expired],()=>{});f.fail(0);f.advance(2000);
+ f.loader.retryFailed([expired],'refresh-1');assert.equal(f.starts.length,1);
+ const stopHidden=f.loader.subscribe(['hidden'],()=>{});f.fail(1);stopHidden();
+ f.loader.retryFailed(['hidden'],'refresh-1');assert.equal(f.starts.length,2);
+ const stop=f.loader.subscribe(['visible'],()=>{});f.fail(2);
+ f.loader.retryFailed(['visible'],'refresh-1');const late=f.images[3].onload;
+ stop();assert.equal(f.images[3].src,'');late();
+ f.loader.subscribe(['next'],()=>{});assert.equal(f.starts.at(-1),'next');
+ f.loader.clear();f.loader.retryFailed(['visible'],'refresh-2');assert.equal(f.starts.length,5);
+});
