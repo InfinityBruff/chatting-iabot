@@ -40,3 +40,6 @@
 /* History owns its anchor; browser anchoring and smooth scrolling must not compete. */
 :root .live-shell.workspace-shell .chat-thread-scroll{overflow-anchor:none;scroll-behavior:auto!important}
 :root .live-shell.workspace-shell .chat-thread-notices{flex:none;padding:10px 16px;background:#09090b;border-bottom:1px solid #2d2d31}:root .live-shell.workspace-shell .chat-thread-notices p{margin:0}
+
+/* Stable row boxes let the browser skip offscreen paint without recycling fans during scroll. */
+:root .live-shell.workspace-shell .chat-fan-entry{content-visibility:auto;contain-intrinsic-size:auto 124px;contain:layout paint style}

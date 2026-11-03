@@ -10,7 +10,8 @@ export function mergePage(previous,next,field,{append=false,retain=false}={}){
 }
 export function newestPreview(fan,message){
  if(!message?.createdAt||!Number.isFinite(Date.parse(message.createdAt))||Date.parse(message.createdAt)<(Date.parse(fan.lastMessageTime)||0))return fan;
- return {...fan,lastMessage:message.text||(message.media?.length||message.mediaCount?'Contenido adjunto':'Mensaje sin texto'),lastMessageTime:message.createdAt,lastMessageIsFromMe:message.isFromMe};
+ const preview=message.text||(message.media?.length||message.mediaCount?'Contenido adjunto':'Mensaje sin texto');
+ return fan.lastMessage===preview&&fan.lastMessageTime===message.createdAt&&fan.lastMessageIsFromMe===message.isFromMe?fan:{...fan,lastMessage:preview,lastMessageTime:message.createdAt,lastMessageIsFromMe:message.isFromMe};
 }
 export function sessionKey(user,workspace,account='',fan='',kind='view'){return 'bruff-ui:'+JSON.stringify([user,workspace,account,fan,kind]);}
 export function readSession(key,fallback=null){try{const raw=sessionStorage.getItem(key);return raw?JSON.parse(raw):fallback}catch{return fallback}}

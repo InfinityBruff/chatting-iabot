@@ -1,11 +1,13 @@
-import {useEffect,useRef} from 'react';
+import {useEffect,useLayoutEffect,useRef} from 'react';
 import {inboxNextPage} from '../inbox-loading.js';
+import {createScrollMotion,scrollAheadDistance} from '../scroll-prefetch.js';
 import {readSession,writeSession} from '../chat-sync.js';
-export function useInboxLoading(scope,{result,error,busy,load}){
- const scroll=useRef(null),seen=useRef(new Set()),initialPages=useRef(0),running=useRef(false),restored=useRef(false),saveTimer=useRef();
+export function useInboxLoading(scope,{result,error,busy,load,latencyMs=1000,pageRevision=0,requestCursor}){
+ const scroll=useRef(null),seen=useRef(new Set()),initialPages=useRef(0),restored=useRef(false),saveTimer=useRef(),motion=useRef(createScrollMotion()),accepted=useRef({scope,revision:0});
  useEffect(()=>()=>clearTimeout(saveTimer.current),[]);
- useEffect(()=>{seen.current=new Set();initialPages.current=0;restored.current=false},[scope]);
- const next=async nearEnd=>{const cursor=inboxNextPage({page:result?.data,busy:error?false:busy,error,seen:seen.current,initialPages:initialPages.current,nearEnd});if(!cursor||running.current)return;running.current=true;try{if(await load(cursor)){seen.current.add(cursor);initialPages.current++}}finally{running.current=false}};
- useEffect(()=>{const timer=setTimeout(()=>{const el=scroll.current;if(el&&result&&!restored.current){el.scrollTop=readSession('bruff-scroll:'+scope,0);restored.current=true}next(!!el&&el.scrollTop>0&&el.scrollHeight-el.scrollTop-el.clientHeight<900)},180);return()=>clearTimeout(timer)},[scope,result,busy,error,load]);
- return {ref:scroll,onScroll:e=>{const el=e.currentTarget;const top=el.scrollTop;clearTimeout(saveTimer.current);saveTimer.current=setTimeout(()=>writeSession('bruff-scroll:'+scope,top),180);if(el.scrollHeight-el.scrollTop-el.clientHeight<900)next(true)}};
+ useLayoutEffect(()=>{if(accepted.current.scope!==scope){seen.current=new Set();initialPages.current=0;restored.current=false;motion.current.reset(0);accepted.current={scope,revision:0}}if(pageRevision!==accepted.current.revision){if(requestCursor&&!seen.current.has(requestCursor)){seen.current.add(requestCursor);initialPages.current++}accepted.current.revision=pageRevision}},[scope,pageRevision,requestCursor]);
+ const next=async nearEnd=>{const cursor=inboxNextPage({page:result?.data,busy,error,seen:seen.current,initialPages:initialPages.current,nearEnd});if(cursor)await load(cursor)};
+ const nearEnd=el=>!!el&&el.scrollTop>0&&el.scrollHeight-el.scrollTop-el.clientHeight<scrollAheadDistance({viewport:el.clientHeight,velocity:Math.max(0,motion.current.velocity()),latencyMs});
+ useEffect(()=>{const timer=setTimeout(()=>{const el=scroll.current;if(el&&result&&!restored.current){el.scrollTop=readSession('bruff-scroll:'+scope,0);restored.current=true;motion.current.reset(el.scrollTop)}void next(nearEnd(el))},180);return()=>clearTimeout(timer)},[scope,result,busy,error,load,latencyMs]);
+ return {ref:scroll,onScroll:e=>{const el=e.currentTarget,top=el.scrollTop;motion.current.sample(top);clearTimeout(saveTimer.current);saveTimer.current=setTimeout(()=>writeSession('bruff-scroll:'+scope,top),180);if(nearEnd(el))void next(true)}};
 }
