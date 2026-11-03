@@ -74,12 +74,23 @@ export function normalizeLive(operation,data,binding){
 export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEnabled=false,writeEnabled=false,advancedWriteEnabled=false,fetcher=fetch,onFailure=record=>console.error(JSON.stringify(record))}){
  const baseFetcher=fetcher,readCache=createProviderReadCache();
  return async request=>{
-  let readQuota=null;
+  let readQuota=null,firstMessageRead=false;
   const guardedFetcher=protectProviderReads({fetcher:baseFetcher,onQuota:q=>{readQuota=q},gate:serviceKey?async(op,wait_seconds=0)=>{
    const response=await baseFetcher(url+'/rest/v1/rpc/bruff_provider_read_gate',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({op,wait_seconds}),signal:AbortSignal.timeout(10000)});
    if(!response.ok)throw Error('read_guard');return response.json();
   }:null});
-  const fetcher=readSlotEnabled?coordinateProviderReads({fetcher:guardedFetcher,cache:readCache,slot:serviceKey?async(op,lease_id,priority)=>{const r=await baseFetcher(url+'/rest/v1/rpc/bruff_provider_read_slot',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({op,lease_id,priority}),signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('read_slot');return r.json()}:null}):guardedFetcher;
+  const fetcher=readSlotEnabled?coordinateProviderReads({fetcher:guardedFetcher,cache:readCache,slot:serviceKey?async(op,lease_id,priority)=>{
+   if(firstMessageRead&&op==='acquire'){
+    try{const combined=await baseFetcher(url+'/rest/v1/rpc/bruff_message_read_turn',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({lease_id,priority}),signal:AbortSignal.timeout(10000)});if(combined.ok)return await combined.json()}
+    catch{
+     // A lost response may have granted this exact ticket. Never replay acquisition.
+     try{await baseFetcher(url+'/rest/v1/rpc/bruff_provider_read_slot',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({op:'release',lease_id,priority}),signal:AbortSignal.timeout(10000)})}catch{}
+     throw Error('read_slot');
+    }
+    // Rolling deployment/outage: retain the existing slot and independent gate check.
+   }
+   const r=await baseFetcher(url+'/rest/v1/rpc/bruff_provider_read_slot',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({op,lease_id,priority}),signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('read_slot');return r.json()
+  }:null}):guardedFetcher;
   let diagnosticOperation='request',failureKind='unavailable',providerStatus=null;
   const origin=request.headers.get('origin');
   const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'}:{})};
@@ -127,6 +138,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     return rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p});
    };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
+   firstMessageRead=input.operation==='messages'&&input.cursor==null&&input.background!==true;
    if(['native_queue','native_cancel'].includes(input.operation)){
     const cancel=input.operation==='native_cancel';
     if(!serviceKey||cancel&&!writeEnabled)return reply(503,{error:'Gestión de cola no habilitada'});

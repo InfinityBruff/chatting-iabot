@@ -1,3 +1,4 @@
+import {providerGateChecked} from './provider-read-guard.js';
 const providerRead=(url,options)=>{try{const u=new URL(url);return u.origin==='https://api.ofmapi.com'&&u.pathname.startsWith('/v1/accounts/')&&(options.method||'GET').toUpperCase()==='GET'?u:null}catch{return null}};
 export function createProviderReadCache({now=Date.now,maxEntries=32,maxBytes=4*1024*1024}={}){
  const rows=new Map();let bytes=0;
@@ -17,7 +18,8 @@ export function coordinateProviderReads({fetcher,slot,cache,now=Date.now,sleep=m
    if(ttl){const hit=cache?.get(key);if(hit)return hit}
    if(options.signal?.aborted)throw options.signal.reason||Error('read_slot');
    queued=true;const state=await slot('acquire',ticket,priority);
-   if(state?.allowed===true&&typeof state.lease==='string'&&/^[0-9a-f-]{36}$/i.test(state.lease))token=state.lease;
+   if(state?.allowed===true&&typeof state.lease==='string'&&/^[0-9a-f-]{36}$/i.test(state.lease)){token=state.lease;if(state.gateChecked===true)providerOptions[providerGateChecked]=true}
+   else if(state?.allowed===false&&state.cooldown===true&&Number.isInteger(state.retryAfter)&&state.retryAfter>0)return new Response(JSON.stringify({code:'rate_limit.exceeded'}),{status:429,headers:{'Content-Type':'application/json','Retry-After':String(state.retryAfter)}});
    else if(state?.allowed===false&&Number.isInteger(state.retryAfterMs)&&state.retryAfterMs>=50&&state.retryAfterMs<=1000){if(now()>=deadline)return new Response(JSON.stringify({code:'bruff.read_busy'}),{status:429,headers:{'Content-Type':'application/json','Retry-After':'1'}});await sleep(Math.min(state.retryAfterMs,Math.max(1,deadline-now())))}
    else throw Error('read_slot');
   }

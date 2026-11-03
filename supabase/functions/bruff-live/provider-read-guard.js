@@ -1,4 +1,6 @@
 // Coordinates read cooldowns across Edge instances/users. Never retries or gates writes.
+// Unforgeable by JSON input; only the read coordinator supplies this marker.
+export const providerGateChecked=Symbol('providerGateChecked');
 export function retrySeconds(headers,now=Date.now()){
  const raw=headers.get('retry-after');
  const seconds=/^\d+$/.test(raw||'')?Number(raw):Math.ceil((Date.parse(raw)-now)/1000);
@@ -6,16 +8,17 @@ export function retrySeconds(headers,now=Date.now()){
 }
 export function protectProviderReads({fetcher,gate,now=Date.now,onQuota=()=>{}}){
  return async(url,options={})=>{
+  const {[providerGateChecked]:checked,...requestOptions}=options;
   let providerRead=false;
   try{const u=new URL(url);providerRead=u.origin==='https://api.ofmapi.com'&&u.pathname.startsWith('/v1/accounts/')&&(options.method||'GET').toUpperCase()==='GET'}catch{}
-  if(!providerRead||!gate)return fetcher(url,options);
-  const state=await gate('check');
+  if(!providerRead||!gate)return fetcher(url,requestOptions);
+  const state=checked===true?{allowed:true}:await gate('check');
   if(typeof state?.allowed!=='boolean')throw Error('read_guard');
   if(!state.allowed){
    if(!Number.isInteger(state.retryAfter)||state.retryAfter<1)throw Error('read_guard');
    return new Response(JSON.stringify({code:'rate_limit.exceeded'}),{status:429,headers:{'Content-Type':'application/json','Retry-After':String(state.retryAfter)}});
   }
-  const response=await fetcher(url,options);
+  const response=await fetcher(url,requestOptions);
   const number=name=>{const raw=response.headers.get(name),value=Number(raw);return raw!==null&&Number.isInteger(value)&&value>=0&&value<=2147483647?value:null};
   const quota={limit:number('x-ratelimit-limit'),remaining:number('x-ratelimit-remaining'),reset:number('x-ratelimit-reset'),window:number('x-ratelimit-window')};
   if(Object.values(quota).some(value=>value!==null))onQuota(quota);
