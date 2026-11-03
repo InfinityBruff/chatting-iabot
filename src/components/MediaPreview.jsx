@@ -1,11 +1,11 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {mediaPreviews,previewSources} from '../media-preview-loader.js';
+import {mediaPreviews,previewSources,previewsExpired} from '../media-preview-loader.js';
 export {previewSources} from '../media-preview-loader.js';
 export function MediaImage({item,alt='',eager=false,large=false,onUnavailable,...props}){
  const sources=previewSources(item,large),key=sources.join('|'),ref=useRef(null),imageRef=useRef(null),callback=useRef(onUnavailable);callback.current=onUnavailable;
  const [visible,setVisible]=useState(eager),[view,setView]=useState({key,state:'queued'});
- useEffect(()=>{if(eager||typeof IntersectionObserver==='undefined'){setVisible(true);return}const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){setVisible(true);observer.disconnect()}},{rootMargin:'350px'});if(ref.current)observer.observe(ref.current);return()=>observer.disconnect()},[eager,key]);
- useEffect(()=>{let active=true;const reset=mediaPreviews.onReset(()=>{active=false;setView({key,state:'unavailable'})});const stop=visible?mediaPreviews.subscribe(sources,value=>{if(!active)return;setView({key,...value});if(value.state==='error')callback.current?.(item)},{priority:eager?2:1,element:imageRef.current}):()=>{};return()=>{active=false;stop();reset()}},[key,visible,eager]);
+ useEffect(()=>{if(eager||typeof IntersectionObserver==='undefined'){setVisible(true);return}const observer=new IntersectionObserver(entries=>{for(const entry of entries)setVisible(entry.isIntersecting)},{rootMargin:'200px'});if(ref.current)observer.observe(ref.current);return()=>observer.disconnect()},[eager,key]);
+ useEffect(()=>{let active=true;const reset=mediaPreviews.onReset(()=>{active=false;setView({key,state:'unavailable'})});if(visible&&previewsExpired(sources)){setView({key,state:'error'});callback.current?.(item);return reset}const stop=visible?mediaPreviews.subscribe(sources,value=>{if(active)setView({key,...value})},{priority:large?4:eager?3:1,allowFallback:large,element:imageRef.current}):()=>{};return()=>{active=false;stop();reset()}},[key,visible,eager,large]);
  const current=view.key===key?view:{state:'queued'},src=current.src;
  return <span ref={ref} className="media-image-content" data-preview-state={current.state} aria-busy={['queued','loading'].includes(current.state)&&sources.length>0}><img {...props} ref={imageRef} src={src||undefined} alt={alt} style={!src?{display:'none'}:props.style} decoding="async" referrerPolicy="no-referrer"/>{!src&&<span className="media-empty-preview">{item.canView===false?'Contenido bloqueado':item.isReady===false?'Procesando':!sources.length||['unavailable','error'].includes(current.state)?'Vista previa no disponible':'Cargando vista previa…'}</span>}</span>;
 }
