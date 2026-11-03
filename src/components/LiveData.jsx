@@ -2,6 +2,7 @@ import {liveReads,secondaryReads} from '../live-read-scheduler.js';
 import React from 'react';
 import {authClient} from '../auth.js';
 import {useLivePage} from './useLivePage.js';
+import {startupReadError} from '../startup-read-error.js';
 export async function liveRequest(workspace,operation,extra={},options={}){
  const signal=operation==='messages'?options.signal:undefined;
  const run=()=>{if(signal?.aborted)throw Object.assign(Error('Consulta cancelada'),{name:'AbortError'});options.onStart?.();return invokeLive(workspace,operation,extra,signal)};
@@ -12,7 +13,7 @@ let quotaLogKey='';
 async function invokeLive(workspace,operation,extra,signal){
  const {data,error}=await authClient.functions.invoke('bruff-live',{body:{workspace_id:workspace,operation,...extra},...(signal?{signal}:{})});
  if(signal?.aborted)throw Object.assign(Error('Consulta cancelada'),{name:'AbortError'});
- if(error){let payload;try{payload=await error.context.json()}catch{}const failure=Error(payload?.error||'No se pudieron consultar los datos reales.');failure.status=error.context?.status;const retry=Number(payload?.retryAfter??error.context?.headers?.get('retry-after'));if(Number.isFinite(retry)&&retry>0)failure.retryAfter=retry;if(payload?.code==='CHAT_SAFETY')failure.safety=payload.safety;if(secondaryReads.has(operation)||['inbox','messages'].includes(operation)){if(failure.status===429)liveReads.block(failure.retryAfter||60);if(payload?.readQuota)liveReads.observeQuota(payload.readQuota)}throw failure;}
+ if(error){let payload;try{payload=await error.context.json()}catch{}const failure=Error(startupReadError(operation,payload,error.context?.status));failure.status=error.context?.status;const retry=Number(payload?.retryAfter??error.context?.headers?.get('retry-after'));if(Number.isFinite(retry)&&retry>0)failure.retryAfter=retry;if(payload?.code==='CHAT_SAFETY')failure.safety=payload.safety;if(secondaryReads.has(operation)||['inbox','messages'].includes(operation)){if(failure.status===429)liveReads.block(failure.retryAfter||60);if(payload?.readQuota)liveReads.observeQuota(payload.readQuota)}throw failure;}
  if(data?.readQuota){liveReads.observeQuota(data.readQuota);const key=JSON.stringify([data.readQuota.limit,data.readQuota.window,data.readQuota.reset]);if(key!==quotaLogKey){quotaLogKey=key;console.debug('BRUFF read budget',data.readQuota)}}
  if(data?.data?.providerStatus===429)liveReads.block(data.data.retryAfter||60);
  if(data?.error)throw Error(data.error);return data;

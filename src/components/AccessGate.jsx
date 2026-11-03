@@ -10,6 +10,7 @@ import './access.css';
 const LiveTeam=lazy(()=>import('./LiveTeam.jsx'));
 import MyDisplayName from './MyDisplayName.jsx';
 import {teamRoles as roles} from '../team.js';
+import {startAccessReadPoll} from '../access-read-poll.js';
 
 export default function AccessGate(){return <Suspense fallback={<main className="access-page" role="status"><section className="access-card"><Brand/><div className="bruff-loading-orbit"/><p>Abriendo tu espacio…</p></section></main>}><AccessContent/></Suspense>}
 function AccessContent(){
@@ -25,10 +26,10 @@ function AccessContent(){
  useEffect(()=>{const {data}=authClient.auth.onAuthStateChange((_event,next)=>{const nextId=next?.user?.id||null;if(identity.current!==nextId){if(identity.current)clearUserSession(identity.current);identity.current=nextId;setPageCacheOwner(nextId);generation.current++;autoEntered.current=false;setWorkspaces(null);setLiveWorkspace(null);setError('');}setSession(next);});return ()=>data.subscription.unsubscribe();},[]);
  useEffect(()=>{
   if(!session||flow)return;
-  let active=true,inflight=false;const gen=generation.current;
-  async function check(){if(inflight)return;inflight=true;try{const rows=await loadMemberships();if(active&&gen===generation.current){setWorkspaces(rows);setError('');}}catch(e){if(active&&gen===generation.current){setWorkspaces(null);setError(e.message)}}finally{inflight=false}}
-  check();const timer=setInterval(check,5000);const onVisible=()=>{if(document.visibilityState==='visible')check()};document.addEventListener('visibilitychange',onVisible);
-  return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',onVisible)};
+  const gen=generation.current;
+  const polling=startAccessReadPoll({read:()=>loadMemberships(),onValue:rows=>{if(gen===generation.current){setWorkspaces(rows);setError('')}},onError:e=>{if(gen===generation.current){setWorkspaces(null);setError(e.message)}}});
+  const onVisible=()=>polling.resume();document.addEventListener('visibilitychange',onVisible);
+  return()=>{polling.stop();document.removeEventListener('visibilitychange',onVisible)};
  },[session?.user?.id,flow]);
  async function login(event){event.preventDefault();setBusy(true);setError('');const form=event.currentTarget;const email=form.elements.email.value.trim(),password=form.elements.password.value;try{const {error}=await authClient.auth.signInWithPassword({email,password});if(error)setError('No se pudo iniciar sesión. Comprueba el correo y la contraseña o inténtalo más tarde.');}catch{setError('No se pudo conectar con el servicio de acceso.');}finally{form.elements.password.value='';setBusy(false)}}
  async function logout(){setBusy(true);setError('');try{const {error}=await authClient.auth.signOut({scope:'local'});if(error)throw error;setSession(null);setWorkspaces(null);}catch{setError('No se pudo cerrar la sesión. Inténtalo de nuevo.');}finally{setBusy(false)}}
