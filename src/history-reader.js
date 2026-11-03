@@ -14,7 +14,7 @@ export function createHistoryReader({read,cacheEpoch=()=>0,visible=()=>true,onDe
   const valid=()=>active&&generation===gen&&item.active&&cacheEpoch()===epoch;
   item.timer=schedule(()=>{
    if(!valid()||!visible()){if(stage===item){discard();attempted=null}return}
-   emit('queued');item.promise=Promise.resolve().then(()=>valid()&&visible()?read(cursor,true,valid,()=>{item.started=true;emit('loading')},true):null).then(value=>{
+   emit('queued');item.promise=Promise.resolve().then(()=>valid()&&visible()?read(cursor,false,valid,()=>{item.started=true;emit('loading')},true):null).then(value=>{
     if(!value||!valid()||JSON.stringify(value).length*2>maxBytes)return null;
     item.value=value;item.at=now();emit('ready');return value;
    }).catch(error=>{if(valid()){emit(error?.status===429?'limited':'failed');if(error?.status===401||error?.status===403)onDenied(error)}return null});
