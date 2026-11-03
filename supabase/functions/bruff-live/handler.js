@@ -96,7 +96,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
   const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'}:{})};
   const reply=(status,body)=>{
    if(status===503)try{onFailure({event:'bruff_live_failure',operation:diagnosticOperation,kind:failureKind,...(Number.isInteger(providerStatus)&&providerStatus>=400&&providerStatus<=599?{providerStatus}:{})})}catch{}
-   if(readQuota&&['inbox','messages','fan_spend_batch','presence','profile','fan_profile','fan_spend','fan_history','fan_activity',...communityNames].includes(diagnosticOperation))body={...body,readQuota};
+   if(readQuota&&['inbox','messages','fan_spend_batch','presence','profile','fan_profile','fan_spend','fan_history','fan_activity','earnings','monthly','balances','transactions',...communityNames].includes(diagnosticOperation))body={...body,readQuota};
    return new Response(JSON.stringify(body),{status,headers});
   };
   if(origin&&!origins.has(origin))return reply(403,{error:'Origen no permitido'});
@@ -128,6 +128,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background'].includes(k)))return reply(400,{error:'Consulta no válida'});
    diagnosticOperation=input.operation;
    if(input.background!=null&&(!['inbox','messages'].includes(input.operation)||typeof input.background!=='boolean'))return reply(400,{error:'Consulta no válida'});
+   if(input.operation==='earnings'&&input.category!=null&&!earningsKeys.includes(input.category))return reply(400,{error:'Categoría financiera no válida'});
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(['accounts','inbox','messages'].includes(input.operation)&&![401,403].includes(r.status)?'read_database':'access');return r.json()};
    if(input.operation==='accounts'){const [accounts,chatSafety]=await Promise.all([rpc('bruff_live_accounts',{w:input.workspace_id}),rpc('bruff_chat_status',{w:input.workspace_id})]);return reply(200,{accounts,writeEnabled,chatSafety})}
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
@@ -246,7 +247,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     const start=Date.parse(input.start+'T00:00:00Z'),end=Date.parse(input.end+'T23:59:59.999Z');
     if(!Number.isFinite(start)||!Number.isFinite(end)||end<start||end-start>(input.operation==='earnings'?20*366:367)*86400000||start<Date.parse('2016-01-01T00:00:00Z'))return reply(400,{error:'Intervalo no permitido: movimientos hasta un año; gráficos desde 2016, hasta 20 años'});
     params.set('start',new Date(start).toISOString());
-    path=input.operation==='earnings'?'earnings/chart':'transactions';if(input.operation==='earnings')params.set('end',new Date(end).toISOString());
+    path=input.operation==='earnings'?'earnings/chart':'transactions';if(input.operation==='earnings'){params.set('end',new Date(end).toISOString());if(input.category!=null&&input.category!=='total')params.set('filter',input.category)}
    }
    const providerSignal=['messages','inbox'].includes(input.operation)?AbortSignal.any([request.signal,AbortSignal.timeout(25000)]):AbortSignal.timeout(25000);
    const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{...(readSlotEnabled&&input.background===true?{readPriority:'background'}:{}),headers:{Authorization:'Bearer '+providerKey},signal:providerSignal,redirect:'error'});
@@ -255,7 +256,11 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     return reply(response.status===429?429:502,{error:response.status===429?'OFMAPI ha limitado las consultas. Se conserva el avance; espera antes de actualizar.':'OFMAPI no pudo consultar esta cuenta. Revisa su conexión o inténtalo más tarde.',providerStatus:response.status,...(retryAfter?{retryAfter}:{})});}
    const payload=await response.json();
    if(['messages','inbox'].includes(input.operation)&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
-   if(input.operation==='earnings'){
+   if(input.operation==='earnings'&&input.category!=null){
+    // One independently authorized read lets totals and category cards arrive
+    // progressively without holding the response behind six extra requests.
+    payload.series={[input.category]:categorySeries(payload,input.category)};payload.unavailableCategories=[];
+   }else if(input.operation==='earnings'){
     // The provider defaults to total. Each other category must be requested explicitly.
     const series={...payload.series},unavailableCategories=[];
     for(let i=1;i<earningsKeys.length;i+=2)await Promise.all(earningsKeys.slice(i,i+2).map(async category=>{
