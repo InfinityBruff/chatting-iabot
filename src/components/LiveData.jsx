@@ -3,7 +3,7 @@ import React from 'react';
 import {authClient} from '../auth.js';
 import {useLivePage} from './useLivePage.js';
 export async function liveRequest(workspace,operation,extra={},options={}){
- const run=()=>invokeLive(workspace,operation,extra);
+ const run=()=>{options.onStart?.();return invokeLive(workspace,operation,extra)};
  if(operation==='inbox'&&options.priority==='prefetch')return liveReads.secondary(run,options.active,'prefetch');
  return secondaryReads.has(operation)?liveReads.secondary(run,options.active):['inbox','messages'].includes(operation)?liveReads.primary(run,options.active,options.priority):run();
 }

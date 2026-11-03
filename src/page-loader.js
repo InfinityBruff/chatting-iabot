@@ -7,6 +7,7 @@ export function createPageLoader({read,field,retain=false,initial=null,write=()=
  let head=lane(),page=lane(),result=initial,active=false,denied=false,generation=0,initialPending=!initial,pollTimer=null,pageRevision=0,lastCursor=null,latencyMs=1000,authorizedEpoch=cacheEpoch(),snapshot;
  function emit(){snapshot={result,error:page.error||head.error,busy:initialPending||!!page.running||!!head.running&&(!retain||!result),refreshing:retain&&!!head.running&&!!result,refreshWaiting:head.limited&&!!result,waiting:page.limited||head.limited&&(!retain||!result),pageBusy:!!page.running,pageWaiting:page.limited,requestCursor:page.running?.cursor||lastCursor,pageRevision,latencyMs};for(const listener of listeners)listener()}
  const clearTimers=()=>{cancel(pollTimer);cancel(head.timer);cancel(page.timer)};
+ function deny(error){if(!active||denied)return;denied=true;generation++;clearTimers();head.running=page.running=null;head.limited=page.limited=false;result=null;head.error=error;page.error='';onDenied();emit()}
  function retry(target,cursor){cancel(target.timer);target.timer=schedule(()=>{if(!active||denied)return;if(!visible()){retry(target,cursor);return}void load(cursor)},Math.min(2147483647,Math.max(1000,target.waitUntil-now())))}
  async function load(cursor=null){
   const target=cursor?page:head;
@@ -28,7 +29,7 @@ export function createPageLoader({read,field,retain=false,initial=null,write=()=
   }catch(error){
    if(!valid())return false;
    const failure=readFailureState(error,now());
-   if(failure.denied){denied=true;generation++;clearTimers();head.running=page.running=null;head.limited=page.limited=false;result=null;target.error=failure.error;onDenied();emit();return false}
+   if(failure.denied){deny(failure.error);return false}
    target.error=failure.error;target.limited=failure.waiting;target.retryCursor=cursor||null;target.waitUntil=failure.retryAt;target.failures=failure.waiting?0:Math.min(target.failures+1,4);
    if(cursor&&!failure.waiting&&error?.name!=='AbortError')target.waitUntil=Math.max(target.waitUntil,now()+Math.min(120000,5000*2**target.failures));
    if(failure.waiting||cursor&&error?.name!=='AbortError')retry(target,cursor);
@@ -38,7 +39,7 @@ export function createPageLoader({read,field,retain=false,initial=null,write=()=
  function poll(){cancel(pollTimer);if(!active||denied||!pollInterval)return;const gen=generation;pollTimer=schedule(async()=>{if(gen!==generation)return;if(active&&visible()&&shouldPoll())await load();if(gen===generation)poll()},Math.max(pollInterval*2**head.failures,head.waitUntil-now()))}
  emit();
  return {
-  getSnapshot:()=>snapshot,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)},load,
+  getSnapshot:()=>snapshot,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)},load,deny,
   start(){if(active)return;active=true;denied=false;generation++;head=lane();page=lane();initialPending=!result;authorizedEpoch=cacheEpoch();void load();poll()},
   stop(){active=false;generation++;clearTimers();head.running=page.running=null},
   resume(){if(!active||denied)return;if(page.retryCursor&&now()>=page.waitUntil)void load(page.retryCursor);if(shouldPoll()||!result)void load()},
