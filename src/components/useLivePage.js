@@ -2,6 +2,7 @@ import {useEffect,useMemo,useRef,useSyncExternalStore} from 'react';
 import {createPageLoader} from '../page-loader.js';
 import {createHistoryReader} from '../history-reader.js';
 import {readPageCache,writePageCache,clearPageCache,pageCacheEpoch} from '../live-page-cache.js';
+const noHistorySubscribe=()=>()=>{},noHistorySnapshot=()=>null;
 export function useLivePage(request,workspace,account,operation,args,field,policy={}){
  const signature=JSON.stringify(args),scope=JSON.stringify([workspace,account,operation,signature]);
  const policyRef=useRef(policy);policyRef.current=policy;
@@ -16,6 +17,7 @@ export function useLivePage(request,workspace,account,operation,args,field,polic
   return {controller,history};
  },[request,workspace,account,operation,signature,scope,field,retain]);
  const state=useSyncExternalStore(controller.subscribe,controller.getSnapshot,controller.getSnapshot);
+ const historyStatus=useSyncExternalStore(history?.subscribe||noHistorySubscribe,history?.getSnapshot||noHistorySnapshot,noHistorySnapshot);
  useEffect(()=>{history?.start();controller.start();history?.prepare(controller.getSnapshot().result);const visible=()=>{if(document.visibilityState==='visible'){controller.resume();history?.prepare(controller.getSnapshot().result)}};if(retain)document.addEventListener('visibilitychange',visible);return()=>{history?.stop();controller.stop();document.removeEventListener('visibilitychange',visible)}},[controller,history,retain]);
- return {...state,load:controller.load,update:controller.update};
+ return {...state,historyStatus,load:controller.load,update:controller.update};
 }

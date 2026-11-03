@@ -1,25 +1,28 @@
 // One read-ahead page for the open conversation only. Memory-only and epoch scoped.
-export function createHistoryReader({read,cacheEpoch=()=>0,visible=()=>true,onDenied=()=>{},schedule=setTimeout,cancel=clearTimeout,now=Date.now,delay=350,ttl=30000,maxBytes=2097152}){
- let active=false,generation=0,stage=null,attempted=null,demanding=0;
+export function createHistoryReader({read,cacheEpoch=()=>0,visible=()=>true,onDenied=()=>{},schedule=setTimeout,cancel=clearTimeout,now=Date.now,delay=350,ttl=120000,maxBytes=2097152}){
+ let active=false,generation=0,stage=null,attempted=null,demanding=0,status='idle';const listeners=new Set();
+ const emit=value=>{status=value;for(const listener of listeners)listener()};
  const abort=()=>Object.assign(Error('Consulta cancelada'),{name:'AbortError'});
- function discard(){if(stage){stage.active=false;cancel(stage.timer);stage=null}}
+ function discard(){if(stage){stage.active=false;cancel(stage.timer);stage=null}emit('idle')}
  function prepare(result,epoch=cacheEpoch()){
   const cursor=result?.data?.hasMore&&result.data.cursor;
   if(!active||epoch!==cacheEpoch()||!visible()||demanding)return;
   if(!cursor){discard();attempted=null;return}
   if(stage?.cursor===cursor&&stage.epoch===epoch||attempted===cursor)return;
   discard();attempted=cursor;
-  const gen=generation,item={cursor,epoch,active:true,started:false,value:null,at:0,promise:null,timer:null};stage=item;
+  const gen=generation,item={cursor,epoch,active:true,started:false,value:null,at:0,promise:null,timer:null};stage=item;emit('scheduled');
   const valid=()=>active&&generation===gen&&item.active&&cacheEpoch()===epoch;
   item.timer=schedule(()=>{
    if(!valid()||!visible()){if(stage===item){discard();attempted=null}return}
-   item.promise=Promise.resolve().then(()=>valid()&&visible()?read(cursor,true,valid,()=>{item.started=true},true):null).then(value=>{
+   emit('queued');item.promise=Promise.resolve().then(()=>valid()&&visible()?read(cursor,true,valid,()=>{item.started=true;emit('loading')},true):null).then(value=>{
     if(!value||!valid()||JSON.stringify(value).length*2>maxBytes)return null;
-    item.value=value;item.at=now();return value;
-   }).catch(error=>{if(valid()&&(error?.status===401||error?.status===403))onDenied(error);return null});
+    item.value=value;item.at=now();emit('ready');return value;
+   }).catch(error=>{if(valid()){emit(error?.status===429?'limited':'failed');if(error?.status===401||error?.status===403)onDenied(error)}return null});
   },delay);
  }
  return {
+  subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)},
+  getSnapshot:()=>stage?.value&&now()-stage.at>ttl?'expired':status,
   start(){if(active)return;active=true;generation++;attempted=null},
   stop(){active=false;generation++;discard();attempted=null},
   prepare,
