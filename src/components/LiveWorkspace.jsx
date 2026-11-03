@@ -6,7 +6,7 @@ import {useNotifications,NotificationToasts,NotificationsPage,CollectionsPage} f
 import {readSession,writeSession,sessionKey} from '../chat-sync.js';
 import {ModelProfiles,ModelSelect} from './ModelIdentity.jsx';
 import usePresence from './usePresence.js';
-import {presenceModelIds} from '../presence-scan.js';
+import {presenceModelIds,presenceDemandKey,createPresenceDemand} from '../presence-scan.js';
 import {useInboxWarmup} from './useInboxWarmup.js';
 import {startAccessReadPoll} from '../access-read-poll.js';
 import Brand from './Brand.jsx';
@@ -57,8 +57,13 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const available=accounts||[];
  const sections=navigationSections(workspace.role,available),view=resolveSection(tab,workspace.role,available);
  const account=sectionAccount(view,available,selected);
- const presenceIds=presenceModelIds(available,view,account?.id);
- const presence=usePresence(workspace.id,available.filter(a=>presenceIds.includes(a.id)),['automations','auto-messages'].includes(view)?account?.id:null);
+ const presenceDemand=React.useMemo(()=>createPresenceDemand(),[currentUserId,workspace.id]);
+ const presenceSnapshot=React.useSyncExternalStore(presenceDemand.subscribe,presenceDemand.getSnapshot,presenceDemand.getSnapshot);
+ const presenceScope=JSON.stringify([view,account?.id,account?.chat]);
+ const subscribePresence=React.useCallback(model=>presenceDemand.acquire(presenceScope,model),[presenceDemand,presenceScope]);
+ const onlineEditor=(presenceSnapshot[presenceDemandKey(presenceScope,account?.id)]||0)>0;
+ const presenceIds=presenceModelIds(available,view,account?.id,onlineEditor);
+ const presence=usePresence(workspace.id,available.filter(a=>presenceIds.includes(a.id)),view==='chat'?null:presenceIds[0]||null);
  const notifications=useNotifications(currentUserId,workspace.id,available,workspace.role);
  useInboxWarmup(workspace.id,available,account?.id,view==='chat');
  useEffect(()=>{if(accounts)writeSession(viewKey,{account:account?.id||selected,tab:view,collapsed})},[viewKey,accounts,account?.id,selected,view,collapsed]);
@@ -77,9 +82,9 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
     {view==='accounts'&&<AccountsPage accounts={available} onOpen={selectView}/>}
     {view==='team'&&<LiveTeam workspace={workspace} currentUserId={currentUserId}/>}
     {view==='roles'&&<RolesPage onTeam={()=>setTab('team')}/>}
-    {account&&view==='auto-messages'&&<AutoMessages key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={chooseModel} onDirtyChange={reportAutomationDirty} presence={presence[account.id]}/>}
-    {account&&view==='mass-messages'&&<AutoMessages massOnly key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={chooseModel} onDirtyChange={reportAutomationDirty} presence={presence[account.id]}/>}
-    {account&&view==='automations'&&<Automations key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={chooseModel} onDirtyChange={reportAutomationDirty} presence={presence[account.id]}/>}
+    {account&&view==='auto-messages'&&<AutoMessages key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={chooseModel} onDirtyChange={reportAutomationDirty} onPresenceDemand={subscribePresence} presence={presence[account.id]}/>}
+    {account&&view==='mass-messages'&&<AutoMessages massOnly key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={chooseModel} onDirtyChange={reportAutomationDirty} onPresenceDemand={subscribePresence} presence={presence[account.id]}/>}
+    {account&&view==='automations'&&<Automations key={currentUserId+workspace.id+account.id} user={currentUserId} workspace={workspace.id} account={account} accounts={available} onAccount={chooseModel} onDirtyChange={reportAutomationDirty} onPresenceDemand={subscribePresence} presence={presence[account.id]}/>}
     {account&&view==='bot'&&<BotPage workspace={workspace.id} account={account} onChat={()=>setTab('chat')}/>}
     {account&&view==='chat'&&<LiveInbox currentUserId={currentUserId} presence={presence[account.id]} workspace={workspace.id} account={account.id} accounts={available} onAccount={setSelected} canSend={account.send} canVault={account.vault} enabled={writeEnabled} blocked={chatBlocked}/>}
     {account&&view==='vault'&&<LiveVault workspace={workspace.id} account={account.id}/>}

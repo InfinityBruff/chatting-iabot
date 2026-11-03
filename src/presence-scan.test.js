@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {presenceModelIds,startPresenceScan,acceptPresencePage,failPresenceScan,presenceStatus} from './presence-scan.js';
+import {presenceModelIds,presenceDemandKey,createPresenceDemand,startPresenceScan,acceptPresencePage,failPresenceScan,presenceStatus} from './presence-scan.js';
 import {isFanOnline,applyPresence} from './fan-presence.js';
 const t=Date.parse('2026-11-01T12:00:00Z');
 const page=(ids,more,cursor,now=t)=>({onlineIds:ids,hasMore:more,cursor,checkedAt:new Date(now).toISOString()});
@@ -37,4 +37,28 @@ test('invalid timestamps or non-boolean pagination never claim complete; empty c
  const s=acceptPresencePage(startPresenceScan({},t),page([],false,null),t);assert.equal(s.complete,true);assert.deepEqual(s.confirmations,{});
 });
 
-test('presence polls only the authorized active model in workflows that display it',()=>{const accounts=[{id:'a',chat:true},{id:'b',chat:true},{id:'denied',chat:false}];for(const view of ['chat','automations','auto-messages','mass-messages'])assert.deepEqual(presenceModelIds(accounts,view,'b'),['b']);for(const view of ['vault','accounts','analytics','team'])assert.deepEqual(presenceModelIds(accounts,view,'b'),[]);assert.deepEqual(presenceModelIds(accounts,'chat','denied'),[]);assert.deepEqual(presenceModelIds(accounts,'chat','missing'),[])});
+test('chat keeps its active authorized presence; draft lists and unrelated views have no presence reader',()=>{
+ const accounts=[{id:'a',chat:true},{id:'b',chat:true},{id:'denied',chat:false}];
+ assert.deepEqual(presenceModelIds(accounts,'chat','b'),['b']);
+ for(const view of ['automations','auto-messages','mass-messages','vault','accounts','analytics','team'])assert.deepEqual(presenceModelIds(accounts,view,'b'),[]);
+ for(const view of ['mass-messages','vault','accounts','analytics','team'])assert.deepEqual(presenceModelIds(accounts,view,'b',true),[]);
+ for(const view of ['chat','automations','auto-messages']){assert.deepEqual(presenceModelIds(accounts,view,'denied',true),[]);assert.deepEqual(presenceModelIds(accounts,view,'missing',true),[])}
+ const complete=acceptPresencePage(startPresenceScan({},t),page(['1'],false,null),t);assert.equal(complete.nextAt,t+45000);assert.equal(isFanOnline(applyPresence([{id:'1'}],complete)[0],t+60000),false);
+});
+test('opening and closing an online editor creates and releases only its model presence demand',()=>{
+ const demand=createPresenceDemand(),accounts=[{id:'a',chat:true},{id:'b',chat:true}];
+ const scope='auto-messages:a',requested=()=>presenceModelIds(accounts,'auto-messages','a',(demand.getSnapshot()[presenceDemandKey(scope,'a')]||0)>0);
+ assert.deepEqual(requested(),[]);const close=demand.acquire(scope,'a');assert.deepEqual(requested(),['a']);close();assert.deepEqual(requested(),[]);close();assert.deepEqual(requested(),[]);
+});
+test('editor replacement, model/section changes and revoked permissions cannot reuse stale demand',()=>{
+ const demand=createPresenceDemand(),accounts=[{id:'a',chat:true},{id:'b',chat:true}];
+ const ids=(section,model,allowed=accounts)=>{const scope=JSON.stringify([section,model,true]);return presenceModelIds(allowed,section,model,(demand.getSnapshot()[presenceDemandKey(scope,model)]||0)>0)};
+ const old=demand.acquire(JSON.stringify(['auto-messages','a',true]),'a');assert.deepEqual(ids('auto-messages','a'),['a']);assert.deepEqual(ids('auto-messages','b'),[]);assert.deepEqual(ids('automations','a'),[]);assert.deepEqual(ids('vault','a'),[]);
+ const current=demand.acquire(JSON.stringify(['automations','b',true]),'b');old();assert.deepEqual(ids('automations','b'),['b']);assert.deepEqual(ids('automations','b',[{id:'b',chat:false}]),[]);current();assert.deepEqual(ids('automations','b'),[]);
+ assert.deepEqual(ids('chat','a'),['a']);
+});
+test('one editor cleanup preserves another active consumer and scope stores never share demand',()=>{
+ const demand=createPresenceDemand(),otherIdentity=createPresenceDemand();let changes=0;const unsubscribe=demand.subscribe(()=>changes++),scope='automations:a',key=presenceDemandKey(scope,'a');
+ const closeFirst=demand.acquire(scope,'a'),closeSecond=demand.acquire(scope,'a');assert.equal(demand.getSnapshot()[key],2);assert.deepEqual(otherIdentity.getSnapshot(),{});
+ closeFirst();closeFirst();assert.equal(demand.getSnapshot()[key],1);closeSecond();assert.deepEqual(demand.getSnapshot(),{});assert.equal(changes,4);unsubscribe();demand.acquire(scope,'a');assert.equal(changes,4);
+});

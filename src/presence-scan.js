@@ -1,7 +1,21 @@
 // One state per authorized agency/model. Timestamps belong to individual pages,
 // never to the end of a scan (which could make old confirmations look fresh).
 const ttl=60000;
-export function presenceModelIds(accounts,section,activeModel){return ['chat','automations','auto-messages','mass-messages'].includes(section)?accounts.filter(a=>a.chat===true&&a.id===activeModel).map(a=>a.id):[]}
+export function presenceModelIds(accounts,section,activeModel,onlineEditor=false){return section==='chat'||onlineEditor&&['automations','auto-messages'].includes(section)?accounts.filter(a=>a.chat===true&&a.id===activeModel).map(a=>a.id):[]}
+export const presenceDemandKey=(scope,model)=>JSON.stringify([scope,model]);
+export function createPresenceDemand(){
+ let snapshot={};const listeners=new Set();
+ const emit=()=>{for(const listener of listeners)listener()};
+ return {
+  getSnapshot:()=>snapshot,
+  subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener)},
+  acquire(scope,model){
+   const key=presenceDemandKey(scope,model);let active=true;
+   snapshot={...snapshot,[key]:(snapshot[key]||0)+1};emit();
+   return()=>{if(!active)return;active=false;const next={...snapshot};if(next[key]>1)next[key]--;else delete next[key];snapshot=next;emit()};
+  },
+ };
+}
 const fresh=(rows,now)=>Object.fromEntries(Object.entries(rows||{}).filter(([,stamp])=>{const t=Date.parse(stamp);return Number.isFinite(t)&&t<=now&&now-t<ttl}));
 export function startPresenceScan(previous={},now=Date.now()){
  return {confirmations:fresh(previous.confirmations,now),cycleConfirmations:{},cursor:null,seenCursors:[],fingerprints:[],pagesScanned:0,complete:false,scanning:true,issue:null,failures:0,nextAt:now,scope:'followings'};

@@ -11,7 +11,7 @@ import {automationStatus,automationSummary,automationRows,deliveryCount} from '.
 import {authClient} from '../auth.js';
 import './automations.css';
 const fanName=f=>f.name||f.username||f.id;
-export default function LegacyAutomations({user,workspace,account,accounts,onAccount,presence}){
+export default function LegacyAutomations({user,workspace,account,accounts,onAccount,presence,onPresenceDemand}){
  const key=automationKey(user,workspace,account.id),directory=useFanDirectory(account.id);
  const [rows,setRows]=useState([]),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false),[lastTick,setLastTick]=useState(null),[activation,setActivation]=useState(null),[welcomeReviewed,setWelcomeReviewed]=useState(false),[history,setHistory]=useState(null);
  const [opened,setOpened]=useState(false),[filter,setFilter]=useState('active'),[mode,setMode]=useState('checking'),[engineVersion,setEngineVersion]=useState(0);
@@ -19,6 +19,8 @@ export default function LegacyAutomations({user,workspace,account,accounts,onAcc
  const drafts=useRef({});
  const alive=useRef(true),busyRef=useRef(false),sequence=useRef(0);
  const [draft,setDraft]=useState(newAutomation()),[query,setQuery]=useState(''),[notice,setNotice]=useState(''),[review,setReview]=useState(false),[now,setNow]=useState(Date.now());
+ const onlineEditor=opened&&draft.type==='online';
+ useEffect(()=>onlineEditor?onPresenceDemand?.(account.id):undefined,[onlineEditor,account.id,onPresenceDemand]);
  useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),3000);return()=>clearInterval(t)},[]);
  const set=(field,value)=>{setDraft(d=>({...d,[field]:value}));setNotice('')};
  const type=automationTypes[draft.type],online=freshOnlineFans(directory.rows,presence,now),filtered=directory.rows.filter(f=>[f.name,f.username,f.id].join(' ').toLowerCase().includes(query.toLowerCase()));
