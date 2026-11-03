@@ -4,7 +4,7 @@ import {authClient} from '../auth.js';
 import {useLivePage} from './useLivePage.js';
 import {startupReadError} from '../startup-read-error.js';
 export async function liveRequest(workspace,operation,extra={},options={}){
- const signal=operation==='messages'?options.signal:undefined;
+ const signal=operation==='messages'||operation==='inbox'?options.signal:undefined;
  const run=()=>{if(signal?.aborted)throw Object.assign(Error('Consulta cancelada'),{name:'AbortError'});options.onStart?.();return invokeLive(workspace,operation,extra,signal)};
  if(operation==='inbox'&&options.priority==='prefetch')return liveReads.secondary(run,options.active,'prefetch');
  return secondaryReads.has(operation)?liveReads.secondary(run,options.active):foregroundReads.has(operation)?liveReads.primary(run,options.active,options.priority):run();

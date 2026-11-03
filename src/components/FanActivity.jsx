@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {readFailureState} from '../live-page-policy.js';
 import {liveRequest} from './LiveData.jsx';
 import {mergeActivity,activityStats} from '../fan-activity.js';
+import {createSectionReadGuard} from '../section-read-guard.js';
 const money=n=>typeof n==='number'?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n):'—';
 const labels={message:'Mensaje / PPV',post:'Publicación',tip:'Propina',new_subscription:'Alta',recurring_subscription:'Renovación',stream:'Directo',other:'Otro movimiento'};
 function ActivityGroup({title,rows,ready,partial}){
@@ -19,13 +20,14 @@ export default function FanActivity({workspace,account,fan,visible=true}){
   async function tick(){
    clearTimeout(timer);if(!active||running)return;if(Date.now()<waitUntil){timer=setTimeout(tick,Math.max(1000,waitUntil-Date.now()));return}if(document.visibilityState!=='visible'||!visibleRef.current){timer=setTimeout(tick,30000);return}running=true;if(complete&&Date.now()-fullAt>=300000){complete=false;cursor=null;seen=new Set();cycleRows=[];pages=0;unidentified=false}
    setState(s=>({...s,busy:true,waiting:false,error:''}));
-   try{const r=await liveRequest(workspace,'fan_activity',{creator_id:account,conversation_id:fan,start,...(!complete&&cursor?{cursor}:{})},{active:()=>active});if(!active)return;
+   const guard=createSectionReadGuard({current:()=>active,visible:()=>document.visibilityState==='visible'&&visibleRef.current});
+   try{const r=await liveRequest(workspace,'fan_activity',{creator_id:account,conversation_id:fan,start,...(!complete&&cursor?{cursor}:{})},{active:guard.active});if(!active)return;
     if(!r.data?.transactions)throw Error('El historial de movimientos no está disponible.');
     rows=mergeActivity(rows,r.data.transactions);if(!complete)cycleRows=mergeActivity(cycleRows,r.data.transactions);unidentified||=r.data.transactions.some(x=>!x.id);failures=0;limited=false;waitUntil=0;
     if(!complete){pages++;if(r.data.hasMore){if(!r.data.cursor||seen.has(r.data.cursor))throw Error('El proveedor no permite continuar este historial.');cursor=r.data.cursor;seen.add(cursor)}else {complete=true;fullAt=Date.now();rows=cycleRows}}
     setState({scope,rows,busy:false,pages,start,complete,unidentified,updated:r.observedAt||new Date().toISOString()});
-   }catch(e){if(active){const failure=readFailureState(e);limited=failure.waiting;waitUntil=failure.retryAt;failures=limited?0:Math.min(failures+1,4);if(failure.denied)rows=[];setState(s=>({...s,rows,busy:false,waiting:limited,error:failure.error,complete:limited?s.complete:false}))}}
-   finally{running=false;if(active)timer=setTimeout(tick,limited?Math.max(1000,waitUntil-Date.now()):failures?30000*2**failures:complete?30000:1000)}
+   }catch(e){if(active){if(e?.name==='AbortError'&&guard.deferred()){setState(s=>({...s,busy:false,waiting:false}));return}const failure=readFailureState(e);limited=failure.waiting;waitUntil=failure.retryAt;failures=limited?0:Math.min(failures+1,4);if(failure.denied)rows=[];setState(s=>({...s,rows,busy:false,waiting:limited,error:failure.error,complete:limited?s.complete:false}))}}
+   finally{running=false;if(active)timer=setTimeout(tick,guard.resume()?0:limited?Math.max(1000,waitUntil-Date.now()):failures?30000*2**failures:complete?30000:1000)}
   }
   resume.current=tick;tick();const visible=()=>{if(document.visibilityState==='visible')tick()};document.addEventListener('visibilitychange',visible);
   return()=>{active=false;clearTimeout(timer);document.removeEventListener('visibilitychange',visible);resume.current=null}

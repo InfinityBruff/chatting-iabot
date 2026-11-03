@@ -9,9 +9,9 @@ export function useLivePage(request,workspace,account,operation,args,field,polic
  const retain=operation==='messages'||operation==='inbox';
  const {controller,history}=useMemo(()=>{
   const visible=()=>!retain||document.visibilityState==='visible';
-  const read=(cursor,background,active,onStart,preparing=false,signal)=>request(workspace,operation,{creator_id:account,...JSON.parse(signature),...(cursor?{cursor}:{}),...(background?{background:true}:{})},{priority:preparing?'history-prepare':cursor?(operation==='messages'?'history':'pagination'):background?'refresh':operation==='messages'?'conversation':'interactive',active,onStart,...(operation==='messages'&&signal?{signal}:{})});
+  const read=(cursor,background,active,onStart,preparing=false,signal)=>request(workspace,operation,{creator_id:account,...JSON.parse(signature),...(cursor?{cursor}:{}),...(background?{background:true}:{})},{priority:preparing?'history-prepare':cursor?(operation==='messages'?'history':'pagination'):background?'refresh':operation==='messages'?'conversation':'interactive',active,onStart,...(retain&&signal?{signal}:{})});
   const history=operation==='messages'?createHistoryReader({read,cacheEpoch:pageCacheEpoch,visible,onDenied:error=>controller.deny(error.message||'No se pudo verificar el acceso a la conversación.')}):null;
-  const controller=createPageLoader({field,retain,cancelReads:operation==='messages',initial:readPageCache(scope),cacheEpoch:pageCacheEpoch,onDenied:()=>{history?.stop();clearPageCache()},visible,shouldPoll:()=>policyRef.current.shouldPoll?.()!==false,pollInterval:retain?(operation==='messages'?5000:12000):0,read:history?history.read:read,
+  const controller=createPageLoader({field,retain,cancelReads:retain,initial:readPageCache(scope),cacheEpoch:pageCacheEpoch,onDenied:()=>{history?.stop();clearPageCache()},visible,shouldPoll:()=>policyRef.current.shouldPoll?.()!==false,pollInterval:retain?(operation==='messages'?5000:12000):0,read:history?history.read:read,
    write:(value,epoch)=>{writePageCache(scope,value,epoch);history?.prepare(value,epoch)}
   });
   return {controller,history};

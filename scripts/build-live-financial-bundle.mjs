@@ -32,6 +32,11 @@ try{
   if(a<0||b<a||c<0||d<c)throw Error('Unexpected helper boundary: '+symbol);
   helpers=helpers.slice(0,a)+source.slice(c,d)+helpers.slice(b);
  }
+ // Propagate read-only vault Retry-After without replacing any send/ticket code.
+ const vaultReadLine=text=>text.split('\n').find(line=>line.trimStart().startsWith("const r=await upstream((op==='vault_media'?"));
+ const priorVault=vaultReadLine(helpers),currentVault=vaultReadLine(actions);
+ if(!priorVault||!currentVault)throw Error('Unexpected vault read boundary');
+ helpers=helpers.replace(priorVault,currentVault);
  const communityStart=helpers.indexOf('export async function communityAction('),communityEnd=helpers.indexOf('\nconst origins=',communityStart);
  const community=await readFile(join(root,'supabase/functions/bruff-live/community.js'),'utf8');
  if(communityStart<0||communityEnd<communityStart)throw Error('Unexpected community helper boundary');
@@ -41,7 +46,8 @@ try{
  if(legacy<0||auth<legacy)throw Error('Unexpected legacy worker boundary');
  handler=handler.slice(0,legacy)+"  if(request.headers.has('x-bruff-automation-secret'))return reply(403,{error:'Ejecutor anterior deshabilitado'});\n"+handler.slice(auth);
  for(const [symbol,namespace]of Object.entries({likeFanMessage:'BRUFFLikes',manageNativeQueue:'BRUFFQueue',submitNativeMass:'BRUFFNative',runAdvancedTick:'BRUFFAdvanced',preparationPlan:'BRUFFPrep'}))handler=handler.replaceAll(symbol+'(',namespace+'.'+symbol+'(');
- bundle+=handler+'\n'+prior.slice(serve).replace('createLiveHandler({','createLiveHandler({readSlotEnabled:true,');
+ const serveSource=prior.slice(serve);
+ bundle+=handler+'\n'+(serveSource.includes('readSlotEnabled:')?serveSource:serveSource.replace('createLiveHandler({','createLiveHandler({readSlotEnabled:true,'));
  await writeFile(output,bundle);
  console.log('Saved bundle; manual send/ticket safeguards preserved, explicit media/read/like helpers rebuilt. No deployment.');
 }finally{await rm(dir,{recursive:true,force:true})}
