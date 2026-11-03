@@ -1,13 +1,17 @@
-import React,{useState} from 'react';
-export function previewSources(item){return item.canView===false?[]:[...new Set([item.preview,...(item.previewSources||[]),...(['photo','gif'].includes(item.type)&&!item.convertedToVideo?[item.url]:[])].filter(Boolean))]}
-export function MediaImage({item,alt='',eager=false,...props}){
- const sources=previewSources(item),key=sources.join('|');
- const [failure,setFailure]=useState({key,index:0});const index=failure.key===key?failure.index:0,src=sources[index];
- return src?<img {...props} src={src} alt={alt} loading={eager?'eager':'lazy'} decoding="async" referrerPolicy="no-referrer" onError={()=>setFailure({key,index:index+1})}/>:<span className="media-empty-preview">{item.canView===false?'Contenido bloqueado':item.isReady===false?'Procesando':'Vista previa no disponible'}</span>;
+import React,{useEffect,useRef,useState} from 'react';
+import {mediaPreviews,previewSources} from '../media-preview-loader.js';
+export {previewSources} from '../media-preview-loader.js';
+export function MediaImage({item,alt='',eager=false,large=false,onUnavailable,...props}){
+ const sources=previewSources(item,large),key=sources.join('|'),ref=useRef(null),imageRef=useRef(null),callback=useRef(onUnavailable);callback.current=onUnavailable;
+ const [visible,setVisible]=useState(eager),[view,setView]=useState({key,state:'queued'});
+ useEffect(()=>{if(eager||typeof IntersectionObserver==='undefined'){setVisible(true);return}const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){setVisible(true);observer.disconnect()}},{rootMargin:'350px'});if(ref.current)observer.observe(ref.current);return()=>observer.disconnect()},[eager,key]);
+ useEffect(()=>{let active=true;const reset=mediaPreviews.onReset(()=>{active=false;setView({key,state:'unavailable'})});const stop=visible?mediaPreviews.subscribe(sources,value=>{if(!active)return;setView({key,...value});if(value.state==='error')callback.current?.(item)},{priority:eager?2:1,element:imageRef.current}):()=>{};return()=>{active=false;stop();reset()}},[key,visible,eager]);
+ const current=view.key===key?view:{state:'queued'},src=current.src;
+ return <span ref={ref} className="media-image-content" data-preview-state={current.state} aria-busy={['queued','loading'].includes(current.state)&&sources.length>0}><img {...props} ref={imageRef} src={src||undefined} alt={alt} style={!src?{display:'none'}:props.style} decoding="async" referrerPolicy="no-referrer"/>{!src&&<span className="media-empty-preview">{item.canView===false?'Contenido bloqueado':item.isReady===false?'Procesando':!sources.length||['unavailable','error'].includes(current.state)?'Vista previa no disponible':'Cargando vista previa…'}</span>}</span>;
 }
 export function MediaPreview({item}){
  const [open,setOpen]=useState(false);
  if(item.canView===false)return <div className="live-media-placeholder">Contenido bloqueado</div>;
- if(!item.url||['photo','gif'].includes(item.type)&&!item.convertedToVideo||item.isDrm)return <div className="media-image-frame"><MediaImage item={item} alt="Contenido adjunto"/></div>;
- return open?(item.type==='audio'?<audio controls preload="none" src={item.url}/>:<video controls preload="metadata" src={item.url} poster={item.preview||undefined}/>):<button className="media-play-preview" type="button" onClick={()=>setOpen(true)}><MediaImage item={item} alt="Vista previa del contenido"/><span className="media-play-label">▶ {item.type==='audio'?'Audio':'Vídeo'}</span></button>;
+ if(!item.url||['photo','gif'].includes(item.type)&&!item.convertedToVideo||item.isDrm)return <div className="media-image-frame"><MediaImage item={item} alt="Contenido adjunto" eager large/></div>;
+ return open?(item.type==='audio'?<audio controls preload="none" src={item.url}/>:<video controls preload="metadata" src={item.url} poster={item.preview||undefined}/>):<div className="media-play-preview"><MediaImage item={item} alt="Vista previa del contenido" eager large/><button type="button" className="media-play-label" onClick={()=>setOpen(true)}>▶ {item.type==='audio'?'Audio':'Vídeo'}</button></div>;
 }
