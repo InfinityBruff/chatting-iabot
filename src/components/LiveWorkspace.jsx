@@ -6,6 +6,7 @@ import {useNotifications,NotificationToasts,NotificationsPage,CollectionsPage} f
 import {readSession,writeSession,sessionKey} from '../chat-sync.js';
 import {ModelProfiles,ModelSelect} from './ModelIdentity.jsx';
 import usePresence from './usePresence.js';
+import {useInboxWarmup} from './useInboxWarmup.js';
 import Brand from './Brand.jsx';
 import FinanceOverview from './FinanceOverview.jsx';
 import EarningsChart from './EarningsChart.jsx';
@@ -56,6 +57,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const notifications=useNotifications(currentUserId,workspace.id,available,workspace.role);
  const sections=navigationSections(workspace.role,available),view=resolveSection(tab,workspace.role,available);
  const account=sectionAccount(view,available,selected);
+ useInboxWarmup(workspace.id,available,account?.id,view==='chat');
  useEffect(()=>{if(accounts)writeSession(viewKey,{account:account?.id||selected,tab:view,collapsed})},[viewKey,accounts,account?.id,selected,view,collapsed]);
  const activeSection=sections.find(s=>s.id===view);
  const selectView=(next,id)=>{if(!allowNavigation())return;if(id)setSelected(id);setTab(next);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
