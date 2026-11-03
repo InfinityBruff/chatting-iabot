@@ -3,6 +3,7 @@ export function directoryModelIds({accounts,role,section,activeModel}){
  if(!['owner','admin'].includes(role)||section&&(!['collections','automations','auto-messages','mass-messages'].includes(section)||!activeModel))return [];
  return accounts.filter(a=>a.chat&&(!activeModel||a.id===activeModel)).map(a=>a.id).sort();
 }
+export function demandedDirectoryIds(allowed,demand,kind){return allowed.filter(id=>(demand[JSON.stringify([kind,id])]||0)>0)}
 export function createFanDirectory({request,workspace,ids,publish,now=Date.now,schedule=setTimeout,cancel=clearTimeout,operation='collection_fans',field='fans',visible=()=>true}){
  let stopped=false,timer,running=false,index=0;
  const models=Object.fromEntries(ids.map(id=>[id,{rows:[],complete:false,error:'',checked:null,cursor:null,seen:new Set(),next:0,head:0,refresh:0,failures:0,denied:false}]));
@@ -21,5 +22,5 @@ export function createFanDirectory({request,workspace,ids,publish,now=Date.now,s
    emit();break;
   }}finally{running=false;if(!stopped)timer=schedule(tick,1000)}
  }
- emit();tick();return {stop(){stopped=true;cancel(timer);for(const m of Object.values(models))m.rows=[]}};
+ emit();if(ids.length)tick();return {stop(){stopped=true;cancel(timer);for(const m of Object.values(models))m.rows=[]}};
 }
