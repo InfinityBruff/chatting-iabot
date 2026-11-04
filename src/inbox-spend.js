@@ -50,7 +50,7 @@ export function createInboxSpendReader({workspace,account,request,onValue,onDeni
   }catch(error){if(!owned()||item.epoch!==cacheEpoch())return;
    if(error?.name==='AbortError'||item.controller.signal.aborted){emit({error:'',waiting:false})}
    else if(error?.status===401||error?.status===403){denied=true;index.clear();inputRows=null;forced.clear();emit({error:'No tienes acceso al gasto de esta modelo.',waiting:false});onDenied()}
-   else{if(wave===item.wave)firstBatch=false;failures++;const limited=error?.status===429,seconds=Number(error?.retryAfter);retryAt=now()+(limited?(Number.isFinite(seconds)&&seconds>0?seconds:60)*1000:Math.min(60000,2000*2**Math.min(failures,5)));emit({waiting:limited,error:limited?'':error?.message||'No se pudo actualizar el gasto.'})}
+   else{if(wave===item.wave&&item.started)firstBatch=false;failures++;const limited=error?.status===429,seconds=Number(error?.retryAfter);retryAt=now()+(limited?(Number.isFinite(seconds)&&seconds>0?seconds:60)*1000:Math.min(60000,2000*2**Math.min(failures,5)));emit({waiting:limited,error:limited?'':error?.message||'No se pudo actualizar el gasto.'})}
   }finally{if(owned()){job=null;if(item.epoch!==cacheEpoch()){index.clear();inputRows=null;emit({busy:false,waiting:false})}else emit({busy:false});wake(Math.max(400,retryAt-now()))}}
  }
  return {

@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {createInboxSpendReader,orderedSpendIds,spendIsFresh,mergeInboxSpendPage,INBOX_SPEND_TTL} from './inbox-spend.js';
+import {createReadScheduler} from './live-read-scheduler.js';import {scheduleLiveRead} from './live-read-priority.js';
 const base=Date.parse('2026-11-04T00:00:00Z'),row=id=>({userId:String(id),name:'Fan '+id,spend:{available:true,total:1}});
 function clock(){let at=base;const tasks=new Map();return {now:()=>at,schedule:(fn,ms)=>(tasks.set(fn,at+ms),fn),cancel:fn=>tasks.delete(fn),advance:ms=>at+=ms,nextAt:()=>Math.min(...tasks.values()),flush:async()=>{const first=[...tasks].sort((a,b)=>a[1]-b[1])[0];if(!first)return;tasks.delete(first[0]);at=Math.max(at,first[1]);await first[0]()}}}
 function fixture({count=45,visibleIds,request,visible=()=>true,cacheEpoch=()=>0}={}){
@@ -41,6 +42,21 @@ test('a new visible window gets one fan-visible batch and its remaining bulk sta
 test('manual invalidation cannot bypass RetryAfter and unknown values are never replaced with zero',async()=>{
  let reads=0;const f=fixture({count:1,request:async(input)=>{if(++reads===1)throw Object.assign(Error('limited'),{status:429,retryAfter:7});return {data:{fans:[{id:input.user_ids[0],spend:{available:false,total:null}}]}}}});
  await f.time.flush();assert.equal(f.reader.getSnapshot().waiting,true);assert.equal(f.values.length,0);f.reader.setInput(f.rows,['1'],{refreshToken:1,refreshAll:true});assert.equal(f.time.nextAt(),base+7400);await f.time.flush();assert.equal(f.calls.length,2);assert.equal(f.values[0].rows[0].spend.total,null);assert.equal(f.reader.getSnapshot().done,true);f.reader.stop();
+});
+test('a reserve rejection before dispatch retains the initial visible batch priority and its RetryAfter',async()=>{
+ let at=base;const tasks=new Map(),priorities=[],admitted=[],time={now:()=>at,schedule:(fn,ms)=>(tasks.set(fn,at+ms),fn),cancel:fn=>tasks.delete(fn)};
+ const scheduler=createReadScheduler({...time,backgroundIdle:4000,startupGrace:1500,maxConcurrent:2});scheduler.observeQuota({limit:60,remaining:3,window:60,reset:(base+7000)/1000});
+ const reader=createInboxSpendReader({...time,workspace:'w',account:'c',onValue:()=>{},request:(_w,operation,input,options)=>{priorities.push(options.priority);return scheduleLiveRead(scheduler,operation,async()=>{options.onStart();admitted.push({at,ids:input.user_ids});return {data:{fans:input.user_ids.map(id=>({id,spend:{available:true,total:0}}))}}},options,input)}});
+ const step=async()=>{const first=[...tasks].sort((a,b)=>a[1]-b[1])[0];assert.ok(first);tasks.delete(first[0]);at=first[1];void first[0]();await new Promise(resolve=>setImmediate(resolve))};
+ reader.start();reader.setInput(Array.from({length:21},(_,index)=>row(index+1)),Array.from({length:21},(_,index)=>String(index+1)),{});await step();
+ assert.deepEqual(priorities,['fan-visible']);assert.deepEqual(admitted,[]);assert.equal(reader.getSnapshot().waiting,true);assert.equal(Math.min(...tasks.values()),base+7400);
+ reader.recheckVisibility();assert.equal(Math.min(...tasks.values()),base+7400);
+ while(admitted.length<2)await step();
+ assert.deepEqual(priorities,['fan-visible','fan-visible','background']);assert.equal(admitted[0].at,base+7400);assert.equal(admitted[0].ids.length,20);assert.equal(admitted[1].ids.length,1);reader.stop();
+});
+test('a rate limit after actual dispatch consumes the initial batch intent and keeps subsequent retries background',async()=>{
+ let reads=0;const f=fixture({count:1,request:async input=>{if(++reads===1)throw Object.assign(Error('provider limited'),{status:429,retryAfter:7});return {data:{fans:[{id:input.user_ids[0],spend:{available:true,total:0}}]}}}});
+ await f.time.flush();assert.equal(f.reader.getSnapshot().waiting,true);assert.equal(f.time.nextAt(),base+7400);await f.time.flush();assert.deepEqual(f.priorities,['fan-visible','background']);assert.equal(f.values[0].rows[0].spend.total,0);f.reader.stop();
 });
 test('partial responses retain progress, retry only missing IDs and ignore foreign IDs',async()=>{
  let reads=0;const f=fixture({count:2,request:async()=>({data:{fans:++reads===1?[{id:'1',spend:{available:true,total:2}},{id:'999',spend:{available:true,total:999}}]:[{id:'2',spend:{available:true,total:3}}]}})});
