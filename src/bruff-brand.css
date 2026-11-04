@@ -1,0 +1,29 @@
+/* Exact supplied artwork, composed responsively without redrawing the brand. */
+.bruff-brand{max-width:100%;min-width:0;gap:5px}
+.bruff-brand .bruff-logo-full,.bruff-brand .bruff-logo-mark,.bruff-brand .bruff-logo-type{display:block;position:relative;overflow:hidden;flex:none}
+.bruff-brand .bruff-logo-full img,.bruff-brand .bruff-logo-mark img,.bruff-brand .bruff-logo-type img{position:absolute;display:block;max-width:none;height:auto;filter:none;mix-blend-mode:screen;pointer-events:none;user-select:none}
+.bruff-brand .bruff-logo-full{display:none;width:190px;max-width:100%;aspect-ratio:1112/1000}
+.bruff-brand .bruff-logo-full img{width:112.7698%;left:-6.295%;top:-11%}
+.bruff-brand .bruff-logo-crop{display:flex;align-items:center;gap:9px;position:relative;width:190px;max-width:100%;height:46px;aspect-ratio:auto;overflow:visible}
+.bruff-brand .bruff-logo-mark{width:42px;aspect-ratio:1}
+.bruff-brand .bruff-logo-mark img{width:195.9375%;left:-47.5%;top:-17.1875%}
+.bruff-brand .bruff-logo-type{flex:1;min-width:0;aspect-ratio:1112/330}
+.bruff-brand .bruff-logo-type img{width:112.7698%;left:-6.295%;top:-229.0909%}
+.workspace-brand .bruff-brand{width:100%;align-items:flex-start}
+.workspace-brand .bruff-brand .bruff-logo-crop{width:190px;max-width:100%}
+.workspace-brand .bruff-brand .bruff-brand-caption{padding-left:51px;letter-spacing:.26em}
+.workspace-topbar>.bruff-brand{flex:none;max-width:145px;padding:0}
+.workspace-topbar .bruff-brand .bruff-logo-crop{width:145px;height:36px;gap:7px}
+.workspace-topbar .bruff-brand .bruff-logo-mark{width:34px}
+.workspace-topbar .bruff-brand .bruff-brand-caption{display:none}
+.workspace-collapsed .workspace-brand .bruff-brand{align-items:center}
+:root .live-shell.workspace-shell.workspace-collapsed .workspace-brand{padding-left:0;padding-right:0}
+.workspace-collapsed .workspace-brand .bruff-brand .bruff-logo-crop{width:30px;height:42px}
+.workspace-collapsed .workspace-brand .bruff-logo-mark{width:30px}
+.workspace-collapsed .workspace-brand .bruff-logo-type,.workspace-collapsed .workspace-brand .bruff-brand-caption{display:none}
+.access-card>.bruff-brand{align-items:center;padding:0 0 22px}
+.access-card .bruff-brand .bruff-logo-full{display:block;width:180px}
+.access-card .bruff-brand .bruff-logo-crop,.access-card .bruff-brand .bruff-brand-caption{display:none}
+@media(max-width:1200px){.app-nav>.bruff-brand{padding:0;align-items:center}.app-nav .bruff-brand .bruff-logo-crop{width:40px;height:42px}.app-nav .bruff-logo-mark{width:40px}.app-nav .bruff-logo-type,.app-nav .bruff-brand-caption{display:none}}
+@media(max-width:800px){.workspace-topbar>.bruff-brand{max-width:112px}.workspace-topbar .bruff-brand .bruff-logo-crop{width:112px;height:36px;gap:6px}.workspace-topbar .bruff-brand .bruff-logo-mark{width:30px}.access-card .bruff-brand .bruff-logo-full{width:155px}}
+@media(max-width:360px){.workspace-topbar>.bruff-brand{max-width:38px}.workspace-topbar .bruff-brand .bruff-logo-crop{width:34px;height:36px}.workspace-topbar .bruff-brand .bruff-logo-mark{width:34px}.workspace-topbar .bruff-logo-type{display:none}}
