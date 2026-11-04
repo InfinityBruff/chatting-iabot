@@ -3,8 +3,10 @@ import {clearUserSession,readSession,writeSession,sessionKey} from '../chat-sync
 import Brand from './Brand.jsx';
 import React, {lazy,Suspense,useEffect,useRef,useState} from 'react';
 import {authClient,loadMemberships} from '../auth.js';
+import {canPreloadWorkspace,createWorkspaceModule} from '../workspace-module.js';
 const App=lazy(()=>import('../App.jsx'));
-const LiveWorkspace=lazy(()=>import('./LiveWorkspace.jsx'));
+const workspaceModule=createWorkspaceModule(()=>import('./LiveWorkspace.jsx'));
+const LiveWorkspace=lazy(workspaceModule.load);
 import PasswordAccess, {hasAuthLink} from './PasswordAccess.jsx';
 import './access.css';
 const LiveTeam=lazy(()=>import('./LiveTeam.jsx'));
@@ -21,6 +23,7 @@ function AccessContent(){
  const generation=useRef(0);
  const autoEntered=useRef(false);
  const identity=useRef(null);
+ useEffect(()=>{if(canPreloadWorkspace(session,flow))void workspaceModule.preload()},[session?.user?.id,session?.user?.email_confirmed_at,session?.access_token,flow]);
  useEffect(()=>{if(session&&liveWorkspace)writeSession(sessionKey(session.user.id,'','agency'),liveWorkspace)},[session?.user?.id,liveWorkspace]);
  useEffect(()=>{if(!session){autoEntered.current=false;setLiveWorkspace(null)}else if(!flow&&workspaces?.length&&!autoEntered.current){const saved=readSession(sessionKey(session.user.id,'','agency'));const target=workspaces.find(w=>w.id===saved)||(workspaces.length===1?workspaces[0]:null);if(target){autoEntered.current=true;setLiveWorkspace(target.id)}}},[session,flow,workspaces]);
  useEffect(()=>{const {data}=authClient.auth.onAuthStateChange((_event,next)=>{const nextId=next?.user?.id||null;if(identity.current!==nextId){if(identity.current)clearUserSession(identity.current);identity.current=nextId;setPageCacheOwner(nextId);generation.current++;autoEntered.current=false;setWorkspaces(null);setLiveWorkspace(null);setError('');}setSession(next);});return ()=>data.subscription.unsubscribe();},[]);

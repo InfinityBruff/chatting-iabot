@@ -145,7 +145,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     return rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p});
    };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
-   firstMessageRead=input.operation==='messages'&&input.cursor==null&&input.background!==true;
+   firstMessageRead=(input.operation==='messages'||input.operation==='inbox'&&input.fast===true)&&input.cursor==null&&input.background!==true;
    if(cancelableRead&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(['native_queue','native_cancel'].includes(input.operation)){
     const cancel=input.operation==='native_cancel';
