@@ -6,7 +6,7 @@ test('load forwards client options as the seventh read argument without shifting
  const calls=[],options={priority:'background'},loader=createPageLoader({cancelReads:true,retain:true,initial:page([10]),field:'messages',read:async(...args)=>{calls.push(args);return page([9])}});
  loader.start();await settled();await loader.load('next',options);
  const [cursor,background,active,onStart,preparing,signal,readOptions]=calls[1];
- assert.equal(cursor,'next');assert.equal(background,false);assert.equal(active(),true);assert.equal(onStart,undefined);assert.equal(preparing,false);assert.ok(signal instanceof AbortSignal);assert.equal(readOptions,options);assert.deepEqual(calls[0][6],{});loader.stop();
+ assert.equal(cursor,'next');assert.equal(background,false);assert.equal(active(),true);assert.equal(typeof onStart,'function');assert.equal(preparing,false);assert.ok(signal instanceof AbortSignal);assert.equal(readOptions,options);assert.deepEqual(calls[0][6],{});loader.stop();
 });
 test('429 retry preserves client pagination options and its Retry-After deadline',async()=>{
  let time=0,attempts=0;const tasks=new Map(),seen=[],options={priority:'background'};
@@ -83,4 +83,31 @@ test('leaving two model inboxes frees both occupied slots for the current conver
  a.stop();b.stop();
  const chat=createPageLoader({field:'messages',retain:true,cancelReads:true,read:(cursor,bg,valid)=>scheduler.primary(async()=>{calls.push('current-chat');return page([3])},valid,'conversation')});
  chat.start();await settled();assert.deepEqual(aborted,['model-A','model-B']);assert.deepEqual(calls,['model-A','model-B','current-chat']);assert.equal(chat.getSnapshot().result.data.messages[0].id,3);assert.equal(a.getSnapshot().result,null);assert.equal(b.getSnapshot().result,null);chat.stop();
+});
+test('queued reads become consulting only on scheduler admission and commit the actual read start',async()=>{
+ const {createReadScheduler}=await import('./live-read-scheduler.js');let at=10,release,start,calls=0,emits=0;const remote=deferred(),scheduler=createReadScheduler({now:()=>at,minimumGap:0,settleMs:0});
+ const occupied=scheduler.primary(()=>new Promise(resolve=>release=resolve));
+ const loader=createPageLoader({initial:page([1]),field:'messages',now:()=>at,read:(_cursor,_background,active,onStart)=>{start=onStart;return scheduler.secondary(()=>{calls++;onStart();return remote.promise},active)}});
+ loader.subscribe(()=>emits++);assert.equal(loader.getSnapshot().queued,false);loader.start();assert.equal(loader.getSnapshot().busy,true);assert.equal(loader.getSnapshot().queued,true);assert.equal(calls,0);
+ loader.update(value=>({...value,local:true}));assert.equal(loader.getSnapshot().queued,true);assert.equal(loader.getSnapshot().resultStartedAt,null);
+ at=20;release();await occupied;await settled();assert.equal(calls,1);assert.equal(loader.getSnapshot().queued,false);assert.equal(loader.getSnapshot().busy,true);
+ const afterStart=emits;start();assert.equal(emits,afterStart);at=30;remote.resolve(page([2]));await settled();
+ assert.equal(loader.getSnapshot().resultStartedAt,20);assert.deepEqual(loader.getSnapshot().resultReadIds,['2']);assert.equal(loader.getSnapshot().busy,false);assert.equal(loader.getSnapshot().queued,false);
+ loader.update(value=>({...value,local:true}));assert.equal(loader.getSnapshot().resultStartedAt,20);assert.deepEqual(loader.getSnapshot().resultReadIds,['2']);loader.stop();
+});
+test('cursor queue state is independent of a started retained head and clears after a failed page',async()=>{
+ const head=deferred(),older=deferred(),starts={};const loader=createPageLoader({initial:page([1]),retain:true,field:'messages',read:(cursor,_background,_active,onStart)=>{starts[cursor||'head']=onStart;return cursor?older.promise:head.promise}});
+ loader.start();starts.head();assert.equal(loader.getSnapshot().queued,false);const pending=loader.load('older');assert.equal(loader.getSnapshot().queued,true);assert.equal(loader.getSnapshot().pageBusy,true);
+ older.reject(Error('temporary'));assert.equal(await pending,false);assert.equal(loader.getSnapshot().queued,false);assert.equal(loader.getSnapshot().refreshing,true);head.resolve(page([2]));await settled();loader.stop();
+});
+test('stale admission callbacks after denial or a stopped scope cannot emit or revive a queued lane',async()=>{
+ for(const end of ['deny','stop']){
+  const remote=deferred();let start,emits=0;const loader=createPageLoader({field:'messages',read:(_cursor,_background,_active,onStart)=>{start=onStart;return remote.promise}});loader.subscribe(()=>emits++);loader.start();assert.equal(loader.getSnapshot().queued,true);
+  if(end==='deny')loader.deny('revoked');else loader.stop();assert.equal(loader.getSnapshot().queued,false);const ended=emits;start();assert.equal(emits,ended);
+  remote.resolve(page([999]));await settled();assert.equal(emits,ended);assert.equal(loader.getSnapshot().result,null);loader.stop();
+ }
+});
+test('reads without an admission callback still finish with the requested timestamp and clear queued state',async()=>{
+ const remote=deferred();let at=10,calls=0;const loader=createPageLoader({field:'messages',now:()=>at,read:()=>{calls++;return remote.promise}});loader.start();assert.equal(loader.getSnapshot().queued,true);at=20;remote.resolve(page([3]));await settled();
+ assert.equal(calls,1);assert.equal(loader.getSnapshot().queued,false);assert.equal(loader.getSnapshot().resultStartedAt,10);assert.deepEqual(loader.getSnapshot().resultReadIds,['3']);loader.stop();
 });

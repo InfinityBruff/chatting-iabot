@@ -5,6 +5,7 @@ export function financialSummarySettled(states){
 }
 export function financialReadStatus(state){
  if(state.waiting)return {role:'status',text:'En espera del proveedor. Se reintentará automáticamente.'};
+ if(state.busy&&state.queued)return {role:'status',text:'Esperando turno de lectura…'};
  if(state.busy)return {role:'status',text:'Consultando…'};
  if(state.error)return {role:'alert',text:state.error};
  return null;

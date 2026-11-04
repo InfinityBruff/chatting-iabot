@@ -13,8 +13,8 @@ export function useLivePage(request,workspace,account,operation,args,field,polic
  const {controller,history}=useMemo(()=>{
   const visible=()=>!retain||document.visibilityState==='visible';
   const read=(cursor,background,active,onStart,preparing=false,signal,readOptions={})=>{
-   const priority=pageReadPriority(operation,{cursor,background,preparing,priority:readOptions?.priority}),backgroundBody=pageReadBackground(operation,{cursor,background,priority});
-   return request(workspace,operation,{creator_id:account,...JSON.parse(signature),...(cursor?{cursor}:{}),...(backgroundBody?{background:true}:{})},{priority,active,onStart,...(cancelReads&&signal?{signal}:{})});
+   const parameters=JSON.parse(signature),priority=pageReadPriority(operation,{cursor,background,preparing,priority:readOptions?.priority,category:parameters.category}),backgroundBody=pageReadBackground(operation,{cursor,background,priority});
+   return request(workspace,operation,{creator_id:account,...parameters,...(cursor?{cursor}:{}),...(backgroundBody?{background:true}:{})},{priority,active,onStart,...(cancelReads&&signal?{signal}:{})});
   };
   const history=operation==='messages'?createHistoryReader({read,cacheEpoch:pageCacheEpoch,visible,onDenied:error=>controller.deny(error.message||'No se pudo verificar el acceso a la conversación.')}):null;
   const controller=createPageLoader({field,retain,cancelReads,initial:readPageCache(scope),cacheEpoch:pageCacheEpoch,onDenied:()=>{history?.stop();clearPageCache()},visible,shouldPoll:()=>policyRef.current.shouldPoll?.()!==false,pollInterval:retain?(operation==='messages'?5000:12000):0,read:history?history.read:read,

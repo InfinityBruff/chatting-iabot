@@ -16,6 +16,12 @@ test('financial cards distinguish waiting loading errors and confirmed zero with
  const state={...done,result:{data:{series:{tips:{total:0}}}}};assert.equal(financialReadStatus(state),null);assert.equal(state.result.data.series.tips.total,0);
  assert.equal(financialReadStatus({...state,busy:true}).role,'status');assert.match(financialReadStatus({...state,waiting:true}).text,/automáticamente/);assert.deepEqual(financialReadStatus({...state,error:'Rejected'}),{role:'alert',text:'Rejected'});
 });
+test('financial status distinguishes admission backlog from active consultation and prioritizes provider backoff',()=>{
+ assert.deepEqual(financialReadStatus({...done,busy:true,queued:true}),{role:'status',text:'Esperando turno de lectura…'});
+ assert.deepEqual(financialReadStatus({...done,busy:true,queued:false}),{role:'status',text:'Consultando…'});
+ assert.deepEqual(financialReadStatus({...done,busy:true,queued:true,waiting:true}),{role:'status',text:'En espera del proveedor. Se reintentará automáticamente.'});
+ assert.equal(financialReadStatus({...done,queued:true}),null);
+});
 function clock(){let at=0;const tasks=new Map();return {now:()=>at,schedule:(fn,ms)=>(tasks.set(fn,at+ms),fn),cancel:fn=>tasks.delete(fn),flush:async()=>{const first=[...tasks].sort((a,b)=>a[1]-b[1])[0];if(!first)return;tasks.delete(first[0]);at=Math.max(at,first[1]);await first[0]()}}}
 test('summary reads precede progressive categories and a pending category does not block opening chat',async()=>{
  const time=clock(),scheduler=createReadScheduler({...time,maxConcurrent:2}),order=[],categories=[];let release,admitted=false;
