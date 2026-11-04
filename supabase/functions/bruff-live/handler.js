@@ -14,12 +14,13 @@ import {actionNames,liveAction,mediaView} from './actions.js';
 const origins=new Set(['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site']);
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pick=(obj,keys)=>Object.fromEntries(keys.filter(k=>obj?.[k]!==undefined).map(k=>[k,obj[k]]));
-export async function readOnlinePresence({binding,providerKey,fetcher,cursor}){
+export async function readOnlinePresence({binding,providerKey,fetcher,cursor,signal,readPriority}){
  // Bounded pages; the client follows all cursors without delaying inbox loading.
  const params=new URLSearchParams({filter:'all_online',type:'all',pages:'1'});if(cursor)params.set('cursor',cursor);
- const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/followings?'+params,{headers:{Authorization:'Bearer '+providerKey},signal:AbortSignal.timeout(25000),redirect:'error'});
+ const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/followings?'+params,{...(readPriority?{readPriority}:{}),headers:{Authorization:'Bearer '+providerKey},signal:signal?AbortSignal.any([signal,AbortSignal.timeout(25000)]):AbortSignal.timeout(25000),redirect:'error'});
+ if(signal?.aborted)throw signal.reason||Error('presence');
  if(!r.ok){const retry=Number(r.headers.get('Retry-After'));throw Object.assign(Error('presence'),{providerStatus:r.status,retryAfter:Number.isFinite(retry)&&retry>0?Math.min(retry,120):null})}
- const payload=await r.json();if(!Array.isArray(payload.followings)||typeof payload.hasMore!=='boolean')throw Error('schema');
+ const payload=await r.json();if(signal?.aborted)throw signal.reason||Error('presence');if(!Array.isArray(payload.followings)||typeof payload.hasMore!=='boolean')throw Error('schema');
  return {onlineIds:[...new Set(payload.followings.map(f=>String(f.id)).filter(id=>/^\d{1,24}$/.test(id)))],checkedAt:new Date().toISOString(),complete:payload.hasMore===false,scope:'followings',cursor:typeof payload.cursor==='string'?payload.cursor:null,hasMore:payload.hasMore===true};
 }
 export function normalizeSpend(row){
@@ -126,12 +127,13 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background','liked','action_id','replyTo'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background','foreground','liked','action_id','replyTo'].includes(k)))return reply(400,{error:'Consulta no válida'});
    diagnosticOperation=input.operation;
    if(input.background!=null&&(!['inbox','messages'].includes(input.operation)||typeof input.background!=='boolean'))return reply(400,{error:'Consulta no válida'});
+   if('foreground'in input&&(typeof input.foreground!=='boolean'||!['fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','presence'].includes(input.operation)||input.foreground===true&&input.operation==='fan_activity'&&input.cursor!=null))return reply(400,{error:'Consulta no válida'});
    if(input.operation==='earnings'&&input.category!=null&&!earningsKeys.includes(input.category))return reply(400,{error:'Categoría financiera no válida'});
    if((Object.hasOwn(input,'liked')||Object.hasOwn(input,'action_id'))&&input.operation!=='like_message'||Object.hasOwn(input,'replyTo')&&input.operation!=='prepare_send')return reply(400,{error:'Consulta no válida'});
-   cancelableRead=['messages','inbox','monthly','balances','transactions'].includes(input.operation)||input.operation==='earnings'&&input.category!=null;
+   cancelableRead=['messages','inbox','monthly','balances','transactions','fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','presence'].includes(input.operation)||input.operation==='earnings'&&input.category!=null;
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(['accounts','inbox','messages'].includes(input.operation)&&![401,403].includes(r.status)?'read_database':'access');return r.json()};
    if(input.operation==='accounts'){const [accounts,chatSafety]=await Promise.all([rpc('bruff_live_accounts',{w:input.workspace_id}),rpc('bruff_chat_status',{w:input.workspace_id})]);return reply(200,{accounts,writeEnabled,chatSafety})}
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
@@ -222,16 +224,19 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    if(input.operation==='fan_spend_batch'){
     if(!Array.isArray(input.user_ids)||!input.user_ids.length||input.user_ids.length>20||input.user_ids.some(id=>typeof id!=='string'||!/^\d{1,24}$/.test(id)))return reply(400,{error:'Fans inválidos'});
     const ids=[...new Set(input.user_ids)];
-    const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/fans/spend?'+new URLSearchParams({ids:ids.join(',')}),{headers:{Authorization:'Bearer '+providerKey},redirect:'error',signal:AbortSignal.timeout(10000)});
+    const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/fans/spend?'+new URLSearchParams({ids:ids.join(',')}),{...(readSlotEnabled&&input.foreground===true?{readPriority:'foreground'}:{}),headers:{Authorization:'Bearer '+providerKey},redirect:'error',signal:AbortSignal.any([request.signal,AbortSignal.timeout(10000)])});
+    if(request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
     if(!r.ok){const error=Error('provider');error.providerStatus=r.status;error.retryAfter=r.status===429?retrySeconds(r.headers):null;throw error}
-    const payload=await r.json();if(!Array.isArray(payload.fans))throw Error('schema');
+    const payload=await r.json();if(request.signal.aborted)return reply(499,{error:'Consulta cancelada'});if(!Array.isArray(payload.fans))throw Error('schema');
     if(await authorize()!==binding)throw Error('access');
+    if(request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
     return reply(200,{data:{fans:payload.fans.filter(row=>ids.includes(String(row.fanId))).map(row=>({id:String(row.fanId),spend:normalizeSpend(row)}))}});
    }
    if(input.operation==='presence'){
     if(input.cursor!=null&&(typeof input.cursor!=='string'||input.cursor.length>2048))return reply(400,{error:'Cursor inválido'});
-    let data;try{data=await readOnlinePresence({binding,providerKey,fetcher,cursor:input.cursor})}catch(e){data={onlineIds:[],checkedAt:null,complete:false,scope:'followings',unavailable:true,providerStatus:e.providerStatus||null,retryAfter:e.retryAfter||null}}
+    let data;try{data=await readOnlinePresence({binding,providerKey,fetcher,cursor:input.cursor,signal:request.signal,...(readSlotEnabled&&input.foreground===true?{readPriority:'foreground'}:{})})}catch(e){if(request.signal.aborted)throw e;data={onlineIds:[],checkedAt:null,complete:false,scope:'followings',unavailable:true,providerStatus:e.providerStatus||null,retryAfter:e.retryAfter||null}}
     if(await authorize()!==binding)throw Error('access');
+    if(request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
     return reply(200,{data});
    }
    if(actionNames.includes(input.operation))return await liveAction({input,identity,binding,providerKey,fetcher,authorize,reply,writeEnabled,beginSend:async(fan,request_id)=>{if(!serviceKey)throw Error('attribution');return rpc('bruff_message_begin',{w:input.workspace_id,c:input.creator_id,fan,request_id})},finishSend:async(fan,request_id,message_id)=>{
@@ -253,7 +258,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     path=input.operation==='earnings'?'earnings/chart':'transactions';if(input.operation==='earnings'){params.set('end',new Date(end).toISOString());if(input.category!=null&&input.category!=='total')params.set('filter',input.category)}
    }
    const providerSignal=cancelableRead?AbortSignal.any([request.signal,AbortSignal.timeout(25000)]):AbortSignal.timeout(25000);
-   const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{...(readSlotEnabled&&input.background===true?{readPriority:'background'}:{}),headers:{Authorization:'Bearer '+providerKey},signal:providerSignal,redirect:'error'});
+   const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{...(readSlotEnabled&&input.foreground===true?{readPriority:'foreground'}:readSlotEnabled&&input.background===true?{readPriority:'background'}:{}),headers:{Authorization:'Bearer '+providerKey},signal:providerSignal,redirect:'error'});
    if(cancelableRead&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(!response.ok){const retryAfter=response.status===429?retrySeconds(response.headers):null;if(retryAfter)headers['Retry-After']=String(retryAfter);
     return reply(response.status===429?429:502,{error:response.status===429?'OFMAPI ha limitado las consultas. Se conserva el avance; espera antes de actualizar.':'OFMAPI no pudo consultar esta cuenta. Revisa su conexión o inténtalo más tarde.',providerStatus:response.status,...(retryAfter?{retryAfter}:{})});}

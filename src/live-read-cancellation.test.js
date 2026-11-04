@@ -8,6 +8,6 @@ test('single financial pages support cancellation while retaining their backgrou
  assert.equal(cancellableLiveRead('earnings'),false);assert.equal(cancellableLiveRead('earnings',{category:null}),false);
 });
 test('cancellation preserves chat support and never accepts a write or an unrelated background scan',()=>{
- for(const operation of ['inbox','messages'])assert.equal(cancellableLiveRead(operation),true);
- for(const operation of ['send_message','prepare_send','upload','like_message','native_activate','native_cancel','collection_add','presence','notifications','fan_spend_batch'])assert.equal(cancellableLiveRead(operation,{category:'total'}),false);
+ for(const operation of ['inbox','messages','fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','presence'])assert.equal(cancellableLiveRead(operation),true);
+ for(const operation of ['send_message','prepare_send','upload','like_message','native_activate','native_cancel','collection_add','notifications'])assert.equal(cancellableLiveRead(operation,{category:'total'}),false);
 });

@@ -72,7 +72,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const subscribePresence=React.useCallback(model=>presenceDemand.acquire(presenceScope,model),[presenceDemand,presenceScope]);
  const onlineEditor=(presenceSnapshot[presenceDemandKey(presenceScope,account?.id)]||0)>0;
  const presenceIds=presenceModelIds(available,view,account?.id,onlineEditor);
- const presence=usePresence(workspace.id,available.filter(a=>presenceIds.includes(a.id)),view==='chat'?null:presenceIds[0]||null);
+ const presence=usePresence(workspace.id,available,presenceIds,currentUserId,{fastModel:onlineEditor?account?.id:null});
  const notifications=useNotifications(currentUserId,workspace.id,available,workspace.role);
  useInboxWarmup(workspace.id,available,account?.id,view==='chat');
  useEffect(()=>{if(accounts)writeSession(viewKey,{account:account?.id||selected,tab:view,collapsed})},[viewKey,accounts,account?.id,selected,view,collapsed]);

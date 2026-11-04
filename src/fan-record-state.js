@@ -1,6 +1,7 @@
 import {spendTime} from './inbox-spend.js';
-export const fanRecordPriority=(kind,summaryVisible)=>kind==='profile'&&summaryVisible?'selected':'background';
+export const fanRecordPriority=(kind,reason='visible')=>['profile','spend','history'].includes(kind)&&(reason==='visible'||reason===true)?'fan-visible':'background';
 export function fanSectionFresh(value,now=Date.now(),ttl=30000){const stamp=spendTime(value?.updated);return !!value?.data&&Number.isFinite(stamp)&&stamp<=now&&now-stamp<ttl}
+export const fanSectionNeedsRead=(current,cached,now=Date.now())=>!fanSectionFresh(current,now)&&!fanSectionFresh(cached,now);
 export function adoptFanSpend(current,spend,checkedAt){
  if(!spend||typeof spend.available!=='boolean')return current;
  const stamp=spendTime(checkedAt),previous=spendTime(current?.updated);

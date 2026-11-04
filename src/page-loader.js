@@ -5,7 +5,7 @@ import {readFailureState} from './live-page-policy.js';
 export function createPageLoader({read,field,retain=false,initial=null,write=()=>{},cacheEpoch=()=>0,onDenied=()=>{},visible=()=>true,shouldPoll=()=>true,now=Date.now,schedule=setTimeout,cancel=clearTimeout,pollInterval=0,cancelReads=false}){
  const listeners=new Set(),lane=()=>({running:null,error:'',limited:false,waitUntil:0,retryCursor:null,retryOptions:{},failures:0,timer:null});
  let head=lane(),page=lane(),result=initial,resultStartedAt=null,resultReadIds=null,active=false,denied=false,generation=0,initialPending=!initial,pollTimer=null,pageRevision=0,lastCursor=null,latencyMs=1000,authorizedEpoch=cacheEpoch(),snapshot;
- function emit(){snapshot={result,resultStartedAt:result?resultStartedAt:null,resultReadIds:result?resultReadIds:null,error:page.error||head.error,busy:initialPending||!!page.running||!!head.running&&(!retain||!result),queued:active&&!denied&&!!(head.running&&!head.running.started||page.running&&!page.running.started),refreshing:retain&&!!head.running&&!!result,refreshWaiting:head.limited&&!!result,waiting:page.limited||head.limited&&(!retain||!result),pageBusy:!!page.running,pageWaiting:page.limited,requestCursor:page.running?.cursor||lastCursor,pageRevision,latencyMs};for(const listener of listeners)listener()}
+ function emit(){snapshot={result,denied,resultStartedAt:result?resultStartedAt:null,resultReadIds:result?resultReadIds:null,error:page.error||head.error,busy:initialPending||!!page.running||!!head.running&&(!retain||!result),queued:active&&!denied&&!!(head.running&&!head.running.started||page.running&&!page.running.started),refreshing:retain&&!!head.running&&!!result,refreshWaiting:head.limited&&!!result,waiting:page.limited||head.limited&&(!retain||!result),pageBusy:!!page.running,pageWaiting:page.limited,requestCursor:page.running?.cursor||lastCursor,pageRevision,latencyMs};for(const listener of listeners)listener()}
  const clearTimers=()=>{cancel(pollTimer);cancel(head.timer);cancel(page.timer)};
  const abortReads=()=>{head.running?.controller?.abort();page.running?.controller?.abort()};
  function revalidate(){
@@ -47,7 +47,7 @@ export function createPageLoader({read,field,retain=false,initial=null,write=()=
  emit();
  return {
   getSnapshot:()=>snapshot,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)},load,deny,
-  start(){if(active)return;active=true;denied=false;generation++;head=lane();page=lane();initialPending=!result;authorizedEpoch=cacheEpoch();void load();poll()},
+  start(){if(active)return;active=true;denied=false;generation++;head=lane();page=lane();initialPending=!result;authorizedEpoch=cacheEpoch();emit();void load();poll()},
   stop(){active=false;generation++;clearTimers();abortReads();head.running=page.running=null;emit()},
   resume(){if(!active||denied)return;if(page.retryCursor&&now()>=page.waitUntil)void load(page.retryCursor,page.retryOptions);if(shouldPoll()||!result)void load()},
   update(fn){if(!active||denied||authorizedEpoch!==cacheEpoch())return;const next=fn(result);if(next===result)return;result=next;write(result,cacheEpoch());emit()}

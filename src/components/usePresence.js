@@ -1,38 +1,13 @@
-import {useEffect,useState,useRef} from 'react';
+import {useEffect,useMemo,useSyncExternalStore} from 'react';
 import {liveRequest} from './LiveData.jsx';
-import {startPresenceScan,acceptPresencePage,failPresenceScan} from '../presence-scan.js';
-// Round-robin across all authorized models: one request at a time, independent cursors.
-export default function usePresence(workspace,accounts,fastModel=null){
- const fast=useRef(fastModel);fast.current=fastModel;
- const scope=JSON.stringify(accounts.filter(a=>a.chat===true).map(a=>a.id).sort());
- const key=workspace+':'+scope;
- const [snapshot,setSnapshot]=useState({key:null,results:{}});
- useEffect(()=>{
-  let active=true,timer,inflight=false;
-  const ids=JSON.parse(scope),states=Object.fromEntries(ids.map(id=>[id,startPresenceScan()]));
-  setSnapshot({key,results:{}});
-  if(!ids.length)return()=>{active=false};
-  const publish=()=>{if(active)setSnapshot({key,results:{...states}})};
-  const schedule=()=>{if(active)timer=setTimeout(tick,350)};
-  async function tick(){
-   if(!active||inflight)return;
-   if(document.visibilityState==='hidden'){schedule();return}
-   const now=Date.now(),id=ids.filter(id=>states[id].nextAt<=now).sort((a,b)=>states[a].nextAt-states[b].nextAt)[0];
-   if(!id){schedule();return}
-   inflight=true;
-   if(!states[id].scanning)states[id]=startPresenceScan(states[id],now);
-   const current=states[id];
-   try{
-    const r=await liveRequest(workspace,'presence',{creator_id:id,...(current.cursor?{cursor:current.cursor}:{})},{active:()=>active});
-    if(!active)return;
-    states[id]=acceptPresencePage(current,r.data,Date.now());
-    if(id===fast.current&&states[id].complete&&!states[id].issue)states[id]={...states[id],nextAt:Date.now()+3000};
-   }catch(e){if(active)states[id]=failPresenceScan(current,{status:e.status,retryAfter:e.retryAfter},Date.now())}
-   finally{inflight=false;if(active){publish();schedule()}}
-  }
-  const visible=()=>{if(document.visibilityState==='visible'&&!inflight){clearTimeout(timer);tick()}};
-  tick();document.addEventListener('visibilitychange',visible);
-  return()=>{active=false;clearTimeout(timer);document.removeEventListener('visibilitychange',visible)};
- },[workspace,scope,key]);
- return snapshot.key===key?snapshot.results:{};
+import {createPresenceController} from '../presence-controller.js';
+
+export default function usePresence(workspace,accounts,demandIds=[],identity='',{fastModel=null}={}){
+ const scope=JSON.stringify(accounts.filter(a=>a.chat===true).map(a=>a.id).sort()),demand=JSON.stringify(demandIds);
+ const reader=useMemo(()=>createPresenceController({workspace,request:liveRequest,visible:()=>document.visibilityState==='visible'}),[workspace,identity]);
+ const snapshot=useSyncExternalStore(reader.subscribe,reader.getSnapshot,reader.getSnapshot);
+ useEffect(()=>{reader.start();const changed=()=>reader.resume();document.addEventListener('visibilitychange',changed);return()=>{reader.stop();document.removeEventListener('visibilitychange',changed)}},[reader]);
+ useEffect(()=>reader.setInput(JSON.parse(scope),JSON.parse(demand),{fastModel}),[reader,scope,demand,fastModel]);
+ // Permission removal must hide cached rows in this render, before effects run.
+ return useMemo(()=>{const allowed=new Set(JSON.parse(scope));return Object.fromEntries(Object.entries(snapshot).filter(([id])=>allowed.has(id)))},[snapshot,scope]);
 }

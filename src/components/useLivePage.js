@@ -25,5 +25,5 @@ export function useLivePage(request,workspace,account,operation,args,field,polic
  const state=useSyncExternalStore(controller.subscribe,controller.getSnapshot,controller.getSnapshot);
  const historyStatus=useSyncExternalStore(history?.subscribe||noHistorySubscribe,history?.getSnapshot||noHistorySnapshot,noHistorySnapshot);
  useEffect(()=>{history?.start();controller.start();history?.prepare(controller.getSnapshot().result);const visible=()=>{if(document.visibilityState==='visible'){controller.resume();history?.prepare(controller.getSnapshot().result)}};if(retain)document.addEventListener('visibilitychange',visible);return()=>{history?.stop();controller.stop();document.removeEventListener('visibilitychange',visible)}},[controller,history,retain]);
- return {...state,historyStatus,load:controller.load,update:controller.update};
+ return {...state,historyStatus,load:controller.load,update:controller.update,deny:controller.deny};
 }

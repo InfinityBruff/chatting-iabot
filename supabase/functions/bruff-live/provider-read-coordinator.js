@@ -9,10 +9,10 @@ export function createProviderReadCache({now=Date.now,maxEntries=32,maxBytes=4*1
 }
 export function coordinateProviderReads({fetcher,slot,cache,now=Date.now,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),maxWait=8000}){
  return async(url,options={})=>{
-  const u=providerRead(url,options);if(!u||!slot)return fetcher(url,options);
-  const head=/\/inbox$/.test(u.pathname),messages=/\/conversations\/\d+$/.test(u.pathname),ttl=head?5000:messages?(u.searchParams.has('cursor')?15000:4000):0;
   const {readPriority,...providerOptions}=options;
-  const key=u.href,priority=readPriority==='background'?'background':head||messages||/\/vault\/(media|categories)$/.test(u.pathname)?'foreground':'background',deadline=now()+maxWait,ticket=crypto.randomUUID();let token,queued=false;
+  const u=providerRead(url,options);if(!u||!slot)return fetcher(url,providerOptions);
+  const head=/\/inbox$/.test(u.pathname),messages=/\/conversations\/\d+$/.test(u.pathname),ttl=head?5000:messages?(u.searchParams.has('cursor')?15000:4000):0;
+  const key=u.href,priority=readPriority==='foreground'?'foreground':readPriority==='background'?'background':head||messages||/\/vault\/(media|categories)$/.test(u.pathname)?'foreground':'background',deadline=now()+maxWait,ticket=crypto.randomUUID();let token,queued=false;
   try{
   while(!token){
    if(ttl){const hit=cache?.get(key);if(hit)return hit}
@@ -23,6 +23,7 @@ export function coordinateProviderReads({fetcher,slot,cache,now=Date.now,sleep=m
    else if(state?.allowed===false&&Number.isInteger(state.retryAfterMs)&&state.retryAfterMs>=50&&state.retryAfterMs<=1000){if(now()>=deadline)return new Response(JSON.stringify({code:'bruff.read_busy'}),{status:429,headers:{'Content-Type':'application/json','Retry-After':'1'}});await sleep(Math.min(state.retryAfterMs,Math.max(1,deadline-now())))}
    else throw Error('read_slot');
   }
+  if(options.signal?.aborted)throw options.signal.reason||Error('read_slot');
   if(ttl){const hit=cache?.get(key);if(hit)return hit}const response=await fetcher(url,providerOptions);if(ttl)await cache?.put(key,response,ttl);return response}
   finally{if(token||queued)try{await slot(token?'release':'cancel',token||ticket,priority)}catch{console.error(JSON.stringify({event:'bruff_read_slot_release_failure'}))}}
  };

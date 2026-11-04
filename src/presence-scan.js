@@ -17,11 +17,15 @@ export function createPresenceDemand(){
  };
 }
 const fresh=(rows,now)=>Object.fromEntries(Object.entries(rows||{}).filter(([,stamp])=>{const t=Date.parse(stamp);return Number.isFinite(t)&&t<=now&&now-t<ttl}));
+export function retainPresenceConfirmations(state,now=Date.now()){
+ return {...state,confirmations:fresh(state.confirmations,now),cycleConfirmations:fresh(state.cycleConfirmations,now)};
+}
 export function startPresenceScan(previous={},now=Date.now()){
  return {confirmations:fresh(previous.confirmations,now),cycleConfirmations:{},cursor:null,seenCursors:[],fingerprints:[],pagesScanned:0,complete:false,scanning:true,issue:null,failures:0,nextAt:now,scope:'followings'};
 }
 export function failPresenceScan(state,{status,retryAfter,reason}={},now=Date.now()){
  if(status===401||status===403)return {...startPresenceScan({},now),scanning:false,unavailable:true,issue:'access',nextAt:now+45000};
+ if(state.cursor&&[400,422].includes(status))return {...retainPresenceConfirmations(state,now),complete:false,scanning:false,cursor:null,unavailable:true,issue:'cursor_invalid',nextAt:now+45000};
  const failures=(state.failures||0)+1;
  const wait=Math.max(1000,Math.min(120000,Number.isFinite(retryAfter)?retryAfter*1000:5000*2**Math.min(failures-1,4)));
  return {...state,confirmations:fresh(state.confirmations,now),complete:false,unavailable:true,issue:reason||(status===429?'rate_limit':'provider'),failures,nextAt:now+wait};
@@ -47,6 +51,7 @@ export function presenceStatus(state){
  if(state.issue==='access')return 'Presencia sin acceso · Actualizando permisos';
  if(state.issue==='rate_limit')return `Consulta parcial · ${pages} · Esperando al proveedor para continuar`;
  if(['missing_cursor','repeated_cursor','repeated_page'].includes(state.issue))return `Consulta parcial · ${pages} · El proveedor no permite avanzar`;
+ if(state.issue==='cursor_invalid')return `Consulta parcial · ${pages} · No se pudo continuar el cursor; se reiniciará la consulta`;
  if(state.unavailable)return `Consulta parcial · ${pages} · Reintentando la página pendiente`;
  return state.complete?`Presencia actualizada · ${pages} · Recorrido completo`:`Comprobando presencia · ${pages}`;
 }

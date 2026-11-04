@@ -1,7 +1,25 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {pageReadPriority,pageReadBackground,scheduleLiveRead} from './live-read-priority.js';
+import {pageReadPriority,pageReadBackground,scheduleLiveRead,fanVisibleRead,liveReadArgs} from './live-read-priority.js';
 import {createReadScheduler} from './live-read-scheduler.js';
 import {createPageLoader} from './page-loader.js';
+test('foreground fan demand is bounded by operation, target, batch size and activity head',()=>{
+ for(const operation of ['fan_profile','fan_history','fan_spend','fan_activity'])assert.equal(fanVisibleRead(operation,{conversation_id:'123'},'fan-visible'),true);
+ assert.equal(fanVisibleRead('presence',{},'fan-visible'),true);assert.equal(fanVisibleRead('fan_spend_batch',{user_ids:['123','456']},'fan-visible'),true);
+ for(const operation of ['fan_profile','fan_history','fan_spend','fan_activity'])for(const conversation_id of [undefined,123,'../123',''])assert.equal(fanVisibleRead(operation,{conversation_id},'fan-visible'),false);
+ assert.equal(fanVisibleRead('fan_activity',{conversation_id:'123',cursor:'older'},'fan-visible'),false);
+ for(const user_ids of [[],['123',4],Array.from({length:21},(_,i)=>String(i+1)),null])assert.equal(fanVisibleRead('fan_spend_batch',{user_ids},'fan-visible'),false);
+ for(const operation of ['messages','inbox','profile','earnings','monthly','balances','transactions','notifications','send_message','prepare_send','like_message'])assert.equal(fanVisibleRead(operation,{conversation_id:'123',category:'total'},'fan-visible'),false);
+ for(const priority of [undefined,'selected','interactive','background'])assert.equal(fanVisibleRead('fan_profile',{conversation_id:'123'},priority),false);
+});
+test('the foreground JSON flag is derived from eligible client intent and cannot promote raw body flags',()=>{
+ const original={conversation_id:'123',foreground:false};assert.deepEqual(liveReadArgs('fan_profile',original,{priority:'fan-visible'}),{conversation_id:'123',foreground:true});assert.equal(original.foreground,false);
+ assert.deepEqual(liveReadArgs('fan_profile',{conversation_id:'123',foreground:true},{priority:'background'}),{conversation_id:'123'});
+ assert.deepEqual(liveReadArgs('earnings',{category:'total',foreground:true},{priority:'fan-visible'}),{category:'total'});
+ assert.deepEqual(liveReadArgs('fan_spend_batch',{user_ids:Array(21).fill('123'),foreground:true},{priority:'fan-visible'}),{user_ids:Array(21).fill('123')});
+ const routes=[],scheduler={primary:(_run,_active,priority)=>routes.push(['primary',priority]),secondary:(_run,_active,priority)=>routes.push(['secondary',priority])};
+ scheduleLiveRead(scheduler,'fan_profile',()=>{}, {priority:'fan-visible'}, {conversation_id:'123'});scheduleLiveRead(scheduler,'fan_spend_batch',()=>{}, {priority:'fan-visible'}, {user_ids:['123']});scheduleLiveRead(scheduler,'presence',()=>{}, {priority:'fan-visible'});scheduleLiveRead(scheduler,'fan_activity',()=>{}, {priority:'fan-visible'}, {conversation_id:'123'});scheduleLiveRead(scheduler,'fan_activity',()=>{}, {priority:'fan-visible'}, {conversation_id:'123',cursor:'next'});scheduleLiveRead(scheduler,'earnings',()=>{}, {priority:'fan-visible'}, {category:'total'});
+ assert.deepEqual(routes,[['primary','fan-visible'],['primary','fan-visible'],['primary','fan-visible'],['primary','fan-visible'],['secondary',undefined],['secondary',undefined]]);
+});
 test('automatic inbox cursor admission also marks the provider read background without changing manual pages',()=>{
  for(const priority of ['background','prefetch'])assert.equal(pageReadBackground('inbox',{cursor:'next',priority:pageReadPriority('inbox',{cursor:'next',priority})}),true);
  for(const priority of [undefined,'pagination','selected','interactive'])assert.equal(pageReadBackground('inbox',{cursor:'next',priority:pageReadPriority('inbox',{cursor:'next',priority})}),false);
@@ -46,6 +64,26 @@ test('background inbox loading does not reset the four-second foreground idle pe
  assert.deepEqual(calls,[['opening',0],['automatic page',4000],['selected profile',6500]]);
 });
 function clock(){let at=0;const tasks=new Map();return {now:()=>at,tasks,schedule:(fn,ms)=>(tasks.set(fn,at+ms),fn),cancel:fn=>tasks.delete(fn),step:async()=>{const first=[...tasks].sort((a,b)=>a[1]-b[1])[0];if(!first)return false;const [fn,due]=first;tasks.delete(fn);at=due;void fn();await new Promise(resolve=>setImmediate(resolve));return true}}}
+test('visible fan demand uses the spare existing slot behind conversation opening while background work is in flight',async()=>{
+ const time=clock(),scheduler=createReadScheduler({...time,maxConcurrent:2,backgroundIdle:4000}),starts=[];let finish,active=0,peak=0;
+ const background=scheduler.secondary(()=>new Promise(resolve=>{starts.push('background');peak=Math.max(peak,++active);finish=()=>{active--;resolve()}}));await time.step();
+ const fan=scheduleLiveRead(scheduler,'fan_profile',async()=>{starts.push('fan');peak=Math.max(peak,++active);active--},{priority:'fan-visible'},{conversation_id:'123'});
+ const chat=scheduleLiveRead(scheduler,'messages',async()=>{starts.push('conversation');peak=Math.max(peak,++active);active--},{priority:'conversation'});
+ await time.step();await chat;await time.step();await fan;assert.deepEqual(starts,['background','conversation','fan']);assert.equal(active,1);assert.equal(peak,2);finish();await background;
+});
+test('fan demand rechecks soft quota reserve at dispatch, rejects only itself and leaves chat capacity usable',async()=>{
+ const time=clock(),scheduler=createReadScheduler({...time,maxConcurrent:2}),starts=[];let finish;
+ const background=scheduler.secondary(()=>new Promise(resolve=>{starts.push('background');finish=resolve}));await time.step();
+ const fan=scheduleLiveRead(scheduler,'fan_spend_batch',async()=>starts.push('fan'),{priority:'fan-visible'},{user_ids:['123']});const rejected=assert.rejects(fan,error=>error.status===429&&error.readReserved===true&&error.retryAfter===60);
+ scheduler.observeQuota({limit:60,remaining:3,window:60,reset:60});await time.step();await rejected;assert.deepEqual(starts,['background']);
+ const chat=scheduleLiveRead(scheduler,'messages',async()=>starts.push('conversation'),{priority:'conversation'});await time.step();await chat;assert.deepEqual(starts,['background','conversation']);finish();await background;
+});
+test('visible fan demand keeps hard cooldown and active-scope cancellation behavior',async()=>{
+ const time=clock(),scheduler=createReadScheduler({...time,maxConcurrent:2});scheduler.block(5);let calls=0;
+ await assert.rejects(scheduleLiveRead(scheduler,'presence',async()=>calls++,{priority:'fan-visible'}),error=>error.status===429&&error.retryAfter===5);assert.equal(calls,0);
+ const hidden=clock(),queued=createReadScheduler({...hidden,visible:()=>false});let active=true;
+ const fan=scheduleLiveRead(queued,'fan_profile',async()=>calls++,{priority:'fan-visible',active:()=>active},{conversation_id:'123'}),rejected=assert.rejects(fan,{name:'AbortError'});active=false;await hidden.step();await rejected;assert.equal(calls,0);
+});
 test('a selected total requested behind nine slow background reads runs after the in-flight read and then resumes their FIFO queue',async()=>{
  const time=clock(),scheduler=createReadScheduler({...time,backgroundIdle:4000,startupGrace:1500,maxConcurrent:2}),starts=[];let active=0,peak=0;
  const background=Array.from({length:9},(_,index)=>scheduler.secondary(()=>{starts.push(['background-'+index,time.now()]);peak=Math.max(peak,++active);return new Promise(resolve=>time.schedule(()=>{active--;resolve({data:{}})},20000))}));

@@ -2,6 +2,15 @@ import test from 'node:test';import assert from 'node:assert/strict';import {cre
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}};
 const page=(ids,cursor='older',hasMore=true)=>({data:{messages:ids.map(id=>({id})),cursor,hasMore}});
 const settled=()=>new Promise(resolve=>setImmediate(resolve));
+test('denied snapshot blocks reads and local updates until an explicit stop/start restart',async()=>{
+ let reads=0,shown=true;const fresh=deferred(),loader=createPageLoader({field:'messages',visible:()=>shown,read:async()=>++reads===1?page([1]):fresh.promise});
+ assert.equal(loader.getSnapshot().denied,false);loader.start();await settled();loader.deny('revoked');assert.equal(loader.getSnapshot().denied,true);assert.equal(loader.getSnapshot().result,null);
+ assert.equal(await loader.load(),false);loader.resume();loader.start();loader.update(()=>page([999]));assert.equal(reads,1);assert.equal(loader.getSnapshot().denied,true);assert.equal(loader.getSnapshot().result,null);
+ loader.stop();assert.equal(loader.getSnapshot().denied,true);shown=false;loader.start();assert.equal(loader.getSnapshot().denied,false);assert.equal(reads,1);shown=true;loader.resume();assert.equal(reads,2);fresh.resolve(page([2]));await settled();assert.equal(loader.getSnapshot().denied,false);assert.equal(loader.getSnapshot().result.data.messages[0].id,2);loader.stop();assert.equal(loader.getSnapshot().denied,false);
+});
+test('401 and 403 read failures expose denied without allowing retries',async()=>{
+ for(const status of [401,403]){let reads=0;const loader=createPageLoader({read:async()=>{reads++;throw Object.assign(Error('denied'),{status})}});loader.start();await settled();assert.equal(loader.getSnapshot().denied,true);assert.equal(await loader.load(),false);assert.equal(reads,1);loader.stop();assert.equal(loader.getSnapshot().denied,true)}
+});
 test('load forwards client options as the seventh read argument without shifting cancellation or lane arguments',async()=>{
  const calls=[],options={priority:'background'},loader=createPageLoader({cancelReads:true,retain:true,initial:page([10]),field:'messages',read:async(...args)=>{calls.push(args);return page([9])}});
  loader.start();await settled();await loader.load('next',options);
