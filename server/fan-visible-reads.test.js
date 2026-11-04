@@ -42,6 +42,30 @@ test('foreground fan demand still respects the shared server gate and provider R
   const limited=fixture(operation,{limited:true}),response=await limited.invoke({foreground:true}),body=await response.json();assert.equal(response.status,operation==='presence'?200:429);assert.equal(operation==='presence'?body.data.retryAfter:body.retryAfter,7);assert.ok(limited.calls.some(call=>call.kind==='gate'&&call.op==='block'));
  }
 });
+test('queued spend batches share the individual spend budget while slot waits and timeouts remain bounded',async t=>{
+ let at=Date.parse('2026-11-04T00:00:00Z'),timers=[];
+ const advance=ms=>{at+=ms;for(const timer of timers)if(!timer.controller.signal.aborted&&timer.until<=at)timer.controller.abort(new DOMException('Timed out','TimeoutError'))};
+ t.mock.method(Date,'now',()=>at);
+ t.mock.method(AbortSignal,'timeout',ms=>{const controller=new AbortController();timers.push({controller,until:at+ms});return controller.signal});
+ t.mock.method(globalThis,'setTimeout',(fn,ms,...args)=>{queueMicrotask(()=>{advance(ms);fn(...args)});return 1});
+ for(const operation of ['fan_spend_batch','fan_spend'])for(const scenario of [{queue:7000,provider:4000,status:200},{queue:0,provider:26000,status:503},{queue:9000,provider:0,status:429}]){
+  const started=at;timers=[];let authorizations=0,providerCalls=0,providerStartedAt=null,releases=0,cancels=0;const failures=[],priorities=[];
+  const handler=createLiveHandler({url:'https://auth.test',anonKey:'public-fixture',providerKey:'provider-fixture',serviceKey:'service-fixture',readSlotEnabled:true,onFailure:value=>failures.push(value),fetcher:async(url,options)=>{
+   if(url.endsWith('/auth/v1/user'))return json({id:'actor',email_confirmed_at:'yes'});
+   if(url.includes('bruff_live_authorize')){authorizations++;return json('acct_fixture')}
+   if(url.includes('bruff_provider_read_slot')){const body=JSON.parse(options.body);if(body.op==='release'){releases++;return json({released:true})}if(body.op==='cancel'){cancels++;return json({cancelled:true})}priorities.push(body.priority);return json(at-started<scenario.queue?{allowed:false,retryAfterMs:250}:{allowed:true,lease:body.lease_id})}
+   if(url.includes('bruff_provider_read_gate'))return json({allowed:true});
+   assert.equal(new URL(url).origin,'https://api.ofmapi.com');assert.equal(new URL(url).pathname,'/v1/accounts/acct_fixture/fans/spend');assert.equal(Object.hasOwn(options,'readPriority'),false);
+   providerCalls++;providerStartedAt=at-started;advance(scenario.provider);if(options.signal.aborted)throw options.signal.reason;return json(providerData(operation));
+  }});
+  const response=await handler(request(input(operation,{foreground:true}))),body=await response.json();
+  assert.equal(response.status,scenario.status,operation+' with '+scenario.queue+'ms queue and '+scenario.provider+'ms provider');assert.ok(priorities.every(priority=>priority==='foreground'));
+  if(scenario.status===200){assert.equal(providerStartedAt,7000);assert.equal(at-started,11000);assert.equal(authorizations,2);assert.equal(operation==='fan_spend_batch'?body.data.fans[0].spend.total:body.data.total,42)}
+  if(scenario.status===503)assert.equal(failures[0].kind,'TimeoutError');
+  if(scenario.status===429){assert.equal(at-started,8000);assert.equal(response.headers.get('Retry-After'),'1');assert.equal(body.retryAfter,1)}
+  assert.equal(providerCalls,scenario.status===429?0:1);assert.equal(releases,scenario.status===429?0:1);assert.equal(cancels,scenario.status===429?1:0);
+ }
+});
 test('all fan read kinds forward request abort and release their acquired lease',async()=>{
  for(const operation of operations){const controller=new AbortController(),f=fixture(operation,{provider:(_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}))});const pending=f.invoke({foreground:true},controller.signal),signal=await f.entered;controller.abort();const response=await pending;assert.equal(signal.aborted,true);assert.equal(response.status,499);assert.equal((await response.json()).data,undefined);assert.equal(f.calls.at(-1).op,'release')}
 });

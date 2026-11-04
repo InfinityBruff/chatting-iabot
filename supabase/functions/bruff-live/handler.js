@@ -224,7 +224,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    if(input.operation==='fan_spend_batch'){
     if(!Array.isArray(input.user_ids)||!input.user_ids.length||input.user_ids.length>20||input.user_ids.some(id=>typeof id!=='string'||!/^\d{1,24}$/.test(id)))return reply(400,{error:'Fans inválidos'});
     const ids=[...new Set(input.user_ids)];
-    const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/fans/spend?'+new URLSearchParams({ids:ids.join(',')}),{...(readSlotEnabled&&input.foreground===true?{readPriority:'foreground'}:{}),headers:{Authorization:'Bearer '+providerKey},redirect:'error',signal:AbortSignal.any([request.signal,AbortSignal.timeout(10000)])});
+    const r=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/fans/spend?'+new URLSearchParams({ids:ids.join(',')}),{...(readSlotEnabled&&input.foreground===true?{readPriority:'foreground'}:{}),headers:{Authorization:'Bearer '+providerKey},redirect:'error',signal:AbortSignal.any([request.signal,AbortSignal.timeout(25000)])});
     if(request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
     if(!r.ok){const error=Error('provider');error.providerStatus=r.status;error.retryAfter=r.status===429?retrySeconds(r.headers):null;throw error}
     const payload=await r.json();if(request.signal.aborted)return reply(499,{error:'Consulta cancelada'});if(!Array.isArray(payload.fans))throw Error('schema');
