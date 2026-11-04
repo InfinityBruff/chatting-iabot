@@ -1,7 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {financialSummarySettled,financialReadStatus} from './finance-read-state.js';
+import {financialReadSettled,financialSummarySettled,financialReadStatus} from './finance-read-state.js';
 import {createReadScheduler} from './live-read-scheduler.js';import {createPageLoader} from './page-loader.js';
+import {cancellableLiveRead} from './live-read-cancellation.js';
 const done={result:{data:{}},busy:false,waiting:false,error:''};
+test('period categories wait for the total response or its explicit failure, including provider backoff',()=>{
+ assert.equal(financialReadSettled(done),true);assert.equal(financialReadSettled({...done,result:null,error:'Unavailable'}),true);
+ for(const pending of [{...done,busy:true},{...done,waiting:true},{...done,result:null}])assert.equal(financialReadSettled(pending),false);
+});
 test('category admission waits for all three summary reads, including provider backoff',()=>{
  assert.equal(financialSummarySettled([done,done,done]),true);
  for(const pending of [{...done,busy:true},{...done,waiting:true},{result:null,busy:false,waiting:false,error:''}])assert.equal(financialSummarySettled([done,pending,done]),false);
@@ -32,4 +37,12 @@ test('changing model invalidates queued category reads and drops an old in-fligh
  const old=make('old','messages'),queued=make('old','tips');old.start();queued.start();const pending=time.flush();await new Promise(resolve=>setImmediate(resolve));old.stop();queued.stop();
  const current=make('current','total');current.start();release();await pending;await new Promise(resolve=>setImmediate(resolve));await time.flush();await new Promise(resolve=>setImmediate(resolve));
  assert.deepEqual(calls,[['old','messages'],['current','total']]);assert.deepEqual(writes,[{model:'current',category:'total'}]);assert.equal(old.getSnapshot().result,null);current.stop();
+});
+test('switching across three financial models aborts old work and frees the background lane for the last model',async()=>{
+ const time=clock(),scheduler=createReadScheduler({...time,maxConcurrent:2}),calls=[],aborted=[],writes=[];
+ const make=model=>createPageLoader({...time,cancelReads:cancellableLiveRead('earnings',{category:'total'}),read:(_cursor,_background,active,_start,_preparing,signal)=>scheduler.secondary(()=>new Promise((resolve,reject)=>{calls.push(model);if(model==='C')resolve({data:{model,total:0}});else signal.addEventListener('abort',()=>{aborted.push(model);reject(signal.reason)},{once:true})}),active),write:value=>writes.push(value.data)});
+ const a=make('A');a.start();const first=time.flush();await new Promise(resolve=>setImmediate(resolve));a.stop();await first;
+ const b=make('B');b.start();const second=time.flush();await new Promise(resolve=>setImmediate(resolve));b.stop();await second;
+ const c=make('C');c.start();await time.flush();await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(calls,['A','B','C']);assert.deepEqual(aborted,['A','B']);assert.deepEqual(writes,[{model:'C',total:0}]);assert.equal(c.getSnapshot().result.data.total,0);assert.equal(a.getSnapshot().result,null);assert.equal(b.getSnapshot().result,null);c.stop();
 });

@@ -49,3 +49,10 @@ test('financial read classification never routes writes through a blocked or hid
  for(const operation of writes){assert.equal(secondaryReads.has(operation),false);assert.equal(foregroundReads.has(operation),false);await scheduleRead(scheduler,operation,async()=>calls.push(operation))}
  assert.deepEqual(calls,writes);assert.equal(clock.tasks.size,0);
 });
+test('selected record reads overtake bulk secondary work but retain startup idle spacing and quota reservations',async()=>{
+ const clock=fixture(),scheduler=createReadScheduler({...clock,backgroundIdle:4000,startupGrace:1500}),order=[];
+ const bulk=scheduler.secondary(async()=>order.push(['bulk',clock.now()]));const selected=scheduler.secondary(async()=>order.push(['selected',clock.now()]),undefined,'selected');
+ await scheduler.primary(async()=>order.push(['conversation',clock.now()]),undefined,'conversation');
+ await clock.flush();await selected;await clock.flush();await bulk;assert.deepEqual(order,[['conversation',0],['selected',4000],['bulk',6500]]);
+ const reserved=fixture(),limited=createReadScheduler(reserved);limited.observeQuota({limit:60,remaining:3,window:60,reset:60});let ran=false;const pending=limited.secondary(async()=>{ran=true},undefined,'selected');assert.equal(ran,false);await reserved.flush();await pending;assert.equal(reserved.now(),60000);
+});

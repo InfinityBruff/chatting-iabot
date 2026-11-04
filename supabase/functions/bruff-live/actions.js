@@ -44,10 +44,19 @@ export async function liveAction({input,identity,binding,providerKey,fetcher,aut
   const price=input.price===undefined?0:input.price;
   if(typeof price!=='number'||!Number.isFinite(price)||price<0||!Number.isSafeInteger(Math.round(price*100))||Math.abs(price*100-Math.round(price*100))>0.0000001)return reply(400,{error:'Introduce un precio válido en USD, con un máximo de dos decimales.'});
   if(price>0&&!input.attachments.length)return reply(400,{error:'Adjunta contenido para poner un precio. El texto acompañante será visible sin pagar.'});
+  const replyTo=input.replyTo;
+  if(replyTo!=null&&(typeof replyTo!=='string'||!/^\d{1,24}$/.test(replyTo)||!Number.isSafeInteger(Number(replyTo))||Number(replyTo)<=0||String(Number(replyTo))!==replyTo))return reply(400,{error:'Elige un mensaje válido de este fan para responder.'});
   const media=await Promise.all(input.attachments.map(t=>capability.read(t,'attachment')));
   const stopped=await inspect(input.conversation_id,input.text);if(stopped)return stopped;
-  const value={conversation:input.conversation_id,body:{text:input.text,media,price:Math.round(price*100)/100,lockedText:false,typingWpm:200},id:crypto.randomUUID()};
-  return reply(200,{data:{ticket:await capability.sign('send',value),price:value.body.price}});
+  if(replyTo!=null){
+   const response=await upstream(`conversations/${input.conversation_id}/messages/${replyTo}`);
+   if(!response.ok){if(response.status===429)throw Object.assign(Error('provider'),{providerStatus:429,retryAfter:retrySeconds(response.headers)});return reply(response.status===404?400:502,{error:'No se pudo comprobar el mensaje al que respondes. No se ha enviado nada.'})}
+   const target=await response.json();
+   if(String(target.id)!==replyTo||target.isFromMe!==false||target.fromUserId!=null&&String(target.fromUserId)!==input.conversation_id)return reply(400,{error:'Solo puedes responder a un mensaje de este fan.'});
+   if(await authorize()!==binding)throw Error('access');
+  }
+  const value={conversation:input.conversation_id,body:{text:input.text,media,price:Math.round(price*100)/100,lockedText:false,typingWpm:200,...(replyTo!=null?{replyTo:Number(replyTo)}:{})},id:crypto.randomUUID()};
+  return reply(200,{data:{ticket:await capability.sign('send',value),price:value.body.price,...(replyTo!=null?{replyTo}:{})}});
  }
  const send=await capability.read(input.ticket,'send');
  const stopped=await inspect(send.conversation,send.body.text);if(stopped)return stopped;

@@ -2,6 +2,66 @@ import test from 'node:test';import assert from 'node:assert/strict';import {cre
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}};
 const page=(ids,cursor='older',hasMore=true)=>({data:{messages:ids.map(id=>({id})),cursor,hasMore}});
 const settled=()=>new Promise(resolve=>setImmediate(resolve));
+test('load forwards client options as the seventh read argument without shifting cancellation or lane arguments',async()=>{
+ const calls=[],options={priority:'background'},loader=createPageLoader({cancelReads:true,retain:true,initial:page([10]),field:'messages',read:async(...args)=>{calls.push(args);return page([9])}});
+ loader.start();await settled();await loader.load('next',options);
+ const [cursor,background,active,onStart,preparing,signal,readOptions]=calls[1];
+ assert.equal(cursor,'next');assert.equal(background,false);assert.equal(active(),true);assert.equal(onStart,undefined);assert.equal(preparing,false);assert.ok(signal instanceof AbortSignal);assert.equal(readOptions,options);assert.deepEqual(calls[0][6],{});loader.stop();
+});
+test('429 retry preserves client pagination options and its Retry-After deadline',async()=>{
+ let time=0,attempts=0;const tasks=new Map(),seen=[],options={priority:'background'};
+ const loader=createPageLoader({initial:page([10]),retain:true,field:'messages',now:()=>time,schedule:(fn,ms)=>(tasks.set(fn,time+ms),fn),cancel:fn=>tasks.delete(fn),read:async(cursor,_background,_active,_onStart,_preparing,_signal,readOptions)=>{if(!cursor)return page([10]);seen.push(readOptions);if(++attempts===1)throw Object.assign(Error('limited'),{status:429,retryAfter:2});return page([9])}});
+ loader.start();await settled();assert.equal(await loader.load('next',options),false);assert.equal(attempts,1);assert.deepEqual([...tasks.values()],[2000]);time=1000;assert.equal(await loader.load('next',options),false);assert.equal(attempts,1);time=2000;await [...tasks.keys()][0]();await settled();assert.equal(attempts,2);assert.deepEqual(seen,[options,options]);loader.stop();
+});
+test('resultStartedAt records the committing remote read start and survives local mutations or failures',async()=>{
+ let time=100,reads=0;const refresh=deferred();
+ const loader=createPageLoader({initial:page([1]),retain:true,field:'messages',now:()=>time,read:async()=>{reads++;if(reads===1)return page([2]);if(reads===2)return refresh.promise;throw Error('offline')}});
+ assert.equal(loader.getSnapshot().resultStartedAt,null);assert.equal(loader.getSnapshot().resultReadIds,null);loader.start();await settled();assert.equal(loader.getSnapshot().resultStartedAt,100);assert.deepEqual(loader.getSnapshot().resultReadIds,['2']);
+ time=200;const pending=loader.load();time=300;loader.update(value=>({...value,localLike:true}));assert.equal(loader.getSnapshot().resultStartedAt,100);assert.deepEqual(loader.getSnapshot().resultReadIds,['2']);
+ time=400;refresh.resolve(page([3]));await pending;assert.equal(loader.getSnapshot().resultStartedAt,200);
+ time=500;loader.update(value=>({...value,localLike:true}));assert.equal(loader.getSnapshot().resultStartedAt,200);assert.deepEqual(loader.getSnapshot().resultReadIds,['3']);assert.equal(await loader.load(),false);assert.equal(loader.getSnapshot().resultStartedAt,200);assert.deepEqual(loader.getSnapshot().resultReadIds,['3']);loader.stop();
+});
+test('resultStartedAt follows response commits across independent head and cursor lanes',async()=>{
+ let time=100;const head=deferred(),older=deferred();
+ const loader=createPageLoader({initial:page([10]),retain:true,field:'messages',now:()=>time,read:cursor=>cursor?older.promise:head.promise});
+ loader.start();time=200;const pagination=loader.load('older');time=300;older.resolve(page([9]));await pagination;assert.equal(loader.getSnapshot().resultStartedAt,200);assert.deepEqual(loader.getSnapshot().resultReadIds,['9']);
+ time=400;head.resolve(page([11,10]));await settled();assert.equal(loader.getSnapshot().resultStartedAt,100);assert.deepEqual(loader.getSnapshot().resultReadIds,['11','10']);assert.deepEqual(loader.getSnapshot().result.data.messages.map(message=>message.id),[10,9,11]);loader.stop();
+});
+test('message provenance clears on denied results and stays absent on unrelated page fields',async()=>{
+ const messages=createPageLoader({field:'messages',read:async()=>page([7])});messages.start();await settled();assert.deepEqual(messages.getSnapshot().resultReadIds,['7']);messages.deny('denied');assert.equal(messages.getSnapshot().resultReadIds,null);assert.equal(messages.getSnapshot().resultStartedAt,null);messages.stop();
+ const transactions=createPageLoader({field:'transactions',read:async()=>({data:{transactions:[{id:7}]}})});transactions.start();await settled();assert.equal(transactions.getSnapshot().resultReadIds,null);transactions.stop();
+});
+test('an active financial read discarded by another scope reauthorizes instead of settling empty',async()=>{
+ let epoch=0,reads=0;const old=deferred(),fresh=deferred(),written=[];
+ const loader=createPageLoader({cacheEpoch:()=>epoch,cancelReads:true,read:()=>++reads===1?old.promise:fresh.promise,write:value=>written.push(value)});
+ loader.start();epoch++;old.resolve({data:{total:999}});await settled();
+ assert.equal(reads,2);assert.equal(loader.getSnapshot().result,null);assert.equal(loader.getSnapshot().busy,true);assert.deepEqual(written,[]);
+ fresh.resolve({data:{total:25}});await settled();
+ assert.equal(loader.getSnapshot().result.data.total,25);assert.equal(loader.getSnapshot().busy,false);assert.deepEqual(written,[{data:{total:25}}]);loader.stop();
+});
+test('parallel summary denial cannot strand another summary or restore the denied scope',async()=>{
+ let epoch=0,reads=0,deniedReads=0;const old=deferred(),written=[];
+ const current=createPageLoader({cacheEpoch:()=>epoch,read:()=>++reads===1?old.promise:Promise.resolve({data:{current:true}}),write:value=>written.push(value)});
+ const denied=createPageLoader({cacheEpoch:()=>epoch,onDenied:()=>epoch++,read:async()=>{deniedReads++;throw Object.assign(Error('denied'),{status:403})}});
+ current.start();denied.start();await settled();old.resolve({data:{stale:true}});await settled();
+ assert.equal(reads,2);assert.deepEqual(current.getSnapshot().result,{data:{current:true}});assert.deepEqual(written,[{data:{current:true}}]);
+ assert.equal(denied.getSnapshot().result,null);assert.equal(denied.getSnapshot().error,'denied');assert.equal(await denied.load(),false);assert.equal(deniedReads,1);current.stop();denied.stop();
+});
+test('epoch recovery cancels both old lanes and restarts at the authorized head without an old cursor',async()=>{
+ let epoch=0;const oldHead=deferred(),oldPage=deferred(),fresh=deferred(),calls=[],written=[];
+ const loader=createPageLoader({field:'transactions',cancelReads:true,cacheEpoch:()=>epoch,read:(cursor,_bg,_valid,_start,_preparing,signal)=>{calls.push({cursor,signal});return calls.length===1?oldHead.promise:calls.length===2?oldPage.promise:fresh.promise},write:value=>written.push(value)});
+ loader.start();const pagination=loader.load('old-cursor');epoch++;oldHead.resolve({data:{transactions:[{id:'stale-head'}]}});await settled();
+ assert.equal(calls.length,3);assert.deepEqual(calls.map(call=>call.cursor),[null,'old-cursor',null]);assert.ok(calls.slice(0,2).every(call=>call.signal.aborted));
+ oldPage.resolve({data:{transactions:[{id:'stale-page'}]}});assert.equal(await pagination,false);fresh.resolve({data:{transactions:[{id:'fresh'}]}});await settled();
+ assert.deepEqual(loader.getSnapshot().result.data.transactions,[{id:'fresh'}]);assert.equal(loader.getSnapshot().pageRevision,0);assert.deepEqual(written,[{data:{transactions:[{id:'fresh'}]}}]);loader.stop();
+});
+test('a reauthorized financial read still honors its own Retry-After',async()=>{
+ let epoch=0,time=0,reads=0;const old=deferred(),tasks=new Map();
+ const loader=createPageLoader({cacheEpoch:()=>epoch,now:()=>time,schedule:(fn,ms)=>(tasks.set(fn,time+ms),fn),cancel:fn=>tasks.delete(fn),read:async()=>{reads++;if(reads===1)return old.promise;if(reads===2)throw Object.assign(Error('limited'),{status:429,retryAfter:5});return {data:{total:0}}}});
+ loader.start();epoch++;old.resolve({data:{total:999}});await settled();
+ assert.equal(reads,2);assert.equal(loader.getSnapshot().waiting,true);assert.equal(await loader.load(),false);assert.deepEqual([...tasks.values()],[5000]);time=5000;await [...tasks.keys()][0]();await settled();
+ assert.equal(reads,3);assert.equal(loader.getSnapshot().waiting,false);assert.equal(loader.getSnapshot().result.data.total,0);loader.stop();
+});
 test('a cursor page completes while an earlier head refresh remains pending; late head preserves the extended cursor',async()=>{const head=deferred(),calls=[],written=[];const loader=createPageLoader({initial:page([10]),retain:true,field:'messages',read:async(cursor,background)=>{calls.push([cursor,background]);return cursor?page([9,8],'next'):head.promise},write:v=>written.push(v)});loader.start();assert.equal(loader.getSnapshot().refreshing,true);assert.equal(loader.getSnapshot().busy,false);assert.equal(await loader.load('older'),true);assert.deepEqual(loader.getSnapshot().result.data.messages.map(m=>m.id),[10,9,8]);assert.equal(loader.getSnapshot().pageRevision,1);head.resolve(page([11,10],'head-cursor'));await settled();assert.equal(loader.getSnapshot().result.data.cursor,'next');assert.deepEqual(loader.getSnapshot().result.data.messages.map(m=>m.id),[10,9,8,11]);assert.deepEqual(calls,[[null,true],['older',false]]);loader.stop()});
 test('head completion during pagination does not finish the page or its revision; only one cursor page can run',async()=>{const head=deferred(),older=deferred();const loader=createPageLoader({initial:page([10]),retain:true,field:'messages',read:cursor=>cursor?older.promise:head.promise});loader.start();const first=loader.load('older');assert.equal(await loader.load('older'),false);assert.equal(await loader.load('another'),false);head.resolve(page([11,10]));await settled();assert.equal(loader.getSnapshot().pageBusy,true);assert.equal(loader.getSnapshot().pageRevision,0);assert.equal(loader.getSnapshot().requestCursor,'older');older.resolve(page([9,10],'next'));assert.equal(await first,true);assert.equal(loader.getSnapshot().pageBusy,false);assert.equal(loader.getSnapshot().pageRevision,1);assert.equal(new Set(loader.getSnapshot().result.data.messages.map(m=>m.id)).size,3);loader.stop()});
 test('429 on a cursor preserves its retry independently from a successful refresh and retries while reading the past',async()=>{let at=1000,calls=0;const tasks=new Map(),head=deferred();const loader=createPageLoader({initial:page([10]),retain:true,field:'messages',now:()=>at,shouldPoll:()=>false,schedule:(fn,ms)=>{tasks.set(fn,at+ms);return fn},cancel:fn=>tasks.delete(fn),read:async cursor=>{if(!cursor)return head.promise;if(++calls===1)throw Object.assign(Error('limited'),{status:429,retryAfter:5});return page([9],'next')}});loader.start();assert.equal(await loader.load('older'),false);assert.equal(loader.getSnapshot().pageWaiting,true);head.resolve(page([11,10]));await settled();assert.equal(loader.getSnapshot().pageWaiting,true);assert.equal(await loader.load('older'),false);assert.equal(calls,1);at=6000;const retry=[...tasks.keys()][0];await retry();await settled();assert.equal(calls,2);assert.equal(loader.getSnapshot().pageWaiting,false);assert.equal(loader.getSnapshot().result.data.cursor,'next');loader.stop()});

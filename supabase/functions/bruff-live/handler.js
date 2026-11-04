@@ -74,7 +74,7 @@ export function normalizeLive(operation,data,binding){
 export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEnabled=false,writeEnabled=false,advancedWriteEnabled=false,fetcher=fetch,onFailure=record=>console.error(JSON.stringify(record))}){
  const baseFetcher=fetcher,readCache=createProviderReadCache();
  return async request=>{
-  let readQuota=null,firstMessageRead=false;
+  let readQuota=null,firstMessageRead=false,cancelableRead=false;
   const guardedFetcher=protectProviderReads({fetcher:baseFetcher,onQuota:q=>{readQuota=q},gate:serviceKey?async(op,wait_seconds=0)=>{
    const response=await baseFetcher(url+'/rest/v1/rpc/bruff_provider_read_gate',{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify({op,wait_seconds}),signal:AbortSignal.timeout(10000)});
    if(!response.ok)throw Error('read_guard');return response.json();
@@ -96,6 +96,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
   const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'}:{})};
   const reply=(status,body)=>{
    if(status===503)try{onFailure({event:'bruff_live_failure',operation:diagnosticOperation,kind:failureKind,...(Number.isInteger(providerStatus)&&providerStatus>=400&&providerStatus<=599?{providerStatus}:{})})}catch{}
+   if(status===429&&Number.isInteger(body?.retryAfter)&&body.retryAfter>0)headers['Retry-After']=String(body.retryAfter);
    if(readQuota&&['inbox','messages','fan_spend_batch','presence','profile','fan_profile','fan_spend','fan_history','fan_activity','earnings','monthly','balances','transactions',...communityNames].includes(diagnosticOperation))body={...body,readQuota};
    return new Response(JSON.stringify(body),{status,headers});
   };
@@ -125,10 +126,12 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background','liked','action_id','replyTo'].includes(k)))return reply(400,{error:'Consulta no válida'});
    diagnosticOperation=input.operation;
    if(input.background!=null&&(!['inbox','messages'].includes(input.operation)||typeof input.background!=='boolean'))return reply(400,{error:'Consulta no válida'});
    if(input.operation==='earnings'&&input.category!=null&&!earningsKeys.includes(input.category))return reply(400,{error:'Categoría financiera no válida'});
+   if((Object.hasOwn(input,'liked')||Object.hasOwn(input,'action_id'))&&input.operation!=='like_message'||Object.hasOwn(input,'replyTo')&&input.operation!=='prepare_send')return reply(400,{error:'Consulta no válida'});
+   cancelableRead=['messages','inbox','monthly','balances','transactions'].includes(input.operation)||input.operation==='earnings'&&input.category!=null;
    const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(['accounts','inbox','messages'].includes(input.operation)&&![401,403].includes(r.status)?'read_database':'access');return r.json()};
    if(input.operation==='accounts'){const [accounts,chatSafety]=await Promise.all([rpc('bruff_live_accounts',{w:input.workspace_id}),rpc('bruff_chat_status',{w:input.workspace_id})]);return reply(200,{accounts,writeEnabled,chatSafety})}
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
@@ -141,7 +144,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
    firstMessageRead=input.operation==='messages'&&input.cursor==null&&input.background!==true;
-   if(['messages','inbox'].includes(input.operation)&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
+   if(cancelableRead&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(['native_queue','native_cancel'].includes(input.operation)){
     const cancel=input.operation==='native_cancel';
     if(!serviceKey||cancel&&!writeEnabled)return reply(503,{error:'Gestión de cola no habilitada'});
@@ -215,7 +218,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     return reply(200,{data:{...audience,...(prepared?{execution:prepared}:{}),draftId:draft.id,draftVersion:draft.version,creatorId:input.creator_id,activated:false}});
    }
    if(communityNames.includes(input.operation))return reply(200,{data:await communityAction({input,binding,providerKey,fetcher,authorize,writeEnabled}),observedAt:new Date().toISOString()});
-   if(input.operation==='like_message')return await likeFanMessage({input,binding,providerKey,fetcher,authorize,writeEnabled,reply});
+   if(input.operation==='like_message')return await likeFanMessage({input,identity,binding,providerKey,fetcher,authorize,writeEnabled,reply});
    if(input.operation==='fan_spend_batch'){
     if(!Array.isArray(input.user_ids)||!input.user_ids.length||input.user_ids.length>20||input.user_ids.some(id=>typeof id!=='string'||!/^\d{1,24}$/.test(id)))return reply(400,{error:'Fans inválidos'});
     const ids=[...new Set(input.user_ids)];
@@ -249,13 +252,13 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     params.set('start',new Date(start).toISOString());
     path=input.operation==='earnings'?'earnings/chart':'transactions';if(input.operation==='earnings'){params.set('end',new Date(end).toISOString());if(input.category!=null&&input.category!=='total')params.set('filter',input.category)}
    }
-   const providerSignal=['messages','inbox'].includes(input.operation)?AbortSignal.any([request.signal,AbortSignal.timeout(25000)]):AbortSignal.timeout(25000);
+   const providerSignal=cancelableRead?AbortSignal.any([request.signal,AbortSignal.timeout(25000)]):AbortSignal.timeout(25000);
    const response=await fetcher('https://api.ofmapi.com/v1/accounts/'+binding+'/'+path+'?'+params,{...(readSlotEnabled&&input.background===true?{readPriority:'background'}:{}),headers:{Authorization:'Bearer '+providerKey},signal:providerSignal,redirect:'error'});
-   if(['messages','inbox'].includes(input.operation)&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
+   if(cancelableRead&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(!response.ok){const retryAfter=response.status===429?retrySeconds(response.headers):null;if(retryAfter)headers['Retry-After']=String(retryAfter);
     return reply(response.status===429?429:502,{error:response.status===429?'OFMAPI ha limitado las consultas. Se conserva el avance; espera antes de actualizar.':'OFMAPI no pudo consultar esta cuenta. Revisa su conexión o inténtalo más tarde.',providerStatus:response.status,...(retryAfter?{retryAfter}:{})});}
    const payload=await response.json();
-   if(['messages','inbox'].includes(input.operation)&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
+   if(cancelableRead&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(input.operation==='earnings'&&input.category!=null){
     // One independently authorized read lets totals and category cards arrive
     // progressively without holding the response behind six extra requests.
@@ -307,9 +310,9 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    }
    // Recheck after provider latency so revoked membership cannot receive a pending result.
    if(!readContextVerified&&await authorize()!==binding)throw Error('access');
-   if(['messages','inbox'].includes(input.operation)&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
+   if(cancelableRead&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    return reply(200,{data,observedAt:new Date().toISOString()});
-  }catch(e){if(['messages','inbox'].includes(diagnosticOperation)&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});failureKind=['TypeError','ReferenceError','SyntaxError','TimeoutError','AbortError'].includes(e?.name)?e.name:['schema','provider','input','category','read_guard','read_slot','read_database'].includes(e?.message)?e.message:'unexpected';providerStatus=e?.providerStatus;
+  }catch(e){if(cancelableRead&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});failureKind=['TypeError','ReferenceError','SyntaxError','TimeoutError','AbortError'].includes(e?.name)?e.name:['schema','provider','input','category','read_guard','read_slot','read_database'].includes(e?.message)?e.message:'unexpected';providerStatus=e?.providerStatus;
    if(e?.providerStatus===429){const retryAfter=Number.isInteger(e.retryAfter)&&e.retryAfter>0?e.retryAfter:60;headers['Retry-After']=String(retryAfter);return reply(429,{error:'El proveedor limita las consultas. Se conserva el avance; espera antes de actualizar.',providerStatus:429,retryAfter})}
    const status=e.message==='access'?403:['ticket','input'].includes(e.message)?400:503;
    if(status===503&&['accounts','inbox','messages'].includes(diagnosticOperation)){headers['Retry-After']='10';return reply(503,{code:'READ_UNAVAILABLE',retryAfter:10,error:diagnosticOperation==='accounts'?'No se pudieron cargar las modelos. El servidor no responde. Se reintentará automáticamente.':diagnosticOperation==='inbox'?'No se pudo cargar la lista de chats. El servidor no responde. Se reintentará automáticamente.':'No se pudo cargar el historial. El servidor no responde. Se reintentará automáticamente.'})}
