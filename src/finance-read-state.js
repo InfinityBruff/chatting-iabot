@@ -1,5 +1,5 @@
 // A category never competes with the first summary reads on a cold model.
-export function financialReadSettled(state){return !state.busy&&!state.waiting&&(state.result!=null||!!state.error)}
+export function financialReadSettled(state){return !state.denied&&!state.busy&&!state.waiting&&(state.result!=null||!!state.error)}
 export function financialSummarySettled(states){
  return states.length===3&&states.every(financialReadSettled);
 }

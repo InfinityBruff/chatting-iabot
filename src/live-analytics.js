@@ -22,15 +22,24 @@ export function analyticsRange(preset,now=new Date()){
  else start.setUTCDate(start.getUTCDate()-29);
  return {start:start.toISOString().slice(0,10),end:end.toISOString().slice(0,10)};
 }
-export function historicalSum(months,key){
- if(!Array.isArray(months)||!months.length||months.some(x=>!x.label||!Number.isFinite(x[key])))return null;
- if(new Set(months.map(x=>x.label)).size!==months.length)return null;
+function historicalMonths(months,now){
+ if(!Array.isArray(months)||!months.length||!(now instanceof Date)||!Number.isFinite(now.getTime()))return null;
+ const latest=now.toISOString().slice(0,7),labels=[];
+ for(const row of months){
+  if(typeof row?.label!=='string')return null;
+  const match=/^(\d{4})-(0[1-9]|1[0-2])(?:-(0[1-9]|[12]\d|3[01])(?:T([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,9})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?)?)?$/.exec(row.label);
+  if(!match)return null;
+  const month=match[1]+'-'+match[2];if(month<'2016-01'||month>latest)return null;
+  if(match[3]&&Number(match[3])>new Date(Date.UTC(Number(match[1]),Number(match[2]),0)).getUTCDate())return null;
+  labels.push(month);
+ }
+ return new Set(labels).size===labels.length?labels:null;
+}
+export function historicalSum(months,key,now=new Date()){
+ if(!historicalMonths(months,now)||months.some(x=>!Number.isFinite(x[key])))return null;
  return months.reduce((sum,x)=>sum+Math.round(x[key]*100),0)/100;
 }
 export function historicalRange(months,now=new Date()){
- if(!Array.isArray(months)||!months.length)return null;
- const labels=months.map(m=>typeof m.label==='string'?m.label.slice(0,7):'');
- if(labels.some(m=>!/^20\d{2}-(0[1-9]|1[0-2])$/.test(m))||new Set(labels).size!==labels.length)return null;
- const start=labels.sort()[0]+'-01',end=now.toISOString().slice(0,10);
- return start<'2016-01-01'||start>end?null:{start,end};
+ const labels=historicalMonths(months,now);if(!labels)return null;
+ return {start:labels.sort()[0]+'-01',end:now.toISOString().slice(0,10)};
 }

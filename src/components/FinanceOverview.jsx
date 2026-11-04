@@ -1,14 +1,14 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {usePage} from './LiveData.jsx';
 import {earningsCategories,historicalSum,analyticsRange,historicalRange} from '../live-analytics.js';
-import {financialSummarySettled,financialReadStatus} from '../finance-read-state.js';
+import {financialReadSettled,financialReadStatus} from '../finance-read-state.js';
 const money=n=>Number.isFinite(n)?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n):'No disponible';
 const names={messages:'Mensajes / PPV',tips:'Propinas',subscriptions:'Suscripciones',posts:'Publicaciones',streams:'Directos',referrals:'Referidos'};
 function Metric({title,value,note}){return <article><small>{title}</small><strong>{money(value)}</strong><p>{note}</p></article>}
 function ReadStatus({state}){const status=financialReadStatus(state);return status?<small role={status.role}>{status.text}</small>:null}
 function SourceCard({category,label,state}){
  const value=earningsCategories(state.result?.data.series).find(row=>row.key===category);
- return <article><h5>{label}</h5><strong>{money(value?.total)}</strong><small>Total informado · Bruto: {money(value?.gross)}</small><ReadStatus state={state}/></article>;
+ return <article><h5>{label}</h5><strong>{money(value?.total)}</strong><small>Total informado · Bruto: {money(value?.gross)}</small><ReadStatus state={state}/>{state.error&&<button disabled={state.busy||state.waiting} onClick={()=>state.load()}>Reintentar {label.toLowerCase()}</button>}</article>;
 }
 function CategorySource({workspace,account,range,category,label,refresh}){
  const state=usePage(workspace,account,'earnings',{...range,category}),previous=useRef(refresh);
@@ -26,9 +26,9 @@ export default function FinanceOverview({workspace,account}){
  const [lifetime,setLifetime]=useState(false),[refresh,setRefresh]=useState(0),[readyScope,setReadyScope]=useState(null);
  const range=analyticsRange('last-month');
  const month=usePage(workspace,account,'earnings',{...range,category:'total'}),history=usePage(workspace,account,'monthly',{}),balance=usePage(workspace,account,'balances',{});
- const scope=JSON.stringify([workspace,account,range]),settled=financialSummarySettled([month,history,balance]);
+ const scope=JSON.stringify([workspace,account,range]),settled=financialReadSettled(month);
  useEffect(()=>{if(settled)setReadyScope(scope)},[settled,scope]);
- const enabled=readyScope===scope;
+ const enabled=readyScope===scope&&!month.denied;
  const total=earningsCategories(month.result?.data.series).find(c=>c.key==='total'),months=history.result?.data.months;
  const lifetimeRange=historicalRange(months);
  return <section className="finance-overview">
