@@ -11,6 +11,7 @@ import {runAutomationTick} from './automation-worker.js';
 import {communityNames,communityAction} from './community.js';
 import {fanProfile,fanHistory,fanActivity} from './fan-profile.js';
 import {actionNames,liveAction,mediaView} from './actions.js';
+import {createTypingResponse} from './typing-stream.js';
 const origins=new Set(['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site']);
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pick=(obj,keys)=>Object.fromEntries(keys.filter(k=>obj?.[k]!==undefined).map(k=>[k,obj[k]]));
@@ -72,7 +73,7 @@ export function normalizeLive(operation,data,binding){
  }
  throw Error('operation');
 }
-export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEnabled=false,writeEnabled=false,advancedWriteEnabled=false,fetcher=fetch,onFailure=record=>console.error(JSON.stringify(record))}){
+export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEnabled=false,writeEnabled=false,advancedWriteEnabled=false,typingConnect,fetcher=fetch,onFailure=record=>console.error(JSON.stringify(record))}){
  const baseFetcher=fetcher,readCache=createProviderReadCache();
  return async request=>{
   let readQuota=null,firstMessageRead=false,cancelableRead=false;
@@ -127,14 +128,14 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background','foreground','liked','action_id','replyTo'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','typing_stream','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background','foreground','liked','action_id','replyTo'].includes(k)))return reply(400,{error:'Consulta no válida'});
    diagnosticOperation=input.operation;
    if(input.background!=null&&(!['inbox','messages'].includes(input.operation)||typeof input.background!=='boolean'))return reply(400,{error:'Consulta no válida'});
    if('foreground'in input&&(typeof input.foreground!=='boolean'||!['fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','presence'].includes(input.operation)||input.foreground===true&&input.operation==='fan_activity'&&input.cursor!=null))return reply(400,{error:'Consulta no válida'});
    if(input.operation==='earnings'&&input.category!=null&&!earningsKeys.includes(input.category))return reply(400,{error:'Categoría financiera no válida'});
    if((Object.hasOwn(input,'liked')||Object.hasOwn(input,'action_id'))&&input.operation!=='like_message'||Object.hasOwn(input,'replyTo')&&input.operation!=='prepare_send')return reply(400,{error:'Consulta no válida'});
    cancelableRead=['messages','inbox','monthly','balances','transactions','fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','presence'].includes(input.operation)||input.operation==='earnings'&&input.category!=null;
-   const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(['accounts','inbox','messages'].includes(input.operation)&&![401,403].includes(r.status)?'read_database':'access');return r.json()};
+   const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(['accounts','inbox','messages','typing_stream'].includes(input.operation)&&![401,403].includes(r.status)?'read_database':'access');return r.json()};
    if(input.operation==='accounts'){const [accounts,chatSafety]=await Promise.all([rpc('bruff_live_accounts',{w:input.workspace_id}),rpc('bruff_chat_status',{w:input.workspace_id})]);return reply(200,{accounts,writeEnabled,chatSafety})}
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
    const permission=['like_message','automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
@@ -145,6 +146,11 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
     return rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p});
    };
    const binding=await authorize();if(typeof binding!=='string'||!/^acct_[A-Za-z0-9_-]+$/.test(binding))throw Error('access');
+   if(input.operation==='typing_stream'){
+    if(!/^\d{1,24}$/.test(String(input.conversation_id||''))||Object.keys(input).some(k=>!['workspace_id','creator_id','operation','conversation_id'].includes(k)))return reply(400,{error:'Conversación no válida'});
+    const authorizeTyping=async()=>{const r=await baseFetcher(url+'/rest/v1/rpc/bruff_live_authorize',{method:'POST',headers:authHeaders,body:JSON.stringify({w:input.workspace_id,c:input.creator_id,p:'read'}),signal:AbortSignal.timeout(10000)});if(!r.ok)throw Object.assign(Error([401,403].includes(r.status)?'access':'typing_unavailable'),{status:r.status});return r.json()};
+    return await createTypingResponse({binding,fan:String(input.conversation_id),providerKey,fetcher:baseFetcher,authorize:authorizeTyping,signal:request.signal,headers,connect:typingConnect});
+   }
    firstMessageRead=(input.operation==='messages'||input.operation==='inbox'&&input.fast===true)&&input.cursor==null&&input.background!==true;
    if(cancelableRead&&request.signal.aborted)return reply(499,{error:'Consulta cancelada'});
    if(['native_queue','native_cancel'].includes(input.operation)){
