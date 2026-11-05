@@ -2,24 +2,37 @@ import {combineNotifications} from './notification-state.js';
 
 // Separate category reads cover financial events omitted from the general feed.
 // IDs remain provider IDs, so one payment cannot produce three alerts.
-export async function collectNotificationUpdates({request,known,baseline,active=()=>true}){
- const results=await Promise.allSettled(['','purchases','tip'].map(async type=>{
+export async function collectNotificationUpdates({request,known,baseline,active=()=>true,onPage}){
+ const previous=new Set(known);let invalidated=false,rejectFatal;
+ const fatal=new Promise((_,reject)=>{rejectFatal=reject});
+ const collectorActive=()=>!invalidated&&active();
+ // A denial must reach the caller immediately so it can clear pages already
+ // shown, while queued or late sibling branches lose their right to publish.
+ const invalidate=error=>{if(!invalidated){invalidated=true;rejectFatal(error)}};
+ const settled=Promise.allSettled(['','purchases','tip'].map(async type=>{
   let cursor=null,head,rows=[],seen=new Set();
   do{
-   if(!active())return {rows:[]};
-   const response=await request({...type?{type}:{},...cursor?{cursor}:{}});
-   if(!active())return {rows:[]};
+   if(!collectorActive())return {rows:[]};
+   let response;try{response=await request({...type?{type}:{},...cursor?{cursor}:{}},{active:collectorActive})}catch(error){if([401,403].includes(error?.status))invalidate(error);throw error}
+   if(!collectorActive())return {rows:[]};
    const page=response.data;
    if(!Array.isArray(page?.notifications))throw Error('Respuesta de notificaciones no válida.');
-   head??=page;rows=combineNotifications(rows,page.notifications.map(n=>type?{...n,category:type}:n));
-   if(page.notifications.some(n=>known.has(n.id)||Date.parse(n.createdAt)<=baseline)||!page.hasMore)break;
+   const incoming=page.notifications.map(n=>type?{...n,category:type}:n);
+   head??=page;rows=combineNotifications(rows,incoming);
+   // Callback failures are application failures, not a partial provider result.
+   // Await asynchronous callbacks too, so rejected promises cannot escape.
+   if(onPage)try{await onPage({rows:[...incoming],head,type})}catch(error){invalidate(error);throw error}
+   if(!collectorActive())return {rows:[]};
+   if(page.notifications.some(n=>previous.has(n.id)||Date.parse(n.createdAt)<=baseline)||!page.hasMore)break;
    if(!page.cursor||seen.has(page.cursor))throw Error('El proveedor no permite continuar la actualización.');
    cursor=page.cursor;seen.add(cursor);
-  }while(active());
+  }while(collectorActive());
   return {rows,head};
  }));
+ const results=await Promise.race([settled,fatal]);
  const denied=results.find(r=>r.status==='rejected'&&[401,403].includes(r.reason.status));
  if(denied)throw denied.reason;
+ if(!collectorActive())return {incoming:[],head:null,error:''};
  if(results.every(r=>r.status==='rejected'))throw results[0].reason;
  const retryAfter=Math.max(0,...results.filter(r=>r.status==='rejected'&&r.reason.status===429&&Number.isFinite(r.reason.retryAfter)).map(r=>r.reason.retryAfter));
  return {incoming:results.reduce((rows,r)=>r.status==='fulfilled'?combineNotifications(rows,r.value.rows):rows,[]),head:results[0].status==='fulfilled'?results[0].value.head:null,error:results.some(r=>r.status==='rejected')?'No se pudo comprobar toda la actividad. Se reintentará automáticamente.':'',...(retryAfter?{retryAfter}:{})};

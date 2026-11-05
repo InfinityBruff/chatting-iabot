@@ -1,21 +1,16 @@
-import {useEffect,useRef,useState} from 'react';
-import {combineNotifications} from '../notification-state.js';
-// Category cursors belong to one exact model/filter pair; never reuse inbox/head cursors.
-export function useNotificationCategory(request,workspace,ids,type){
- const scope=JSON.stringify([workspace,ids,type]);const [state,setState]=useState({scope:'',models:{}}),control=useRef(()=>{});
- useEffect(()=>{let cancelled=false,timer,running=false;const models=Object.fromEntries(ids.map(id=>[id,{rows:[],cursor:null,hasMore:false,busy:true,error:'',checked:null}]));
- const publish=()=>{if(!cancelled)setState({scope,models:Object.fromEntries(Object.entries(models).map(([id,m])=>[id,{...m}]))})};
- async function fetchPage(id,cursor,fresh=false){const m=models[id];if(!m||m.loading)return;m.loading=true;m.busy=true;publish();try{
-  const response=await request(workspace,'notifications',{creator_id:id,type,...(cursor?{cursor}:{})},{active:()=>!cancelled,...(fresh?{fresh:true}:{})});if(cancelled)return;
-  if(!Array.isArray(response.data?.notifications))throw Error('Respuesta de notificaciones no válida.');
-  const page=response.data;m.rows=combineNotifications(m.rows,page.notifications.map(n=>({...n,category:type})));m.error='';m.checked=Date.now();
-  if(cursor||!m.extended){m.cursor=page.cursor;m.hasMore=page.hasMore}if(cursor)m.extended=true;
-  if(page.hasMore&&(!page.cursor||page.cursor===cursor)){m.cursor=null;m.error='El proveedor no entregó un cursor válido para continuar el historial.'}
- }catch(e){if(cancelled)return;m.error=e.message;if(e.status===401||e.status===403)m.rows=[]}finally{if(!cancelled){m.busy=false;m.loading=false;publish()}}}
- async function poll(fresh=false){if(cancelled||running||!type)return;running=true;for(const id of ids){if(cancelled)break;if(document.visibilityState!=='visible')break;await fetchPage(id,undefined,fresh)}running=false;if(!cancelled){clearTimeout(timer);timer=setTimeout(poll,20000)}}
- control.current=(id,cursor)=>{if(id)return fetchPage(id,cursor,true);clearTimeout(timer);return poll(true)};
- publish();if(type)poll();const visible=()=>{if(document.visibilityState==='visible'){clearTimeout(timer);poll()}};if(type)document.addEventListener('visibilitychange',visible);
- return()=>{cancelled=true;clearTimeout(timer);document.removeEventListener('visibilitychange',visible)};
- },[scope,request]);
- return {models:state.scope===scope?state.models:{},load:(id,cursor)=>control.current(id,cursor)};
+import {useEffect,useMemo,useRef,useSyncExternalStore} from 'react';
+import {createNotificationCategory,createNotificationCategoryCache} from '../notification-category.js';
+
+// Filter visits share only this page's memory, scoped to the current actor and
+// workspace. A new request identity cannot inherit another user's cached rows.
+export function useNotificationCategory(request,workspace,ids,type,options={}){
+ const scope=options.scope??workspace,signature=JSON.stringify(ids),callbacks=useRef(options);callbacks.current=options;
+ const store=useMemo(()=>createNotificationCategoryCache(),[request,workspace,scope]);
+ const reader=useMemo(()=>createNotificationCategory({request,workspace,ids:JSON.parse(signature),type,scope,cache:store,models:callbacks.current.models,
+  peek:(...args)=>callbacks.current.peek?.(...args),subscribeInvalidation:listener=>callbacks.current.subscribeInvalidation?.(listener),onDenied:(...args)=>callbacks.current.onDenied?.(...args),visible:()=>document.visibilityState==='visible',
+ }),[request,workspace,signature,type,scope,store]);
+ const state=useSyncExternalStore(reader.subscribe,reader.getSnapshot,reader.getSnapshot);
+ useEffect(()=>{reader.start();const visible=()=>reader.recheckVisibility();document.addEventListener('visibilitychange',visible);return()=>{document.removeEventListener('visibilitychange',visible);reader.stop()}},[reader]);
+ useEffect(()=>reader.setModels(options.models),[reader,options.models]);
+ return {...state,load:reader.load};
 }
