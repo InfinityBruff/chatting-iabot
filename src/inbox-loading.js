@@ -1,4 +1,4 @@
-export const INITIAL_CHAT_TARGET=120;
+export const INITIAL_CHAT_TARGET=40;
 export function inboxNextPage({page,busy,error,seen,initialPages=0,nearEnd=false,pageQueued=false,requestCursor}){
  if(error||!page?.hasMore||!page.cursor||seen.has(page.cursor))return null;
  // A scroll can promote the SAME queued preload. It never creates another

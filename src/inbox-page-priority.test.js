@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {requestInboxPage} from './components/useInboxLoading.js';import {scheduleLiveRead,pageReadPriority,pageReadBackground} from './live-read-priority.js';import {createReadScheduler} from './live-read-scheduler.js';
 import {createPageLoader} from './page-loader.js';import {inboxNextPage} from './inbox-loading.js';import {applyPresence,isFanOnline} from './fan-presence.js';
+import {createInboxWindow} from './inbox-window.js';
 function clock(){let at=0;const tasks=new Map();return {now:()=>at,schedule:(fn,ms)=>(tasks.set(fn,at+ms),fn),cancel:fn=>tasks.delete(fn),flush:async()=>{const [fn,due]=[...tasks].sort((a,b)=>a[1]-b[1])[0];tasks.delete(fn);at=due;await fn()}}}
 test('automatic inbox preload yields to selected metadata and opening conversation',async()=>{
  const time=clock(),scheduler=createReadScheduler({...time,backgroundIdle:4000}),order=[];
@@ -40,4 +41,42 @@ test('scrolling promotes the actual queued inbox page behind conversation openin
   assert.deepEqual(complete.result.data.conversations.map(fan=>fan.userId),['1','2']);assert.equal(complete.result.data.conversations[0].spend.total,12);
   const fans=applyPresence(complete.result.data.conversations,presence);assert.equal(isFanOnline(fans[0],time.now()),true);assert.equal(isFanOnline(fans[1],time.now()),false);
  }finally{loader.stop()}
+});
+test('the real inbox window fills forty chats from two native pages of twenty while conversation opening stays first',async()=>{
+ const time=clock(),scheduler=createReadScheduler({...time,backgroundIdle:4000}),calls=[],admissions=[];
+ const flushPromises=async()=>{for(let i=0;i<20;i++)await Promise.resolve()};
+ const page=(first,cursor)=>({data:{conversations:Array.from({length:20},(_,i)=>({userId:String(first+i),lastMessage:'Mensaje ficticio'})),hasMore:true,cursor}});
+ const loader=createPageLoader({...time,field:'conversations',retain:true,cancelReads:true,read:(cursor,background,active,onStart,_preparing,signal,options)=>{
+  const priority=pageReadPriority('inbox',{cursor,background,priority:options.priority}),args={fast:true,...(cursor?{cursor}:{}),...(pageReadBackground('inbox',{cursor,background,priority})?{background:true}:{})};
+  admissions.push({cursor,priority});
+  return scheduleLiveRead(scheduler,'inbox',async()=>{assert.equal(signal.aborted,false);onStart();calls.push({kind:cursor?'cursor':'head',at:time.now()});return cursor?page(21,'after-forty'):page(1,'after-twenty')},{active,priority},args);
+ }});
+ let window,unsubscribe=()=>{};
+ try{
+  loader.start();await flushPromises();assert.equal(loader.getSnapshot().result.data.conversations.length,20);
+  const input=()=>({...loader.getSnapshot(),rows:loader.getSnapshot().result?.data.conversations||[]});
+  window=createInboxWindow({load:loader.load,initial:input()});unsubscribe=loader.subscribe(()=>window.setInput(input()));window.start();
+  assert.equal(window.getSnapshot().visibleLimit,40);assert.equal(admissions.length,1);
+  window.commit();
+  const conversation=scheduleLiveRead(scheduler,'messages',async()=>calls.push({kind:'conversation',at:time.now()}),{priority:'conversation'});
+  await flushPromises();assert.equal(loader.getSnapshot().pageQueued,true);assert.equal(admissions[1].priority,'pagination');
+  await time.flush();await conversation;await time.flush();await flushPromises();
+  assert.deepEqual(calls.map(call=>call.kind),['head','conversation','cursor']);
+  const full=loader.getSnapshot();assert.equal(full.result.data.conversations.length,40);assert.equal(full.result.data.cursor,'after-forty');assert.equal(full.result.data.hasMore,true);
+  assert.equal(window.getSnapshot().pending,false);assert.equal(window.getSnapshot().visibleLimit,40);
+  window.setInput(input());window.commit();await flushPromises();assert.equal(admissions.length,2);
+  assert.equal(inboxNextPage({page:full.result.data,busy:false,error:'',seen:new Set(),initialPages:1}),null);
+ }finally{unsubscribe();window?.stop();loader.stop()}
+});
+test('cached native pages reveal forty then blocks of fifteen with no GET and retain every row and the original provider cursor',()=>{
+ const conversations=Array.from({length:80},(_,i)=>({userId:String(i+1)})),raw={data:{conversations,hasMore:false,cursor:null}},initial={rows:conversations,result:raw,busy:false,pageRevision:0};let reads=0;
+ const window=createInboxWindow({initial,load:()=>{reads++;throw Error('The cached buffer must be used first')}});
+ try{
+  window.start();window.commit();assert.equal(window.getSnapshot().visibleLimit,40);assert.equal(conversations.slice(0,window.getSnapshot().visibleLimit).length,40);
+  assert.equal(window.loadMore(),true);assert.equal(window.loadMore(),false);assert.equal(window.getSnapshot().visibleLimit,55);window.setInput(initial);window.commit();
+  assert.equal(conversations.slice(0,window.getSnapshot().visibleLimit).length,55);assert.equal(window.getSnapshot().pending,false);
+  assert.equal(window.loadMore(),true);window.commit();assert.equal(conversations.slice(0,window.getSnapshot().visibleLimit).length,70);
+  assert.equal(window.loadMore(),true);window.commit();assert.equal(conversations.slice(0,window.getSnapshot().visibleLimit).length,80);assert.equal(window.getSnapshot().hasMore,false);
+  assert.equal(reads,0);assert.equal(raw.data.conversations,conversations);assert.equal(raw.data.conversations.length,80);assert.equal(raw.data.cursor,null);assert.equal(raw.data.hasMore,false);
+ }finally{window.stop()}
 });
