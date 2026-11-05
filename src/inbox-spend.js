@@ -16,7 +16,7 @@ export function mergeInboxSpendPage(previous,values,checkedAt){
 // One authorized model, one replaceable read batch. Cached rows survive scrolling;
 // a superseded viewport cannot hold up the newly visible fans.
 export function createInboxSpendReader({workspace,account,request,onValue,onDenied=()=>{},now=Date.now,schedule=setTimeout,cancel=clearTimeout,visible=()=>true,cacheEpoch=()=>0,ttl=INBOX_SPEND_TTL}){
- let active=false,timer,version=0,index=new Map(),inputRows=null,visibleIds=[],viewportActive=true,lastToken,tokenSeen=false,forced=new Set(),targets=[],checked=new Set(),retryAt=0,failures=0,denied=false,firstBatch=true,wave=0,selectedFan=null,job=null;
+ let active=false,timer,wakeAt=Infinity,version=0,index=new Map(),inputRows=null,visibleIds=[],viewportActive=true,lastToken,tokenSeen=false,forced=new Set(),targets=[],checked=new Set(),retryAt=0,failures=0,denied=false,firstBatch=true,wave=0,selectedFan=null,job=null;
  let snapshot={busy:false,waiting:false,error:'',checked:0,total:0,done:true,refreshToken:undefined};const listeners=new Set();
  const emit=patch=>{snapshot={...snapshot,...patch,refreshToken:lastToken,checked:checked.size,total:targets.length,done:forced.size===0&&!job&&checked.size===targets.length};for(const listener of listeners)listener()};
  const ordered=ids=>[...new Set(ids)].filter(id=>typeof id==='string'&&/^\d{1,24}$/.test(id)&&index.has(id));
@@ -25,7 +25,7 @@ export function createInboxSpendReader({workspace,account,request,onValue,onDeni
   const shown=ordered(visibleIds).filter(id=>forced.has(id)||!spendIsFresh(index.get(id),now(),ttl));
   return [...new Set([...shown,...targets.filter(id=>forced.has(id)&&index.has(id))])];
  };
- function wake(delay=400){if(!active||job||denied)return;cancel(timer);timer=schedule(tick,Math.max(delay,retryAt-now()))}
+ function wake(delay=400){if(!active||job||denied)return;const next=now()+Math.max(delay,retryAt-now());if(timer!==undefined&&wakeAt<=next)return;cancel(timer);wakeAt=next;timer=schedule(()=>{timer=undefined;wakeAt=Infinity;return tick()},Math.max(0,next-now()))}
  function abortBatch(){if(!job)return;const previous=job;job=null;previous.controller.abort();if(active)emit({busy:false,waiting:false})}
  async function tick(){
   if(!active||job||denied)return;
@@ -68,6 +68,6 @@ export function createInboxSpendReader({workspace,account,request,onValue,onDeni
   },
   recheckVisibility(){if(!visible()||!viewportActive)abortBatch();wake(visible()&&viewportActive?0:2000)},
   start(){if(active)return;active=true;denied=false;version++;wake()},
-  stop(){active=false;version++;cancel(timer);abortBatch();index.clear();inputRows=null;forced.clear()},
+  stop(){active=false;version++;cancel(timer);timer=undefined;wakeAt=Infinity;abortBatch();index.clear();inputRows=null;forced.clear()},
  };
 }

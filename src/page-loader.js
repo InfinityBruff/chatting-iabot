@@ -5,7 +5,7 @@ import {readFailureState} from './live-page-policy.js';
 export function createPageLoader({read,field,retain=false,initial=null,write=()=>{},cacheEpoch=()=>0,onDenied=()=>{},visible=()=>true,shouldPoll=()=>true,now=Date.now,schedule=setTimeout,cancel=clearTimeout,pollInterval=0,cancelReads=false}){
  const listeners=new Set(),lane=()=>({running:null,error:'',limited:false,waitUntil:0,retryCursor:null,retryOptions:{},resumePending:false,failures:0,timer:null});
  let head=lane(),page=lane(),result=initial,resultStartedAt=null,resultReadIds=null,active=false,denied=false,suspended=false,generation=0,initialPending=!initial,pollTimer=null,pageRevision=0,lastCursor=null,latencyMs=1000,authorizedEpoch=cacheEpoch(),snapshot;
- function emit(){snapshot={result,denied,resultStartedAt:result?resultStartedAt:null,resultReadIds:result?resultReadIds:null,error:page.error||head.error,busy:initialPending||!!page.running||!!head.running&&(!retain||!result),queued:active&&!denied&&!!(head.running&&!head.running.started||page.running&&!page.running.started),refreshing:retain&&!!head.running&&!!result,refreshWaiting:head.limited&&!!result,waiting:page.limited||head.limited&&(!retain||!result),pageBusy:!!page.running,pageWaiting:page.limited,requestCursor:page.running?.cursor||lastCursor,pageRevision,latencyMs};for(const listener of listeners)listener()}
+ function emit(){snapshot={result,denied,resultStartedAt:result?resultStartedAt:null,resultReadIds:result?resultReadIds:null,error:page.error||head.error,busy:initialPending||!!page.running||!!head.running&&(!retain||!result),queued:active&&!denied&&!!(head.running&&!head.running.started||page.running&&!page.running.started),pageQueued:active&&!denied&&!suspended&&!!page.running&&!page.running.started,refreshing:retain&&!!head.running&&!!result,refreshWaiting:head.limited&&!!result,waiting:page.limited||head.limited&&(!retain||!result),pageBusy:!!page.running,pageWaiting:page.limited,requestCursor:page.running?.cursor||lastCursor,pageRevision,latencyMs};for(const listener of listeners)listener()}
  const clearTimers=()=>{cancel(pollTimer);cancel(head.timer);cancel(page.timer)};
  const abortReads=()=>{head.running?.controller?.abort();page.running?.controller?.abort()};
  function revalidate(){
@@ -17,9 +17,16 @@ export function createPageLoader({read,field,retain=false,initial=null,write=()=
  function retry(target,cursor,options){cancel(target.timer);target.timer=schedule(()=>{if(!active||denied||suspended)return;if(!visible()){retry(target,cursor,options);return}void load(cursor,options)},Math.min(2147483647,Math.max(1000,target.waitUntil-now())))}
  async function load(cursor=null,options={}){
   const target=cursor?page:head;
-  if(!active||denied||suspended||!visible()||target.running||target.limited&&now()<target.waitUntil)return false;
-  const gen=generation,epoch=cacheEpoch(),token={cursor:cursor||null,options,started:false,...(cancelReads?{controller:new AbortController()}: {})},startedAt=now();
-  const valid=()=>active&&!denied&&!suspended&&generation===gen&&cacheEpoch()===epoch;
+  if(!active||denied||suspended||!visible()||target.limited&&now()<target.waitUntil)return false;
+  if(target.running){
+   const previous=target.running,canPromote=target===page&&field==='conversations'&&retain&&cancelReads&&previous.cursor===cursor&&previous.epoch===cacheEpoch()&&!previous.started&&options.priority==='pagination'&&['background','prefetch'].includes(previous.options.priority);
+   if(!canPromote)return false;
+   // Only replace a queued sidebar read. Its invalidated admission predicate
+   // prevents a provider call; a read that started is never replayed.
+   target.running=null;previous.controller.abort();
+  }
+  const gen=generation,epoch=cacheEpoch(),token={cursor:cursor||null,epoch,options,started:false,...(cancelReads?{controller:new AbortController()}: {})},startedAt=now();
+  const valid=()=>active&&!denied&&!suspended&&generation===gen&&cacheEpoch()===epoch&&target.running===token;
   const onStart=()=>{if(!valid()||target.running!==token||token.started)return;token.started=true;token.readStartedAt=now();emit()};
   cancel(target.timer);target.running=token;target.error='';target.limited=false;initialPending=false;if(cursor)lastCursor=cursor;emit();
   try{

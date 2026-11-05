@@ -1,7 +1,7 @@
 const finite=(value,fallback)=>Number.isFinite(value)?value:fallback;
 export function scrollAheadDistance({viewport=400,velocity=0,latencyMs=1000,kind='inbox'}={}){
  const height=Math.max(100,finite(viewport,400)),speed=Math.min(8,Math.abs(finite(velocity,0))),latency=Math.min(15000,Math.max(500,finite(latencyMs,1000)));
- const base=kind==='history'?Math.max(1200,height*3):Math.max(1000,height*2);
+ const base=kind==='history'?Math.max(1200,height*3):Math.max(1500,height*3);
  return Math.min(20000,Math.max(base,speed*latency*1.25));
 }
 export function createScrollMotion({now=Date.now}={}){

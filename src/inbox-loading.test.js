@@ -3,3 +3,7 @@ const opts=(count=10)=>({page:{conversations:Array(count).fill({}),hasMore:true,
 test('saved profile placeholders do not prevent refreshing the first 120 real conversations',()=>{const state=opts(200);state.page.conversations=state.page.conversations.map((f,i)=>({...f,profileSnapshot:i>=10}));assert.equal(inboxNextPage(state),'next');state.page.conversations=state.page.conversations.map((f,i)=>({...f,profileSnapshot:i>=120}));assert.equal(inboxNextPage(state),null)});
 test('preloads 120 chats then continues only when approaching list end',()=>{assert.equal(inboxNextPage(opts()),'next');assert.equal(inboxNextPage(opts(119)),'next');assert.equal(inboxNextPage(opts(120)),null);assert.equal(inboxNextPage({...opts(120),nearEnd:true}),'next')});
 test('pagination does not loop on repeated cursors or errors and bounds empty initial pages',()=>{for(const extra of [{busy:true},{error:'failed'},{seen:new Set(['next'])},{initialPages:8},{page:{hasMore:false,cursor:'next'}},{page:{hasMore:true,cursor:null}}])assert.equal(inboxNextPage({...opts(),...extra}),null)});
+test('scroll demand may promote only its own queued cursor, never a running read or another busy operation',()=>{
+ const queued={...opts(150),busy:true,pageQueued:true,requestCursor:'next',nearEnd:true};assert.equal(inboxNextPage(queued),'next');
+ for(const extra of [{nearEnd:false},{pageQueued:false},{requestCursor:'other'},{requestCursor:undefined},{error:'limited'},{seen:new Set(['next'])}])assert.equal(inboxNextPage({...queued,...extra}),null);
+});

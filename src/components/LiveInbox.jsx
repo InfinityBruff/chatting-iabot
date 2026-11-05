@@ -75,7 +75,7 @@ export default function LiveInbox({currentUserId,presence,workspace,account,acco
  useEffect(()=>{const narrow=window.matchMedia('(max-width:1149px)');const fit=()=>{if(narrow.matches)setDetails(false)};fit();narrow.addEventListener('change',fit);return()=>narrow.removeEventListener('change',fit)},[]);
  useEffect(()=>{writeSession(fanKey,fan?id(fan):null)},[fanKey,fan]);
  const manualBusy=useRef(false);
- const {result,error,busy,waiting,refreshing,load,update,latencyMs,pageRevision,requestCursor,deny:denyInbox,denied:inboxDenied}=usePage(workspace,account,'inbox',{query:search,fast:true},'conversations',{shouldPoll:()=>!manualBusy.current});
+ const {result,error,busy,waiting,refreshing,load,update,latencyMs,pageRevision,requestCursor,pageQueued,deny:denyInbox,denied:inboxDenied}=usePage(workspace,account,'inbox',{query:search,fast:true},'conversations',{shouldPoll:()=>!manualBusy.current});
  const onInboxDenied=useCallback(()=>{denyInbox('No tienes acceso a esta modelo.');setFan(null)},[denyInbox]);
  const manual=useInboxRefresh(workspace,account,search,update,onInboxDenied);manualBusy.current=manual.busy;
  useEffect(()=>{if(inboxDenied)setFan(null)},[inboxDenied]);
@@ -83,7 +83,7 @@ export default function LiveInbox({currentUserId,presence,workspace,account,acco
  const refreshInbox=()=>{if(manual.busy){manual.cancel();return}setSpendRefresh(value=>value+1);setRefreshAllSpend(true);manual.start()};
  const manualWasBusy=useRef(false);useEffect(()=>{if(manualWasBusy.current&&!manual.busy&&manual.complete)setSpendRefresh(value=>value+1);manualWasBusy.current=manual.busy},[manual.busy,manual.complete]);
  const onSpend=useCallback(payload=>{if(payload.workspace===workspace&&payload.account===account)update(previous=>mergeInboxSpendPage(previous,[{id:payload.fanId,spend:payload.spend}],payload.checkedAt))},[workspace,account,update]);
- const inboxScroll=useInboxLoading(JSON.stringify([currentUserId,workspace,account,search]),{result,error,busy:busy||waiting||manual.busy,load,latencyMs,pageRevision,requestCursor});
+ const inboxScroll=useInboxLoading(JSON.stringify([currentUserId,workspace,account,search]),{result,error,busy:busy||waiting||manual.busy,load,latencyMs,pageRevision,requestCursor,pageQueued:pageQueued&&!manual.busy&&!waiting});
  const all=useMemo(()=>applyPresence(result?.data.conversations||[],presence).map(f=>({...f,customName:names.find(id(f))?.name||''})),[result,presence,names]);
  const unread=all.reduce((n,f)=>n+(f.unreadCount>0?1:0),0);
  const rows=useMemo(()=>all.filter(f=>filter==='unread'?f.unreadCount>0:filter==='pinned'?pinned.includes(id(f)):filter==='tips'?(f.spend?.tips??0)>0:true).sort((a,b)=>((Date.parse(b.lastMessageTime)||0)-(Date.parse(a.lastMessageTime)||0))*(ascending?-1:1)),[all,filter,pinned,ascending]);

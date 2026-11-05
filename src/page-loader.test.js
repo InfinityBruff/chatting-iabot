@@ -2,6 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import {cre
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}};
 const page=(ids,cursor='older',hasMore=true)=>({data:{messages:ids.map(id=>({id})),cursor,hasMore}});
 const settled=()=>new Promise(resolve=>setImmediate(resolve));
+const sidebarPage=(ids,cursor='next',hasMore=true)=>({data:{conversations:ids.map(userId=>({userId})),cursor,hasMore}});
 test('denied snapshot blocks reads and local updates until an explicit stop/start restart',async()=>{
  let reads=0,shown=true;const fresh=deferred(),loader=createPageLoader({field:'messages',visible:()=>shown,read:async()=>++reads===1?page([1]):fresh.promise});
  assert.equal(loader.getSnapshot().denied,false);loader.start();await settled();loader.deny('revoked');assert.equal(loader.getSnapshot().denied,true);assert.equal(loader.getSnapshot().result,null);
@@ -12,10 +13,10 @@ test('401 and 403 read failures expose denied without allowing retries',async()=
  for(const status of [401,403]){let reads=0;const loader=createPageLoader({read:async()=>{reads++;throw Object.assign(Error('denied'),{status})}});loader.start();await settled();assert.equal(loader.getSnapshot().denied,true);assert.equal(await loader.load(),false);assert.equal(reads,1);loader.stop();assert.equal(loader.getSnapshot().denied,true)}
 });
 test('load forwards client options as the seventh read argument without shifting cancellation or lane arguments',async()=>{
- const calls=[],options={priority:'background'},loader=createPageLoader({cancelReads:true,retain:true,initial:page([10]),field:'messages',read:async(...args)=>{calls.push(args);return page([9])}});
+ const calls=[],admitted=[],options={priority:'background'},loader=createPageLoader({cancelReads:true,retain:true,initial:page([10]),field:'messages',read:async(...args)=>{calls.push(args);admitted.push(args[2]());return page([9])}});
  loader.start();await settled();await loader.load('next',options);
  const [cursor,background,active,onStart,preparing,signal,readOptions]=calls[1];
- assert.equal(cursor,'next');assert.equal(background,false);assert.equal(active(),true);assert.equal(typeof onStart,'function');assert.equal(preparing,false);assert.ok(signal instanceof AbortSignal);assert.equal(readOptions,options);assert.deepEqual(calls[0][6],{});loader.stop();
+ assert.equal(cursor,'next');assert.equal(background,false);assert.equal(active(),false);assert.deepEqual(admitted,[true,true]);assert.equal(typeof onStart,'function');assert.equal(preparing,false);assert.ok(signal instanceof AbortSignal);assert.equal(readOptions,options);assert.deepEqual(calls[0][6],{});loader.stop();
 });
 test('429 retry preserves client pagination options and its Retry-After deadline',async()=>{
  let time=0,attempts=0;const tasks=new Map(),seen=[],options={priority:'background'};
@@ -119,4 +120,68 @@ test('stale admission callbacks after denial or a stopped scope cannot emit or r
 test('reads without an admission callback still finish with the requested timestamp and clear queued state',async()=>{
  const remote=deferred();let at=10,calls=0;const loader=createPageLoader({field:'messages',now:()=>at,read:()=>{calls++;return remote.promise}});loader.start();assert.equal(loader.getSnapshot().queued,true);at=20;remote.resolve(page([3]));await settled();
  assert.equal(calls,1);assert.equal(loader.getSnapshot().queued,false);assert.equal(loader.getSnapshot().resultStartedAt,10);assert.deepEqual(loader.getSnapshot().resultReadIds,['3']);loader.stop();
+});
+test('a queued sidebar page promotes once when needed, preserving conversation priority and making one provider read',async()=>{
+ const {createReadScheduler}=await import('./live-read-scheduler.js'),scheduler=createReadScheduler({minimumGap:0,settleMs:0,backgroundIdle:4000}),held=deferred(),order=[],requests=[];
+ const occupied=scheduler.primary(()=>held.promise);
+ const loader=createPageLoader({initial:sidebarPage(['cached']),field:'conversations',retain:true,cancelReads:true,read:(cursor,bg,active,onStart,preparing,signal,options)=>{
+  if(!cursor)return Promise.resolve(sidebarPage(['head']));requests.push({cursor,active,onStart,signal,options});
+  const run=async()=>{order.push('page');onStart();return sidebarPage(['older'],'after')};return options.priority==='pagination'?scheduler.primary(run,active,'pagination'):scheduler.secondary(run,active,options.priority);
+ }});
+ loader.start();await settled();const automatic=loader.load('next',{priority:'background'});assert.equal(loader.getSnapshot().pageQueued,true);
+ const needed=loader.load('next',{priority:'pagination'});assert.equal(requests[0].signal.aborted,true);assert.equal(requests[0].active(),false);assert.equal(requests.length,2);assert.equal(await loader.load('next',{priority:'pagination'}),false);
+ requests[0].onStart();assert.equal(loader.getSnapshot().pageQueued,true);
+ const conversation=scheduler.primary(async()=>{order.push('conversation')},()=>true,'conversation');held.resolve();await occupied;await conversation;
+ assert.equal(await automatic,false);assert.equal(await needed,true);assert.deepEqual(order,['conversation','page']);assert.equal(loader.getSnapshot().pageQueued,false);assert.equal(loader.getSnapshot().pageRevision,1);assert.equal(loader.getSnapshot().result.data.cursor,'after');loader.stop();
+});
+test('sidebar promotion cannot replay started HTTP, another cursor, an already explicit page or a history consumer',async()=>{
+ for(const scenario of [{started:true,field:'conversations',cancelReads:true,priority:'background'},{started:false,field:'conversations',cancelReads:true,priority:'pagination'},{started:false,field:'messages',cancelReads:true,priority:'background'},{started:false,field:'conversations',cancelReads:false,priority:'prefetch'}]){
+  const pending=deferred(),requests=[],value=scenario.field==='messages'?page([1]):sidebarPage(['head']);
+  const loader=createPageLoader({initial:value,field:scenario.field,retain:true,cancelReads:scenario.cancelReads,read:(cursor,bg,active,onStart,preparing,signal,options)=>{if(!cursor)return Promise.resolve(value);requests.push({signal,options});if(scenario.started)onStart();return pending.promise}});
+  loader.start();await settled();const automatic=loader.load('next',{priority:scenario.priority});assert.equal(loader.getSnapshot().pageQueued,!scenario.started);
+  assert.equal(await loader.load('different',{priority:'pagination'}),false);assert.equal(await loader.load('next',{priority:'pagination'}),false);assert.equal(requests.length,1);assert.notEqual(requests[0].signal?.aborted,true);
+  loader.stop();pending.resolve(value);assert.equal(await automatic,false);
+ }
+});
+test('replaced queued sidebar success or failure cannot commit, deny, change quota state or clear the replacement',async()=>{
+ for(const outcome of ['success','denial','limited']){
+  const old=deferred(),fresh=deferred(),requests=[],writes=[];let denials=0;
+  const loader=createPageLoader({initial:sidebarPage(['cached']),field:'conversations',retain:true,cancelReads:true,onDenied:()=>denials++,write:value=>writes.push(value),read:(cursor,bg,active,onStart,preparing,signal,options)=>{if(!cursor)return Promise.resolve(sidebarPage(['head']));requests.push({active,onStart,signal,options});return requests.length===1?old.promise:fresh.promise}});
+  loader.start();await settled();const automatic=loader.load('next',{priority:'prefetch'}),needed=loader.load('next',{priority:'pagination'});requests[0].onStart();
+  if(outcome==='success')old.resolve(sidebarPage(['stale']));else old.reject(Object.assign(Error('stale failure'),{status:outcome==='denial'?403:429,retryAfter:100}));
+  assert.equal(await automatic,false);assert.equal(denials,0);assert.equal(loader.getSnapshot().denied,false);assert.equal(loader.getSnapshot().pageQueued,true);assert.equal(loader.getSnapshot().pageWaiting,false);assert.equal(loader.getSnapshot().error,'');
+  requests[1].onStart();fresh.resolve(sidebarPage(['fresh'],'after'));assert.equal(await needed,true);assert.equal(loader.getSnapshot().pageRevision,1);assert.ok(writes.every(value=>!value.data.conversations.some(fan=>fan.userId==='stale')));loader.stop();
+ }
+});
+test('a new page denial after promotion still aborts both lanes and cannot be undone by stale responses',async()=>{
+ const head=deferred(),old=deferred(),fresh=deferred(),signals=[];let pages=0,denials=0;
+ const loader=createPageLoader({initial:sidebarPage(['cached']),field:'conversations',retain:true,cancelReads:true,onDenied:()=>denials++,read:(cursor,bg,active,onStart,preparing,signal)=>{signals.push(signal);return !cursor?head.promise:++pages===1?old.promise:fresh.promise}});
+ loader.start();const automatic=loader.load('next',{priority:'background'}),needed=loader.load('next',{priority:'pagination'});fresh.reject(Object.assign(Error('revoked'),{status:403}));assert.equal(await needed,false);assert.equal(denials,1);assert.ok(signals.every(signal=>signal.aborted));assert.equal(loader.getSnapshot().pageQueued,false);
+ old.resolve(sidebarPage(['old-page']));head.resolve(sidebarPage(['old-head']));assert.equal(await automatic,false);await settled();assert.equal(loader.getSnapshot().result,null);assert.equal(loader.getSnapshot().denied,true);assert.equal(await loader.load('next',{priority:'pagination'}),false);loader.stop();
+});
+test('cache invalidation cannot promote or accept a sidebar page from the previous authorization epoch',async()=>{
+ let epoch=0,heads=0;const old=deferred(),authorized=deferred(),calls=[],writes=[];
+ const loader=createPageLoader({initial:sidebarPage(['cached']),field:'conversations',retain:true,cancelReads:true,cacheEpoch:()=>epoch,write:value=>writes.push(value),read:(cursor,bg,active,onStart,preparing,signal,options)=>{calls.push({cursor,signal,options});return cursor?old.promise:++heads===1?Promise.resolve(sidebarPage(['head'])):authorized.promise}});
+ loader.start();await settled();const automatic=loader.load('next',{priority:'background'});epoch++;assert.equal(await loader.load('next',{priority:'pagination'}),false);old.resolve(sidebarPage(['stale']));assert.equal(await automatic,false);await settled();
+ assert.deepEqual(calls.map(call=>call.cursor),[null,'next',null]);assert.equal(loader.getSnapshot().result,null);authorized.resolve(sidebarPage(['authorized']));await settled();assert.ok(writes.every(value=>!value.data.conversations.some(fan=>fan.userId==='stale')));assert.deepEqual(loader.getSnapshot().result.data.conversations.map(fan=>fan.userId),['authorized']);loader.stop();
+});
+test('promotion preserves RetryAfter on the replacement and retries the same explicit cursor after its deadline',async()=>{
+ let time=0,attempts=0;const tasks=new Map(),old=deferred(),seen=[];
+ const loader=createPageLoader({initial:sidebarPage(['cached']),field:'conversations',retain:true,cancelReads:true,now:()=>time,schedule:(fn,ms)=>(tasks.set(fn,time+ms),fn),cancel:fn=>tasks.delete(fn),read:async(cursor,bg,active,onStart,preparing,signal,options)=>{if(!cursor)return sidebarPage(['head']);seen.push({cursor,options,signal});if(options.priority==='background')return old.promise;if(++attempts===1)throw Object.assign(Error('limited'),{status:429,retryAfter:5});onStart();return sidebarPage(['older'],'after')}});
+ loader.start();await settled();const automatic=loader.load('next',{priority:'background'});assert.equal(await loader.load('next',{priority:'pagination'}),false);assert.equal(loader.getSnapshot().pageWaiting,true);assert.equal(loader.getSnapshot().pageQueued,false);assert.deepEqual([...tasks.values()],[5000]);
+ time=1000;assert.equal(await loader.load('next',{priority:'pagination'}),false);assert.equal(attempts,1);old.reject(Object.assign(Error('stale denied'),{status:403}));assert.equal(await automatic,false);assert.equal(loader.getSnapshot().denied,false);
+ time=5000;await [...tasks.keys()][0]();await settled();assert.equal(attempts,2);assert.deepEqual(seen.map(call=>[call.cursor,call.options.priority]),[['next','background'],['next','pagination'],['next','pagination']]);assert.equal(loader.getSnapshot().pageRevision,1);loader.stop();
+});
+test('a normal head poll can overlap a promoted page without dropping its extended cursor or accepting the old page',async()=>{
+ let time=0,heads=0,pages=0;const tasks=new Map(),old=deferred(),fresh=deferred(),pollHead=deferred();
+ const loader=createPageLoader({initial:sidebarPage(['cached']),field:'conversations',retain:true,cancelReads:true,pollInterval:1000,now:()=>time,schedule:(fn,ms)=>(tasks.set(fn,time+ms),fn),cancel:fn=>tasks.delete(fn),read:cursor=>cursor?++pages===1?old.promise:fresh.promise:++heads===1?Promise.resolve(sidebarPage(['head'])):pollHead.promise});
+ loader.start();await settled();const automatic=loader.load('next',{priority:'background'}),needed=loader.load('next',{priority:'pagination'});time=1000;const polling=[...tasks.keys()][0]();assert.equal(heads,2);
+ fresh.resolve(sidebarPage(['older'],'after'));assert.equal(await needed,true);pollHead.resolve(sidebarPage(['new-head'],'head-cursor'));await polling;old.resolve(sidebarPage(['stale'],'stale-cursor'));assert.equal(await automatic,false);
+ const snapshot=loader.getSnapshot();assert.equal(snapshot.result.data.cursor,'after');assert.equal(snapshot.pageRevision,1);assert.ok(snapshot.result.data.conversations.some(fan=>fan.userId==='new-head'));assert.ok(!snapshot.result.data.conversations.some(fan=>fan.userId==='stale'));loader.stop();
+});
+test('disposing a promoted sidebar lane cancels both tickets and rejects late results without cache writes',async()=>{
+ const old=deferred(),fresh=deferred(),signals=[],writes=[];let pages=0;
+ const loader=createPageLoader({initial:sidebarPage(['cached']),field:'conversations',retain:true,cancelReads:true,write:value=>writes.push(value),read:(cursor,bg,active,onStart,preparing,signal)=>{if(!cursor)return Promise.resolve(sidebarPage(['head']));signals.push(signal);return ++pages===1?old.promise:fresh.promise}});
+ loader.start();await settled();const before=writes.length,automatic=loader.load('next',{priority:'background'}),needed=loader.load('next',{priority:'pagination'});loader.stop();assert.ok(signals.every(signal=>signal.aborted));assert.equal(loader.getSnapshot().pageQueued,false);
+ old.resolve(sidebarPage(['old']));fresh.resolve(sidebarPage(['replacement']));assert.equal(await automatic,false);assert.equal(await needed,false);assert.equal(writes.length,before);assert.equal(loader.getSnapshot().pageRevision,0);
 });

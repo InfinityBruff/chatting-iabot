@@ -17,6 +17,15 @@ test('selected fan keeps first place, with unique authorized IDs and batches of 
  assert.equal(orderedSpendIds(rows,ids)[0],'150');assert.equal(orderedSpendIds(rows,ids).length,41);
  const f=fixture({count:156,visibleIds:ids});await f.time.flush();assert.equal(f.calls[0][0],'150');assert.equal(f.calls[0].length,20);assert.equal(f.calls[0].includes('999'),false);f.reader.stop();
 });
+test('continuous100ms demand changes cannot postpone the400ms read deadline or refetch confirmed amounts',async()=>{
+ const starts=[],f=fixture({count:60,visibleIds:Array.from({length:8},(_,i)=>String(i+1)),request:async input=>{starts.push(f.time.now());return {data:{fans:input.user_ids.map(id=>({id,spend:{available:true,total:Number(id)}}))}}}});
+ for(let step=1;step<=12;step++){f.time.advance(100);f.reader.setInput(f.rows,Array.from({length:8},(_,i)=>String(i+step+1)),{refreshToken:0,viewportActive:true});if(f.time.nextAt()<=f.time.now())await f.time.flush()}
+ assert.deepEqual(starts,[base+400,base+800,base+1200]);assert.equal(f.values.length,3);assert.ok(f.calls.every(ids=>ids.length<=20));assert.equal(new Set(f.calls.flat()).size,f.calls.flat().length);assert.equal(f.calls[0][0],'5');f.reader.stop();
+});
+test('a confirmed visible spend update retains the same explicit online confirmation and chat preview',()=>{
+ const presence={online:true,checkedAt:new Date(base).toISOString()},previous={data:{conversations:[{userId:'1',presence,lastMessage:'Confirmed preview',spend:{available:false,total:null}}]}};
+ const next=mergeInboxSpendPage(previous,[{id:'1',spend:{available:true,total:0}}],new Date(base+400).toISOString());assert.equal(next.data.conversations[0].presence,presence);assert.equal(next.data.conversations[0].presence.checkedAt,new Date(base).toISOString());assert.equal(next.data.conversations[0].lastMessage,'Confirmed preview');assert.equal(next.data.conversations[0].spend.total,0);
+});
 test('confirmed spend refreshes afterTTL, including an unavailable response, and old props do not restart it',async()=>{
  const f=fixture({count:1});await f.time.flush();assert.equal(f.calls.length,1);
  f.reader.setInput(f.rows,['1'],{refreshToken:0});await f.time.flush();assert.equal(f.calls.length,1);assert.equal(f.time.nextAt(),base+400+INBOX_SPEND_TTL);
