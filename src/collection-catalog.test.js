@@ -88,3 +88,21 @@ test('teardown and StrictMode keep one in-flight read, discard old results and r
 test('the actual scheduler keeps catalog pages secondary and lets an open conversation run first',async()=>{
  const time=clock(),scheduler=createReadScheduler({...time,maxConcurrent:2}),order=[];const reader=createCollectionCatalog({actor:'u',workspace:'w',account:'a',...time,request:(w,op,args,options)=>scheduleLiveRead(scheduler,op,async()=>{order.push('collections');return page()},options,args)});reader.start();await time.fire();assert.deepEqual(order,[]);const conversation=scheduler.primary(async()=>order.push('conversation'),()=>true,'conversation');await conversation;assert.deepEqual(order,['conversation']);await time.fire();assert.deepEqual(order,['conversation','collections']);reader.stop();
 });
+
+test('the visible catalog overtakes queued background heads without overtaking a conversation or changing its secondary lane',async()=>{
+ const time=clock(),scheduler=createReadScheduler({...time,maxConcurrent:2,backgroundIdle:4000,startupGrace:1500}),order=[],priorities=[];let backgroundActive=true,releaseHead;
+ const background=Array.from({length:12},(_,index)=>scheduler.secondary(async()=>{order.push('background-'+index)},()=>backgroundActive).catch(()=>{}));
+ const reader=createCollectionCatalog({actor:'u',workspace:'w',account:'a',...time,request:(w,op,args,options)=>{
+  priorities.push(options.priority);
+  return scheduleLiveRead(scheduler,op,async()=>{options.onStart?.();order.push(args.cursor?'catalog-cursor':'catalog-head');return args.cursor?page([list('second')]):new Promise(resolve=>releaseHead=resolve)},options,args);
+ }});
+ reader.start();await time.fire();assert.equal(reader.getSnapshot().busy,true);assert.equal(reader.getSnapshot().queued,true);assert.deepEqual(order,[]);
+ const conversation=scheduler.primary(async()=>order.push('conversation'),()=>true,'conversation');await conversation;assert.deepEqual(order,['conversation']);
+ await time.fire();assert.deepEqual(order,['conversation','catalog-head']);assert.equal(time.now(),5000,'the existing four-second secondary idle remains intact');assert.equal(reader.getSnapshot().busy,true);assert.equal(reader.getSnapshot().queued,false,'onStart distinguishes a real consultation from queued admission');releaseHead(page([list('first')],'next'));await flush();
+ await time.fire();await time.fire();assert.deepEqual(order,['conversation','catalog-head','catalog-cursor']);assert.deepEqual(priorities,['selected','pagination']);assert.equal(reader.getSnapshot().complete,true);
+ reader.stop();backgroundActive=false;await time.fire();await Promise.all(background);
+});
+
+test('stale onStart callbacks cannot clear the queued status of a refreshed request',async()=>{
+ const pending=[],f=fixture({request:(w,op,args,options)=>new Promise(resolve=>pending.push({options,resolve}))});f.reader.start();await f.time.fire();assert.equal(f.reader.getSnapshot().queued,true);pending[0].options.onStart();assert.equal(f.reader.getSnapshot().queued,false);f.reader.refresh();assert.equal(f.reader.getSnapshot().queued,false);pending[0].resolve(page([list('obsolete')]));await flush();await f.time.fire();assert.equal(f.reader.getSnapshot().queued,true);pending[0].options.onStart();assert.equal(f.reader.getSnapshot().queued,true);pending[1].options.onStart();assert.equal(f.reader.getSnapshot().queued,false);pending[1].resolve(page([list('current')]));await flush();assert.equal(f.reader.getSnapshot().busy,false);assert.equal(f.reader.getSnapshot().queued,false);f.reader.stop();
+});

@@ -10,13 +10,13 @@ export function createCollectionCatalog({actor,workspace,account,request,onDenie
  const epoch=cacheEpoch(),listeners=new Set(),countLimit=Math.max(1,Math.min(5000,Math.floor(maxLists)||5000)),byteLimit=Math.max(1,Math.min(4194304,Math.floor(maxBytes)||4194304)),pageLimit=Math.max(1,Math.min(200,Math.floor(maxPages)||200));
  const refreshInterval=Math.max(30000,Number.isFinite(interval)?interval:30000),pageSpacing=Math.max(0,Number.isFinite(spacing)?spacing:1000);
  let active=false,denied=false,generation=0,job=null,timer=null,retryAt=0,nextAt=0,failures=0,restart=true,blocked=false,cursor=null,walk=new Map(),items=new Map(),seen=new Set();
- let state={rows:[],complete:false,busy:false,waiting:false,checked:null,error:'',denied:false,pages:0};
+ let state={rows:[],complete:false,busy:false,queued:false,waiting:false,checked:null,error:'',denied:false,pages:0};
  const emit=patch=>{state={...state,...patch};for(const listener of listeners)listener()};
  function clearTimer(){if(timer!==null)cancel(timer);timer=null}
  function deny(reason){
   if(denied)return;denied=true;generation++;clearTimer();job?.controller.abort();items.clear();walk.clear();seen.clear();cursor=null;
   const error=reason instanceof Error?reason:Error(typeof reason==='string'&&reason?reason:'No tienes acceso a las colecciones de esta modelo.');
-  emit({rows:[],complete:false,busy:false,waiting:false,checked:null,error:error.message,denied:true,pages:0});onDenied(error);
+  emit({rows:[],complete:false,busy:false,queued:false,waiting:false,checked:null,error:error.message,denied:true,pages:0});onDenied(error);
  }
  function allowed(){if(!active)return false;if(cacheEpoch()!==epoch)deny('El acceso ha cambiado. Vuelve a abrir las colecciones.');return !denied}
  const belongs=token=>allowed()&&job===token&&token.generation===generation;
@@ -49,9 +49,9 @@ export function createCollectionCatalog({actor,workspace,account,request,onDenie
   if(!allowed()||job||blocked||!visible())return;
   if(now()<Math.max(retryAt,nextAt)){wake();return}
   if(restart)beginWalk();
-  const token={generation,controller:new AbortController()};job=token;emit({busy:true,waiting:false,error:''});
+  const token={generation,controller:new AbortController()};job=token;emit({busy:true,queued:true,waiting:false,error:''});
   try{
-   const response=await request(workspace,'collections',{creator_id:account,...(cursor?{cursor}:{})},{active:()=>current(token),signal:token.controller.signal});
+   const response=await request(workspace,'collections',{creator_id:account,...(cursor?{cursor}:{})},{priority:cursor?'pagination':'selected',active:()=>current(token),signal:token.controller.signal,onStart:()=>{if(current(token))emit({queued:false})}});
    if(!current(token))return;
    accept(response?.data);failures=0;retryAt=0;
   }catch(error){
@@ -64,16 +64,16 @@ export function createCollectionCatalog({actor,workspace,account,request,onDenie
    retryAt=Math.max(retryAt,now()+(limited?supplied||60000:Math.max(backoff,supplied)));
    emit({complete:false,error:limited?'El proveedor limita las consultas. Se conserva el catálogo y se reintentará al terminar la espera.':error?.message||'No se pudieron actualizar las colecciones. Se reintentará automáticamente.',waiting:limited});
   }finally{
-   if(job===token){job=null;if(allowed()){emit({busy:false});wake()}}
+   if(job===token){job=null;if(allowed()){emit({busy:false,queued:false});wake()}}
   }
  }
  return {
   subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener)},getSnapshot:()=>state,
   start(){if(active||denied)return;active=true;generation++;wake()},
-  stop(){active=false;generation++;clearTimer();job?.controller.abort();emit({busy:false})},
-  recheckVisibility(){if(!allowed())return;if(!visible()){clearTimer();job?.controller.abort();emit({busy:false})}else wake()},
+  stop(){active=false;generation++;clearTimer();job?.controller.abort();emit({busy:false,queued:false})},
+  recheckVisibility(){if(!allowed())return;if(!visible()){clearTimer();job?.controller.abort();emit({busy:false,queued:false})}else wake()},
   refresh(){
-   if(!allowed())return false;generation++;restart=true;blocked=false;nextAt=0;clearTimer();job?.controller.abort();emit({complete:false,busy:false,error:'',waiting:retryAt>now()});wake();return true;
+   if(!allowed())return false;generation++;restart=true;blocked=false;nextAt=0;clearTimer();job?.controller.abort();emit({complete:false,busy:false,queued:false,error:'',waiting:retryAt>now()});wake();return true;
   },
   deny,invalidate:deny,
  };

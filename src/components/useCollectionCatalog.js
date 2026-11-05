@@ -12,4 +12,4 @@ export default function useCollectionCatalog({actor,workspace,account,enabled=tr
  useEffect(()=>reader?.recheckVisibility(),[reader,enabled]);
  return {...state,refresh:reader?.refresh||noAction,deny:reader?.deny||noAction,invalidate:reader?.invalidate||noAction};
 }
-const emptySubscribe=()=>()=>{},empty=Object.freeze({rows:[],complete:false,busy:false,waiting:false,checked:null,error:'',denied:false,pages:0}),emptySnapshot=()=>empty,noAction=()=>false;
+const emptySubscribe=()=>()=>{},empty=Object.freeze({rows:[],complete:false,busy:false,queued:false,waiting:false,checked:null,error:'',denied:false,pages:0}),emptySnapshot=()=>empty,noAction=()=>false;
