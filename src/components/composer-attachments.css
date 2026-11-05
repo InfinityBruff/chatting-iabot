@@ -1,0 +1,22 @@
+.composer-attachment-section{box-sizing:border-box;flex:none;width:100%;max-width:100%;min-width:0;contain:inline-size;border-top:1px solid #33272d;padding:6px 0 0}
+.composer-attachment-total{display:flex;align-items:center;flex-wrap:wrap;gap:5px 10px;min-height:25px;font-size:10px;color:#d8c8ce}
+.composer-attachment-total strong{margin-right:auto;font-weight:600}
+.live-shell .composer-attachment-total button{min-height:24px;padding:3px 7px;border:1px solid #60303e;border-radius:5px;background:#25151b;color:#efc4d0;font-size:10px}
+.composer-attachments{box-sizing:border-box;flex:none;width:100%;max-width:100%;min-width:0;height:112px;overflow:hidden;contain:inline-size;margin:0 0 8px;padding:0;color:#e7e7ed}
+.composer-attachments-header{height:22px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 1px 4px;font-size:10px;line-height:16px;color:#a9a9b5;letter-spacing:.025em}
+.composer-attachments-header>span{display:flex;align-items:center;gap:6px}.composer-attachments-header b{min-width:17px;padding:0 5px;border:1px solid #45404a;border-radius:5px;text-align:center;font-size:9px;font-weight:600;color:#d7c7cf;background:#221a20}
+.composer-attachments-header nav{display:flex;align-items:center;gap:4px}
+.composer-attachments .composer-attachments-nav{display:grid;place-items:center;width:23px;height:20px;min-height:0;padding:0;border:1px solid #42424b;border-radius:5px;background:#1b1b21;color:#e1d5df;cursor:pointer}
+.composer-attachments .composer-attachments-nav:disabled{opacity:.3;cursor:default}.composer-attachments-next svg{transform:rotate(180deg)}
+.composer-attachments-track{box-sizing:border-box;display:flex;flex-wrap:nowrap;align-items:flex-start;gap:8px;width:100%;max-width:100%;min-width:0;height:90px;padding:0 1px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scrollbar-width:thin;scrollbar-color:#63505c #15151a;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+.composer-attachments-track::-webkit-scrollbar{height:4px}.composer-attachments-track::-webkit-scrollbar-thumb{background:#63505c;border-radius:8px}.composer-attachments-track::-webkit-scrollbar-track{background:#15151a}
+.composer-attachments-card{box-sizing:border-box;position:relative;display:flex;flex:none;flex-direction:column;width:100px;min-width:100px;height:82px;overflow:hidden;border:1px solid #3b3b45;border-radius:8px;background:#1b1b21;scroll-snap-align:start}
+.composer-attachments-thumbnail{position:relative;flex:none;width:100%;height:56px;overflow:hidden;background:linear-gradient(145deg,#28242d,#141419)}
+.composer-attachments-kind{position:absolute;inset:0;display:grid;place-items:center;color:#a68b9d}.composer-attachments-audio .composer-attachments-thumbnail{background:radial-gradient(ellipse at 30% 70%,#4b2b45,#1d1824)}
+.composer-attachments-thumbnail>.media-image-content{position:relative;width:100%;height:100%;min-height:0}.composer-attachments-thumbnail .media-image-content img{display:block;width:100%;height:100%;object-fit:cover}.composer-attachments-thumbnail .media-empty-preview{display:none}
+.composer-attachments-type,.composer-attachments-duration{position:absolute;bottom:4px;max-width:65px;padding:1px 4px;border:1px solid #ffffff26;border-radius:4px;background:#09090bd6;color:#fff;font-size:8px;line-height:12px;font-weight:650;white-space:nowrap}.composer-attachments-type{left:4px}.composer-attachments-duration{right:4px;font-variant-numeric:tabular-nums}
+.composer-attachments-name{display:block;min-width:0;padding:5px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:14px;color:#d1cbd2}
+.composer-attachments .composer-attachments-remove{position:absolute;top:3px;right:3px;display:grid;place-items:center;box-sizing:border-box;width:20px;height:20px;min-height:0;padding:0;border:1px solid #ffffff40;border-radius:50%;background:#101015e8;color:#fff;font-size:17px;line-height:1;cursor:pointer;box-shadow:0 1px 4px #0005}
+.composer-attachments .composer-attachments-remove:hover:not(:disabled){background:#9c2948;border-color:#ff93ac}.composer-attachments .composer-attachments-remove:disabled{opacity:.35;cursor:default}
+.composer-attachments-track:focus-visible,.composer-attachments button:focus-visible{outline:2px solid #ff9cae;outline-offset:-2px}
+@media(prefers-reduced-motion:reduce){.composer-attachments-track{scroll-behavior:auto}}
