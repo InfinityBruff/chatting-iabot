@@ -7,7 +7,7 @@ export function demandedDirectoryIds(allowed,demand,kind){return allowed.filter(
 export function createFanDirectory({request,workspace,ids,publish,now=Date.now,schedule=setTimeout,cancel=clearTimeout,operation='collection_fans',field='fans',visible=()=>true}){
  let stopped=false,timer,running=false,index=0;
  const models=Object.fromEntries(ids.map(id=>[id,{rows:[],complete:false,error:'',checked:null,cursor:null,seen:new Set(),next:0,head:0,refresh:0,failures:0,denied:false}]));
- const emit=()=>{if(!stopped)publish(Object.fromEntries(Object.entries(models).map(([id,m])=>[id,{rows:m.rows,complete:m.complete,error:m.error,checked:m.checked}])))};
+ const emit=()=>{if(!stopped)publish(Object.fromEntries(Object.entries(models).map(([id,m])=>[id,{rows:m.rows,complete:m.complete,error:m.error,checked:m.checked,denied:m.denied}])))};
  async function tick(){if(stopped||running)return;running=true;
   try{if(!visible())return;for(let n=0;n<ids.length;n++){const id=ids[index++%ids.length],m=models[id];if(m.denied||m.next>now())continue;
    if(!m.retrying&&m.complete&&m.refresh<=now()){m.complete=false;m.cursor=null;m.seen.clear()}
