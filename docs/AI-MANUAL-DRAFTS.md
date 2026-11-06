@@ -21,6 +21,10 @@ La generación usa Mistral Small 3.1 (`@cf/mistralai/mistral-small-3.1-24b-instr
 
 El conector puede consultar y desactivar preferencias de generación. Habilitarla y aceptar la transferencia de contexto se realiza en el CRM. El nombre del chat de administración no autentica al propietario; lo hacen OAuth, la sesión y la autorización en base de datos.
 
+«Memoria chats 1» es el chat de administración elegido. El enlace al CRM son las llamadas explícitas al conector privado: una enseñanza seleccionada se guarda como borrador por modelo con referencia y versión; el propietario la aprueba en BRUFF y las consultas posteriores pueden utilizarla. No se lee ni importa automáticamente todo lo escrito en ChatGPT. Antes de informar del estado, el chat debe consultar la configuración persistente y distinguir propuestas de código de cambios desplegados.
+
+El conector ofrece doce herramientas, incluida `bruff_read_generation_quota`: devuelve los límites y consultas de la modelo y los agregados del presupuesto compartido del generador, con fecha y reinicio UTC. Exige sesión real y propietario actual, devuelve solo campos permitidos y no consulta fans, ejecuta IA ni cambia preferencias. El presupuesto compartido no se suma por modelo ni representa el consumo global de Cloudflare. Si una conexión conserva un catálogo antiguo, debe actualizarse mediante «Actualizar herramientas» y comprobar su disponibilidad en el chat; publicar el backend no acredita por sí solo que ese chat haya recibido herramientas nuevas.
+
 ## Contexto e inferencia
 
 `bruff-drafts` acepta solo operación manual (`generate`/`verify`), agencia, modelo, conversación y UUID de petición. `generate` admite además `force: true` únicamente para la acción explícita **Regenerar**. No admite historial, instrucciones globales, proveedor ni mensajes del navegador como fuente autorizada. Comprueba la sesión real y obtiene el historial mediante una lectura fija de `bruff-live`, con prioridad de fondo para conservar la del chat.

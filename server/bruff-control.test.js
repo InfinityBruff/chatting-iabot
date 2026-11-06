@@ -9,6 +9,7 @@ const entry={trigger:'How is your morning?',english:'Good morning! 🙂',spanish
 const row=patch=>({id:example,version:1,state:'draft',trigger:entry.trigger,english:entry.english,spanish:entry.spanish,referenceId:entry.reference_id,label:entry.label,sourceVersion:entry.source_version,reviewedBy:other,...patch});
 const examples=patch=>({schemaVersion:1,status:'connected',canEdit:true,items:[row()],total:1,limit:200,complete:true,savedId:null,...patch});
 const generationSettings={enabled:false,dailyLimit:4,maxResults:3};
+const generationQuota=patch=>({usageDay:'2026-11-06',resetsAt:'2026-11-07T00:00:00.000Z',modelQueries:3,modelDailyLimit:100,sharedBudgetNeurons:7500,calculatedNeurons:63,reservedNeurons:1200,chargedNeurons:1263,remainingNeurons:6237,observedRequests:1,reservedRequests:2,...patch});
 const knowledgeEntry={kind:'model_fact',key:'language',text:'English and Spanish.',reference_id:'profile.languages',label:'Ficha proporcionada por la modelo',source_version:'v1'};
 const knowledgeRow=patch=>({id:example,version:1,kind:knowledgeEntry.kind,key:knowledgeEntry.key,text:knowledgeEntry.text,referenceId:knowledgeEntry.reference_id,label:knowledgeEntry.label,sourceVersion:knowledgeEntry.source_version,state:'draft',...patch});
 const knowledge=patch=>({schemaVersion:1,actorId:actor,workspaceId:w,creatorId:c,canEdit:true,items:[knowledgeRow()],total:1,limit:200,complete:true,savedId:null,...patch});
@@ -24,6 +25,7 @@ function fixture(overrides={}){
   if(url===base+'/rest/v1/rpc/bruff_chat_direct_knowledge')return json(overrides.knowledge??examples(body.op==='list'?{}:{savedId:body.example_id||example,items:[row({id:body.example_id||example,version:body.op==='archive'?2:1,state:body.op==='archive'?'archived':'draft'})]}));
   if(url===base+'/rest/v1/rpc/bruff_model_knowledge')return json(overrides.modelKnowledge??knowledge(body.op==='list'?{}:{savedId:body.entry_id||example,items:[knowledgeRow({id:body.entry_id||example,version:body.expected+1,state:body.op==='archive'?'archived':'draft',...(body.value??{}),...(body.op==='save'?{key:body.value.kind==='model_fact'?body.value.key:null}:{})})]}));
   if(url===base+'/rest/v1/rpc/bruff_generation_control')return json(overrides.generation??{actorId:actor,workspaceId:w,creatorId:c,settings:body.op==='save'?body.value:generationSettings,version:body.op==='save'?body.expected+1:0});
+  if(url===base+'/rest/v1/rpc/bruff_generation_quota')return json(overrides.quota??{actorId:actor,workspaceId:w,creatorId:c,quota:generationQuota()});
   throw Error('Non-allowlisted network request');
  }});
  return {handler,calls,state};
@@ -67,8 +69,8 @@ test('legacy initialized notification is accepted without creating a session or 
 });
 
 test('tool discovery requires a real confirmed user and a current owner RPC',async()=>{
- const f=fixture(),response=await f.handler(request());assert.equal(response.status,200);const data=await body(response);assert.deepEqual(data.result.tools.map(tool=>tool.name),['bruff_list_models','bruff_read_ai_settings','bruff_update_ai_settings','bruff_list_examples','bruff_save_example_draft','bruff_archive_example','bruff_list_model_knowledge','bruff_save_model_knowledge_draft','bruff_archive_model_knowledge','bruff_read_generation_settings','bruff_update_generation_settings']);assert.deepEqual(f.calls.map(item=>item.url),[base+'/auth/v1/user',base+'/rest/v1/rpc/bruff_ai_models']);
- for(const tool of data.result.tools){assert.equal(tool.inputSchema.additionalProperties,false);assert.equal(tool.annotations.openWorldHint,false);assert.deepEqual(tool.securitySchemes,[{type:'oauth2',scopes:['openid','email','profile']}]);assert.deepEqual(tool.securitySchemes,tool._meta.securitySchemes);const readOnly=['bruff_list_models','bruff_read_ai_settings','bruff_list_examples','bruff_list_model_knowledge','bruff_read_generation_settings'].includes(tool.name);assert.equal(tool.annotations.readOnlyHint,readOnly);assert.equal(tool.annotations.destructiveHint,!readOnly);assert.equal(tool.annotations.idempotentHint,readOnly)}
+ const f=fixture(),response=await f.handler(request());assert.equal(response.status,200);const data=await body(response);assert.deepEqual(data.result.tools.map(tool=>tool.name),['bruff_list_models','bruff_read_ai_settings','bruff_update_ai_settings','bruff_list_examples','bruff_save_example_draft','bruff_archive_example','bruff_list_model_knowledge','bruff_save_model_knowledge_draft','bruff_archive_model_knowledge','bruff_read_generation_settings','bruff_update_generation_settings','bruff_read_generation_quota']);assert.deepEqual(f.calls.map(item=>item.url),[base+'/auth/v1/user',base+'/rest/v1/rpc/bruff_ai_models']);
+ for(const tool of data.result.tools){assert.equal(tool.inputSchema.additionalProperties,false);assert.equal(tool.annotations.openWorldHint,false);assert.deepEqual(tool.securitySchemes,[{type:'oauth2',scopes:['openid','email','profile']}]);assert.deepEqual(tool.securitySchemes,tool._meta.securitySchemes);const readOnly=['bruff_list_models','bruff_read_ai_settings','bruff_list_examples','bruff_list_model_knowledge','bruff_read_generation_settings','bruff_read_generation_quota'].includes(tool.name);assert.equal(tool.annotations.readOnlyHint,readOnly);assert.equal(tool.annotations.destructiveHint,!readOnly);assert.equal(tool.annotations.idempotentHint,readOnly)}
  const update=data.result.tools.find(tool=>tool.name==='bruff_update_generation_settings');assert.deepEqual(update.inputSchema.properties.settings.properties.enabled,{type:'boolean',const:false});
 });
 
@@ -138,7 +140,7 @@ test('unexpected approval or wrong example in a draft-save response is not repor
  for(const patch of [{savedId:example,items:[row({state:'verified'})]},{savedId:other,items:[row()]}]){const f=fixture({knowledge:examples(patch)}),response=await f.handler(call('bruff_save_example_draft',{workspace_id:w,model_id:c,example_id:example,expected_version:1,entry}));assert.equal(response.status,200);assert.equal((await body(response)).result.isError,true)}
 });
 
-test('only the eleven allowlisted tools and five fixed RPC paths are reachable',async()=>{
+test('only the twelve allowlisted tools and six fixed RPC paths are reachable',async()=>{
  for(const name of ['send_message','bruff_approve_example','bruff_delete_example','bruff_activate_bot','bruff_ai_generate','bruff_chat_direct_knowledge','bruff_approve_model_knowledge','bruff_generate_drafts','bruff_generation_claim','bruff_generation_commit','bruff_model_knowledge','bruff_generation_control','__proto__']){const f=fixture();assert.equal((await f.handler(call(name))).status,400);assert.equal(f.calls.length,0)}
  const f=fixture();assert.equal((await f.handler(request('rpc',{name:'bruff_send'}))).status,404);assert.equal(f.calls.length,0);
 });
@@ -219,6 +221,67 @@ test('knowledge and generation tools retain real owner preflight and cannot cros
 test('generation settings can be read enabled but updates are strictly disabled and identity-bound',async()=>{
  const f=fixture({generation:{actorId:actor,workspaceId:w,creatorId:c,settings:{...generationSettings,enabled:true},version:2}}),response=await f.handler(call('bruff_read_generation_settings'));assert.equal(response.status,200);assert.deepEqual((await body(response)).result.structuredContent,{actorId:actor,workspaceId:w,modelId:c,settings:{...generationSettings,enabled:true},version:2});assert.deepEqual(f.calls[2].body,{w,c,op:'read',expected:null,value:null});
  const saved=fixture(),result=await saved.handler(call('bruff_update_generation_settings',{workspace_id:w.toUpperCase(),model_id:c.toUpperCase(),expected_version:3,settings:{enabled:false,dailyLimit:12,maxResults:1}}));assert.equal(result.status,200);assert.equal((await body(result)).result.structuredContent.version,4);assert.deepEqual(saved.calls[2].body,{w,c,op:'save',expected:3,value:{enabled:false,dailyLimit:12,maxResults:1}});
+});
+
+test('generation quota is a fixed authenticated owner-only aggregate read with no effects on settings or providers',async()=>{
+ const f=fixture(),response=await f.handler(call('bruff_read_generation_quota',{workspace_id:w.toUpperCase(),model_id:c.toUpperCase()}));
+ assert.equal(response.status,200);const result=(await body(response)).result;
+ assert.equal(result.isError,false);assert.deepEqual(result.structuredContent,{actorId:actor,workspaceId:w,modelId:c,quota:generationQuota()});
+ assert.deepEqual(JSON.parse(result.content[0].text),result.structuredContent);
+ assert.deepEqual(f.calls.map(item=>item.url),[base+'/auth/v1/user',base+'/rest/v1/rpc/bruff_ai_models',base+'/rest/v1/rpc/bruff_generation_quota']);
+ assert.deepEqual(f.calls[1].body,{w});assert.deepEqual(f.calls[2].body,{w,c});
+ for(const {options}of f.calls){assert.deepEqual(options.headers,{apikey:'public-anon-key',Authorization:token,'Content-Type':'application/json'});assert.equal(options.redirect,'error')}
+ assert.ok(!f.calls.some(item=>/claim|usage|commit|control|send|cloudflare|ofmapi/iu.test(item.url.replace('/bruff_generation_quota','').replace('/bruff_ai_models',''))));
+});
+
+test('generation quota accepts zero usage, maximum limits, lowered model caps and genuine observed overshoot',async()=>{
+ const cases=[
+  generationQuota({modelQueries:0,modelDailyLimit:1,calculatedNeurons:0,reservedNeurons:0,chargedNeurons:0,remainingNeurons:7500,observedRequests:0,reservedRequests:0}),
+  generationQuota({modelDailyLimit:1000}),
+  generationQuota({modelQueries:3,modelDailyLimit:1}),
+  generationQuota({modelQueries:1,calculatedNeurons:82364,reservedNeurons:0,chargedNeurons:82364,remainingNeurons:0,observedRequests:1,reservedRequests:0}),
+  generationQuota({usageDay:'2028-02-29',resetsAt:'2028-03-01T00:00:00.000Z'}),
+ ];
+ for(const quota of cases){const f=fixture({quota:{actorId:actor,workspaceId:w,creatorId:c,quota}}),response=await f.handler(call('bruff_read_generation_quota')),result=(await body(response)).result;assert.equal(result.isError,false,JSON.stringify(quota));assert.deepEqual(result.structuredContent.quota,quota);assert.equal(f.calls.length,3)}
+});
+
+test('generation quota strips all non-allowlisted fields, including payloads, fan identities and secrets',async()=>{
+ const quota=generationQuota({fanId:'private-fan-id',payload:{english:'private message'},token:'private provider credential'});
+ const f=fixture({quota:{actorId:actor,workspaceId:w,creatorId:c,quota,history:['private transcript'],providerKey:'private api key'}}),response=await f.handler(call('bruff_read_generation_quota')),result=(await body(response)).result;
+ assert.equal(result.isError,false);assert.deepEqual(result.structuredContent,{actorId:actor,workspaceId:w,modelId:c,quota:generationQuota()});
+ assert.ok(!JSON.stringify(result).includes('private'));assert.equal(f.calls.length,3);
+});
+
+test('generation quota rejects mismatched identity, malformed dates, coerced counters and impossible accounting',async()=>{
+ const baseline={actorId:actor,workspaceId:w,creatorId:c,quota:generationQuota()};
+ const mismatched=[{actorId:other},{workspaceId:other},{creatorId:other},{quota:null}];
+ const malformed=[{modelDailyLimit:0},{modelDailyLimit:1001},{modelDailyLimit:1.5},{modelQueries:'3'},{observedRequests:-1},{reservedRequests:1.5},{chargedNeurons:Number.MAX_SAFE_INTEGER+1},{usageDay:'2026-02-30'},{usageDay:'2026-11-6'},{resetsAt:'2026-11-07T01:00:00Z'},{resetsAt:null},{sharedBudgetNeurons:10000},{reservedNeurons:0},{chargedNeurons:63},{remainingNeurons:6238},{observedRequests:0},{modelQueries:4}];
+ for(const patch of [...mismatched,...malformed.map(quota=>({quota:generationQuota(quota)}))]){
+  const f=fixture({quota:{...baseline,...patch}}),response=await f.handler(call('bruff_read_generation_quota')),result=(await body(response)).result;
+  assert.equal(response.status,200);assert.equal(result.isError,true,JSON.stringify(patch));assert.equal(result.structuredContent,undefined);assert.equal(f.calls.length,3);
+ }
+});
+
+test('generation quota cannot cross a model or agency and checks owner removal and RPC revocation every time',async()=>{
+ const wrongModel=fixture(),wrongModelResponse=await wrongModel.handler(call('bruff_read_generation_quota',{workspace_id:w,model_id:other}));assert.equal(wrongModelResponse.status,403);assert.equal(wrongModel.calls.length,2);
+ const wrongAgency=fixture({respond:(url,_options,args)=>url.endsWith('/bruff_ai_models')&&args.w===other?json({code:'42501',message:'private other agency'},403):undefined}),wrongAgencyResponse=await wrongAgency.handler(call('bruff_read_generation_quota',{workspace_id:other,model_id:c}));assert.equal(wrongAgencyResponse.status,403);assert.equal(wrongAgency.calls.length,2);
+ const removed=fixture();assert.equal((await removed.handler(call('bruff_read_generation_quota'))).status,200);removed.state.revoked=true;assert.equal((await removed.handler(call('bruff_read_generation_quota'))).status,403);assert.equal(removed.calls.filter(item=>item.url.endsWith('/bruff_generation_quota')).length,1);
+ const revoked=fixture({respond:url=>url.endsWith('/bruff_generation_quota')?json({code:'42501',message:'private ownership detail'},403):undefined}),response=await revoked.handler(call('bruff_read_generation_quota'));assert.equal(response.status,403);assert.equal(revoked.calls.length,3);assert.ok(!(await response.text()).includes('private'));
+});
+
+test('generation quota rejects unauthorized sessions and arbitrary read arguments before touching accounting',async()=>{
+ for(const Authorization of ['', 'Bearer a,b']){const f=fixture(),response=await f.handler(call('bruff_read_generation_quota',undefined,{headers:{Authorization}}));assert.equal(response.status,401);assert.ok(response.headers.get('WWW-Authenticate'));assert.equal(f.calls.length,0)}
+ for(const identity of [{id:actor},{id:actor,email_confirmed_at:'date',is_anonymous:true}]){const f=fixture({identity}),response=await f.handler(call('bruff_read_generation_quota'));assert.equal(response.status,401);assert.equal(f.calls.length,1)}
+ for(const extra of [{actorId:other},{op:'save'},{rpc:'bruff_generation_claim_v2'},{fan_id:'123'},{force:true},{value:{enabled:true}},{url:'https://private.example'}]){const f=fixture(),response=await f.handler(call('bruff_read_generation_quota',{workspace_id:w,model_id:c,...extra}));assert.equal(response.status,400);assert.equal(f.calls.length,0)}
+ const expired=fixture({respond:url=>url.endsWith('/auth/v1/user')?json({error:'private expired session'},401):undefined}),response=await expired.handler(call('bruff_read_generation_quota'));assert.equal(response.status,401);assert.equal(expired.calls.length,1);assert.ok(!(await response.text()).includes('private'));
+});
+
+test('generation quota failures are safe tool errors without retries, stale totals or mutation fallback',async()=>{
+ for(const [status,code]of [[500,'XX000'],[400,'PGRST202'],[400,'40001']]){
+  const f=fixture({respond:url=>url.endsWith('/bruff_generation_quota')?json({code,message:'private accounting detail',quota:generationQuota()},status):undefined}),response=await f.handler(call('bruff_read_generation_quota')),result=(await body(response)).result;
+  assert.equal(response.status,200);assert.equal(result.isError,true);assert.equal(result.structuredContent,undefined);assert.ok(!JSON.stringify(result).includes('private'));assert.equal(f.calls.filter(item=>item.url.endsWith('/bruff_generation_quota')).length,1);assert.equal(f.calls.length,3);
+ }
+ const f=fixture(),response=await f.handler(modern('tools/call',{name:'bruff_read_generation_quota',arguments:{workspace_id:w,model_id:c}}));assert.equal(response.status,200);assert.equal((await body(response)).result.isError,false);
 });
 
 test('manual generation supports expanded daily caps while preserving disabled-only MCP saves',async()=>{

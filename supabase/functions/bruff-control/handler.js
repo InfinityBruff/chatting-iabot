@@ -30,9 +30,10 @@ const TOOLS=[
  definition('bruff_archive_model_knowledge','Archivar conocimiento de una modelo','Archiva una entrada concreta con su versión vigente. Conserva el registro y no modifica chats, activa funciones ni envía mensajes.',object({...SCOPE,entry_id:uuid,expected_version:integer(1)}),false),
  definition('bruff_read_generation_settings','Consultar ajustes de borradores IA','Lee si el generador manual está habilitado y sus límites. Leer ajustes no ejecuta una inferencia ni demuestra que el motor funcione.',object(SCOPE),true),
  definition('bruff_update_generation_settings','Guardar ajustes de borradores IA desactivados','Guarda límites del generador manual exclusivamente con enabled:false y control de versión. Puede desactivar, pero nunca activar el generador; la activación y consentimiento se realizan en BRUFF.',object({...SCOPE,expected_version:integer(0),settings:DISABLED_GENERATION_SETTINGS}),false),
+ definition('bruff_read_generation_quota','Consultar consumo y cupo de borradores IA','Lee las consultas de esta modelo y el presupuesto compartido de generación BRUFF por día UTC, separando consumo calculado y reservas estimadas. No mide el consumo global de Cloudflare ni garantiza disponibilidad. No ejecuta IA ni envíos.',object(SCOPE),true),
 ];
 const BY_NAME=new Map(TOOLS.map(tool=>[tool.name,tool]));
-const RPCS=new Set(['bruff_ai_models','bruff_ai_control','bruff_chat_direct_knowledge','bruff_model_knowledge','bruff_generation_control']);
+const RPCS=new Set(['bruff_ai_models','bruff_ai_control','bruff_chat_direct_knowledge','bruff_model_knowledge','bruff_generation_control','bruff_generation_quota']);
 // The Supabase relay can remove /functions/v1 before invoking Deno. A function
 // mounted at its own root may also receive /. These are exact aliases only.
 const ROUTES=new Set(['/functions/v1/bruff-control','/bruff-control','']);
@@ -72,6 +73,17 @@ function settingsSnapshot(data,actor,w,c){
 function generationSnapshot(data,actor,w,c,{expected,settings}={}){
  if(!record(data)||!sameId(data.actorId,actor)||!sameId(data.workspaceId,w)||!sameId(data.creatorId,c)||!valid(GENERATION_SETTINGS,data.settings)||!Number.isSafeInteger(data.version)||data.version<0||expected!==undefined&&(data.settings.enabled!==false||data.version!==expected+1||Object.keys(settings).some(key=>data.settings[key]!==settings[key])))throw unavailable();
  return {actorId:actor,workspaceId:w,modelId:c,settings:{enabled:data.settings.enabled,dailyLimit:data.settings.dailyLimit,maxResults:data.settings.maxResults},version:data.version};
+}
+function quotaSnapshot(data,actor,w,c){
+ if(!record(data)||!sameId(data.actorId,actor)||!sameId(data.workspaceId,w)||!sameId(data.creatorId,c)||!record(data.quota))throw unavailable();
+ const quota=data.quota,fields=['modelQueries','modelDailyLimit','sharedBudgetNeurons','calculatedNeurons','reservedNeurons','chargedNeurons','remainingNeurons','observedRequests','reservedRequests'];
+ if(!fields.every(key=>Number.isSafeInteger(quota[key])&&quota[key]>=0)||quota.modelDailyLimit<1||quota.modelDailyLimit>1000||quota.sharedBudgetNeurons!==7500||quota.reservedNeurons!==quota.reservedRequests*600||quota.chargedNeurons!==quota.calculatedNeurons+quota.reservedNeurons||quota.remainingNeurons!==Math.max(0,7500-quota.chargedNeurons)||typeof quota.usageDay!=='string'||!/^\d{4}-\d{2}-\d{2}$/u.test(quota.usageDay)||typeof quota.resetsAt!=='string')throw unavailable();
+ const start=Date.parse(quota.usageDay+'T00:00:00.000Z');
+ if(!Number.isFinite(start)||new Date(start).toISOString().slice(0,10)!==quota.usageDay||Date.parse(quota.resetsAt)!==start+86400000)throw unavailable();
+ if(quota.observedRequests===0&&quota.calculatedNeurons!==0||quota.calculatedNeurons<quota.observedRequests||BigInt(quota.modelQueries)>BigInt(quota.observedRequests)+BigInt(quota.reservedRequests))throw unavailable();
+ // Only aggregate counters are returned. Extra RPC metadata, tokens, payloads,
+ // fan identifiers or future fields cannot enter the private tool result.
+ return {actorId:actor,workspaceId:w,modelId:c,quota:{usageDay:quota.usageDay,resetsAt:new Date(start+86400000).toISOString(),...Object.fromEntries(fields.map(key=>[key,quota[key]]))}};
 }
 const validKnowledgeEntry=entry=>valid(KNOWLEDGE_ENTRY,entry)&&(entry.kind==='model_fact'?own(entry,'key'):!own(entry,'key'));
 function knowledgeSnapshot(data,actor,w,c,{operation,entryId,expected,entry}={}){
@@ -201,6 +213,8 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
    }else if(['bruff_read_generation_settings','bruff_update_generation_settings'].includes(tool.name)){
     const saving=tool.name==='bruff_update_generation_settings';
     output=generationSnapshot(await rpc('bruff_generation_control',{w,c,op:saving?'save':'read',expected:saving?args.expected_version:null,value:saving?args.settings:null}),actor,w,c,saving?{expected:args.expected_version,settings:args.settings}:{});
+   }else if(tool.name==='bruff_read_generation_quota'){
+    output=quotaSnapshot(await rpc('bruff_generation_quota',{w,c}),actor,w,c);
    }else if(['bruff_list_model_knowledge','bruff_save_model_knowledge_draft','bruff_archive_model_knowledge'].includes(tool.name)){
     const op=tool.name==='bruff_save_model_knowledge_draft'?'save':tool.name==='bruff_archive_model_knowledge'?'archive':'list';
     const entry=args.entry?{...args.entry,label:args.entry.label.trim()}:undefined,value=op==='save'?{kind:entry.kind,...(entry.kind==='model_fact'?{key:entry.key}:{}),text:entry.text,referenceId:entry.reference_id,label:entry.label,sourceVersion:entry.source_version,state:'draft'}:null;
