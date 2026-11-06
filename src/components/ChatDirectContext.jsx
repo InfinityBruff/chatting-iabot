@@ -1,10 +1,11 @@
 import React,{createContext,lazy,Suspense,useCallback,useContext,useEffect,useMemo,useRef,useState} from 'react';
 import {scopeKey,validateChatDirectSuggestions as validateSuggestions,materializeChatDirectSuggestion as materializeSuggestion} from '../chat-direct.js';
 import {pageCacheEpoch} from '../live-page-cache.js';
+import {safeGenerationDiagnostic} from '../chat-direct-diagnostics.js';
 import './chat-direct.css';
 
 const Panel=lazy(()=>import('./ChatDirectPanel.jsx')),Context=createContext(null);
-const blank=()=>({input:'',values:{},candidates:[],knowledge:null,selectedId:null,selectedMessageId:null,revision:null,busy:false,error:'',notice:'',insertToken:null,inserted:false});
+const blank=()=>({mode:'generative',diagnostic:null,input:'',values:{},candidates:[],knowledge:null,selectedId:null,selectedMessageId:null,revision:null,busy:false,error:'',notice:'',insertToken:null,inserted:false});
 const cancelled=error=>error?.name==='AbortError';
 export const useChatDirect=()=>useContext(Context);
 export function ChatDirectProvider({actor,workspace,source,canManage=false,children}){
@@ -30,7 +31,7 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
   if(mounted.current){setActiveContext(null);setEntry(entryRef.current);setCapture(false)}return false;
  },[abort]);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;abort()}},[abort]);
- useEffect(()=>{if(priorSource.current===source)return;priorSource.current=source;abort();lastDirect.current=null;memory.current.clear();commit(previous=>({...previous,candidates:[],knowledge:null,selectedId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false}))},[source,abort,commit]);
+ useEffect(()=>{if(priorSource.current===source)return;priorSource.current=source;abort();lastDirect.current=null;memory.current.clear();commit(previous=>({...previous,candidates:[],knowledge:null,diagnostic:null,selectedId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false}))},[source,abort,commit]);
  const setContext=useCallback(payload=>{
   syncEpoch();const expected=payload&&scopeKey(payload);
   if(!payload||payload.actor!==actor||payload.workspace!==workspace||!expected||payload.scope!==expected||payload.canRead!==true||!Array.isArray(payload.messages)||typeof payload.revision!=='string'){
@@ -41,7 +42,7 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
   if(changed||previous?.canInsert!==payload.canInsert||previous?.canVault!==payload.canVault)abort();
   const value={...payload,messages:payload.messages.slice()};contexts.current=value;
   let saved=previous?.scope===payload.scope?entryRef.current:memory.current.get(payload.scope)||blank();
-  if(saved.revision!==payload.revision)saved={...saved,candidates:[],knowledge:null,selectedId:null,selectedMessageId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false,revision:payload.revision};
+  if(saved.revision!==payload.revision)saved={...saved,candidates:[],knowledge:null,diagnostic:null,selectedId:null,selectedMessageId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false,revision:payload.revision};
   else if(previous?.scope!==payload.scope&&saved.busy)saved={...saved,busy:false};
   if(!sourceRef.current&&saved.candidates.length)saved={...saved,candidates:[],knowledge:null,selectedId:null,insertToken:null,inserted:false};
   if(payload.canVault!==true&&saved.candidates.some(candidate=>candidate.content))saved={...saved,candidates:saved.candidates.map(candidate=>candidate.content?{...candidate,resolvedContent:{status:'unavailable',items:[],message:'No tienes acceso al baúl de esta modelo.'}}:candidate)};
@@ -72,13 +73,13 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
   const directKey=selected?JSON.stringify([current.scope,current.revision,String(selected.id)]):null;
   if(directKey&&!force&&lastDirect.current===directKey)return;
   if(directKey)lastDirect.current=directKey;
-  abort();const serial=generation.current,epoch=ownerEpoch.current,controller=new AbortController();request.current=controller;
+  abort();const mode=entryRef.current.mode||'generative',serial=generation.current,epoch=ownerEpoch.current,controller=new AbortController();request.current=controller;
   const input=selected?.text??entryRef.current.input;
-  commit(previous=>({...previous,input:typeof input==='string'?input:'',selectedMessageId:selected?String(selected.id):previous.selectedMessageId,candidates:[],knowledge:null,selectedId:null,insertToken:null,inserted:false,busy:typeof sourceRef.current==='function',error:'',notice:''}));
+  commit(previous=>({...previous,input:typeof input==='string'?input:'',selectedMessageId:selected?String(selected.id):previous.selectedMessageId,candidates:[],knowledge:null,diagnostic:null,selectedId:null,insertToken:null,inserted:false,busy:typeof sourceRef.current==='function',error:'',notice:''}));
   const live=()=>mounted.current&&!controller.signal.aborted&&serial===generation.current&&epoch===pageCacheEpoch()&&contexts.current?.scope===current.scope&&contexts.current?.revision===current.revision;
   if(typeof sourceRef.current!=='function'){request.current=null;commit(previous=>({...previous,busy:false,error:'Fuente verificada sin conectar. Todavía no se pueden recuperar respuestas documentadas.'}));return}
   try{
-   const payload=await sourceRef.current({scope:current.scope,revision:current.revision,input,context:{...current,selectedMessageId:selected?String(selected.id):entryRef.current.selectedMessageId},signal:controller.signal});
+   const payload=await sourceRef.current({scope:current.scope,revision:current.revision,mode,input,context:{...current,selectedMessageId:selected?String(selected.id):entryRef.current.selectedMessageId},signal:controller.signal});
    if(!live())return;const verified=validateSuggestions(payload,{scope:current.scope,revision:current.revision,allowedSourceModels:[current.account]}),candidates=[];let contentError='';
    for(const candidate of verified){
     if(!candidate.content){candidates.push(candidate);continue}
@@ -101,13 +102,14 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
    }
    if(!live())return;
    const knowledge=payload.knowledge&&['connected','empty'].includes(payload.knowledge.status)&&Number.isSafeInteger(payload.knowledge.approvedCount)&&payload.knowledge.approvedCount>=0?payload.knowledge:null;
-   commit(previous=>({...previous,candidates,knowledge,busy:false,error:contentError,revision:current.revision,notice:candidates.length?knowledge?.engine==='generative'?'Borradores generados. Revisa el texto y la traducción antes de insertarlos.':'Ejemplos revisados recibidos. Selecciona uno para comprobarlo.':knowledge?.status==='empty'?'Banco conectado. Añade y aprueba ejemplos para esta modelo.':knowledge?.engine==='generative'?'La IA no propuso un borrador con las fuentes disponibles. Revisa los datos pendientes.':'No hay respuestas documentadas comparables en la fuente consultada.'}));
-  }catch(error){if(live()&&!cancelled(error))commit(previous=>({...previous,busy:false,candidates:[],knowledge:null,selectedId:null,error:error?.message||'No se pudieron verificar las referencias.'}))}
+   commit(previous=>({...previous,candidates,knowledge,diagnostic:null,busy:false,error:contentError,revision:current.revision,notice:candidates.length?knowledge?.engine==='generative'?'Borradores generados. Revisa el texto y la traducción antes de insertarlos.':'Ejemplos revisados recibidos. Selecciona uno para comprobarlo.':knowledge?.status==='empty'?'Banco conectado. Añade y aprueba ejemplos para esta modelo.':knowledge?.engine==='generative'?'La IA no propuso un borrador con las fuentes disponibles. Revisa los datos pendientes.':'No hay respuestas documentadas comparables en la fuente consultada.'}));
+  }catch(error){if(live()&&!cancelled(error))commit(previous=>({...previous,busy:false,candidates:[],knowledge:null,diagnostic:mode==='generative'?safeGenerationDiagnostic(error?.diagnostic)||safeGenerationDiagnostic({engine:'generative',reason:'unavailable'}):null,selectedId:null,error:error?.message||'No se pudieron verificar las referencias.'}))}
   finally{if(request.current===controller)request.current=null}
  },[abort,commit,syncEpoch]);
  const selectMessage=useCallback(message=>{if(!mounted.current||!openRef.current||!captureRef.current||contexts.current?.canRead!==true)return;void consult({message})},[consult]);
  const setCaptureEnabled=useCallback(value=>{const enabled=value===true&&openRef.current&&contexts.current?.canRead===true;captureRef.current=enabled;setCapture(enabled);lastDirect.current=null;if(!enabled){abort();commit(previous=>({...previous,selectedMessageId:null,busy:false}))}},[abort,commit]);
- const editInput=useCallback(value=>{abort();lastDirect.current=null;commit(previous=>({...previous,input:String(value).slice(0,10000),candidates:[],knowledge:null,selectedId:null,selectedMessageId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false}))},[abort,commit]);
+ const editInput=useCallback(value=>{abort();lastDirect.current=null;commit(previous=>({...previous,input:String(value).slice(0,10000),candidates:[],knowledge:null,diagnostic:null,selectedId:null,selectedMessageId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false}))},[abort,commit]);
+ const onMode=useCallback(mode=>{if(!['generative','bank'].includes(mode)||entryRef.current.mode===mode)return;abort();lastDirect.current=null;commit(previous=>({...blank(),mode,input:previous.input,revision:previous.revision}))},[abort,commit]);
  const editValue=useCallback((key,value)=>commit(previous=>({...previous,values:{...previous.values,[key]:value},insertToken:crypto.randomUUID(),inserted:false,notice:''})),[commit]);
  const selectCandidate=useCallback(id=>commit(previous=>{const selected=previous.candidates.some(candidate=>candidate.id===id)?id:null;return {...previous,selectedId:selected,insertToken:selected?previous.selectedId===selected&&previous.insertToken?previous.insertToken:crypto.randomUUID():null,inserted:!!selected&&previous.selectedId===selected&&previous.inserted,notice:''}}),[commit]);
  const insert=useCallback(async({text,expectedText,expectedSnapshot,mode,token})=>{
@@ -141,8 +143,8 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
   if(result?.status==='inserted'||result?.status==='duplicate')commit(previous=>({...previous,inserted:true,notice:result.status==='duplicate'?'Esta opción ya se insertó.':'Insertada en el borrador. No se ha enviado ningún mensaje.'}));
   return result||{status:'blocked'};
  },[commit,syncEpoch]);
- const onKnowledgeChanged=useCallback(()=>{abort();memory.current.clear();lastDirect.current=null;commit(previous=>({...blank(),input:previous.input,revision:previous.revision,notice:'Base actualizada. Consulta de nuevo los ejemplos de esta modelo.'}))},[abort,commit]);
+ const onKnowledgeChanged=useCallback(()=>{abort();memory.current.clear();lastDirect.current=null;commit(previous=>({...blank(),mode:previous.mode||'generative',input:previous.input,revision:previous.revision,notice:'Base actualizada. Consulta de nuevo con el modo elegido.'}))},[abort,commit]);
  const capturing=open&&captureEnabled&&context?.canRead===true;
  const value=useMemo(()=>({setContext,clearContext,registerComposer,openFrom,selectMessage,captureEnabled:capturing,setCaptureEnabled,selectedMessageId:capturing?entry.selectedMessageId:null,activeScope:context?.scope||null,context,revision:context?.revision||null,open}),[setContext,clearContext,registerComposer,openFrom,selectMessage,capturing,setCaptureEnabled,context,entry.selectedMessageId,open]);
- return <Context.Provider value={value}>{children}{open&&<Suspense fallback={null}><Panel {...{context,entry,canManage,actor,workspace,onKnowledgeChanged,sourceAvailable:typeof source==='function',captureEnabled:capturing,setCaptureEnabled,origin,frame,focusRequest,onFrame:setFrame,onClose:close,onInput:editInput,onValue:editValue,onSelect:selectCandidate,onConsult:consult,onInsert:insert}}/></Suspense>}</Context.Provider>;
+ return <Context.Provider value={value}>{children}{open&&<Suspense fallback={null}><Panel {...{context,entry,canManage,actor,workspace,onKnowledgeChanged,onMode,sourceAvailable:typeof source==='function',captureEnabled:capturing,setCaptureEnabled,origin,frame,focusRequest,onFrame:setFrame,onClose:close,onInput:editInput,onValue:editValue,onSelect:selectCandidate,onConsult:consult,onInsert:insert}}/></Suspense>}</Context.Provider>;
 }

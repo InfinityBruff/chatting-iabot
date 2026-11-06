@@ -51,7 +51,10 @@ export function buildPrompt(pool,history){
  const conversation=history.map(m=>({speaker:m.isFromMe?'model':'fan',text:redact(m.text).slice(0,1200)}));
  const data={maximum:pool.settings.maxResults,approvedExamples:examples,approvedKnowledge:knowledge,conversation};
  const messages=()=>[{role:'system',content:system},{role:'user',content:JSON.stringify({data})}];
- while(bytes(messages())>PROMPT_BYTES&&conversation.length>2)conversation.shift();
+ // Keep the latest confirmed incoming message even when many model replies
+ // follow it. Removing it would leave the draft engine without the question.
+ const incoming=[...conversation].reverse().find(m=>m.speaker==='fan');
+ while(bytes(messages())>PROMPT_BYTES&&conversation.length>2)conversation.splice(conversation.findIndex(m=>m!==incoming),1);
  while(bytes(messages())>PROMPT_BYTES&&examples.length>1)examples.pop();
  while(bytes(messages())>PROMPT_BYTES&&knowledge.length>0)knowledge.pop();
  if(!examples.length||bytes(messages())>PROMPT_BYTES)throw new GenerationFailure('AI_CONTEXT_LIMIT','El contexto supera el límite de esta consulta. Reduce las fuentes aprobadas o revisa el historial.',413);

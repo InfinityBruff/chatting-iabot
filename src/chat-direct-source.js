@@ -1,4 +1,5 @@
 import {scopeKey,validateSuggestions,validateChatDirectSuggestions} from './chat-direct.js';
+import {generationDiagnosticError,generationRequestError} from './chat-direct-diagnostics.js';
 
 const abort=signal=>{if(signal?.aborted)throw Object.assign(new Error('Consulta cancelada.'),{name:'AbortError'})};
 const unavailable=()=>new Error('No se pudo consultar el banco de ejemplos. Comprueba la conexión y vuelve a intentarlo.');
@@ -35,15 +36,15 @@ async function generationPool(client,context,signal){
  const {data,error}=await call;abort(signal);
  // Staged deployment only: a genuinely absent new RPC keeps the old bank.
  // Revocation, outages and malformed configuration never become a fallback.
- if(error){if(['PGRST202','42883'].includes(error.code))return null;throw rpcError(error)}
- identity(data,context);
- if(typeof data?.settings?.enabled!=='boolean'||!Number.isSafeInteger(data.version)||data.version<0)throw unavailable();
+ if(error){if(['PGRST202','42883'].includes(error.code))return null;throw generationDiagnosticError(error.code==='42501'||[401,403].includes(error.status)?'access':'unavailable')}
+ if(data?.actorId!==context.actor||data.workspaceId!==context.workspace||data.creatorId!==context.account)throw generationDiagnosticError('access');
+ if(typeof data?.settings?.enabled!=='boolean'||!Number.isSafeInteger(data.version)||data.version<0||!Number.isSafeInteger(data.approvedCount)||data.approvedCount<0)throw generationDiagnosticError('unavailable');
  return data;
 }
 async function generatedRead(client,context,operation,requestId,signal){
  abort(signal);
  const {data,error}=await client.functions.invoke('bruff-drafts',{body:{operation,workspace_id:context.workspace,creator_id:context.account,conversation_id:context.fanId,request_id:requestId},signal});abort(signal);
- if(error){const status=error.context?.status||error.status;if([401,403].includes(status))throw rpcError({status});if(status===429)throw new Error('Se alcanzó el límite gratuito o temporal de la IA. Espera antes de volver a consultar.');if(status===409)throw new Error('El historial o las fuentes cambiaron, o falta aprobar ejemplos. Genera de nuevo desde el chat actual.');throw new Error('La generación manual todavía no está disponible. Revisa su configuración y las fuentes aprobadas.')}
+ if(error)throw await generationRequestError(error,signal);
  identity(data,context);
  if(data?.engine!=='generative'||data.valid!==true||data.aiGenerated!==true||data.aiVerified!==false||data.generationId!==requestId||data.fanId!==context.fanId||typeof data.revision!=='string'||!/^[a-f0-9]{32}$/u.test(data.revision)||typeof data.contextHash!=='string'||!/^[a-f0-9]{64}$/u.test(data.contextHash)||typeof data.expiresAt!=='string'||!Number.isFinite(Date.parse(data.expiresAt))||Date.parse(data.expiresAt)<=Date.now()||!Array.isArray(data.drafts)||data.drafts.length>3||!Array.isArray(data.unknowns)||data.unknowns.length>5||data.unknowns.some(x=>typeof x!=='string'||!x.trim()||x.length>160)||!Number.isSafeInteger(data.approvedCount)||data.approvedCount<1||data.engineInvoked!==(operation==='generate'))throw unavailable();
  return data;
@@ -59,14 +60,20 @@ export function createChatDirectSource(client,{actor,workspace,engineEndpoint=fa
  };
  const source=async request=>{
   const context=check(request);
-  if(generationEndpoint){
-   const pool=await generationPool(client,context,request.signal);check(request);
-   if(pool?.settings.enabled===true){
+  const mode=request.mode??(generationEndpoint?'generative':'bank');
+  if(!['generative','bank'].includes(mode))throw new Error('Elige Crear con IA o Buscar ejemplos.');
+  if(mode==='generative'){
+   if(!generationEndpoint)throw generationDiagnosticError('rpc_missing');
+   let pool;
+   try{pool=await generationPool(client,context,request.signal)}catch(error){abort(request.signal);if(error.diagnostic)throw error;throw generationDiagnosticError('unavailable')}
+   check(request);
+   if(!pool)throw generationDiagnosticError('rpc_missing');
+   if(pool.settings.enabled!==true)throw generationDiagnosticError('disabled');
+   if(pool.approvedCount===0)throw generationDiagnosticError('no_sources');
     const data=await generatedRead(client,context,'generate',crypto.randomUUID(),request.signal);check(request);
     const payload={scope:request.scope,revision:request.revision,candidates:data.drafts.map(d=>generatedCandidate(d,data,context.account))};
     const candidates=validateChatDirectSuggestions(payload,{scope:request.scope,revision:request.revision,allowedSourceModels:[context.account]});
     return {...payload,candidates,knowledge:{status:'connected',approvedCount:data.approvedCount,engine:'generative',engineInvoked:true,unknowns:data.unknowns}};
-   }
   }
   const fallback=(context.messages||[]).filter(m=>m?.isFromMe===false&&!m.delivery&&typeof m.text==='string'&&m.text.trim()).sort((a,b)=>(Date.parse(b.createdAt)||0)-(Date.parse(a.createdAt)||0)||String(b.id).localeCompare(String(a.id),undefined,{numeric:true}))[0]?.text;
   const input=typeof request.input==='string'&&!request.input.trim()&&generationEndpoint?fallback:request.input;

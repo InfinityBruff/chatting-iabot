@@ -4,6 +4,7 @@ const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9
 const fail=(status,code,message)=>new GenerationFailure(code,message,status);
 const stale=()=>fail(409,'AI_CONTEXT_CHANGED','La conversación, el acceso o las fuentes cambiaron. Genera de nuevo antes de insertar.');
 const unavailable=()=>fail(503,'AI_UNAVAILABLE','No se pudo comprobar el motor. No se ha preparado ningún envío.');
+const providerUnavailable=()=>fail(503,'AI_PROVIDER','El proveedor de IA no está disponible en este momento. Vuelve a intentarlo más tarde.');
 const retryAfter=r=>{const n=Number(r.headers.get('Retry-After'));return Number.isSafeInteger(n)&&n>0&&n<=86400?n:60};
 async function json(response,limit,signal){
  const reader=response.body?.getReader();if(!reader)throw unavailable();
@@ -68,10 +69,22 @@ export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,
    if(claim?.actorId!==actor||claim.workspaceId!==w||claim.creatorId!==c||typeof claim.allowed!=='boolean'||typeof claim.reason!=='string')throw stale();
    if(!claim.allowed){if(['model_daily_limit','global_daily_limit','actor_minute_limit'].includes(claim.reason)){const e=fail(429,'AI_LOCAL_LIMIT','Se alcanzó el límite gratuito reservado para los borradores.');e.retryAfter=claim.retryAfter||60;throw e}throw stale()}
    if(claim.reason!=='allowed')throw unavailable();
-   const provider=await fetcher('https://api.cloudflare.com/client/v4/accounts/'+cloudflareAccountId+'/ai/run/'+GENERATION_MODEL,{method:'POST',headers:{Authorization:'Bearer '+cloudflareToken,'Content-Type':'application/json'},body:JSON.stringify({messages:prompt.messages,guided_json:OUTPUT_SCHEMA,max_tokens:OUTPUT_TOKENS,temperature:0.4}),redirect:'error',signal});signal.throwIfAborted();
-   if(!provider.ok){if(provider.status===429){const e=fail(429,'AI_PROVIDER_LIMIT','La cuota gratuita o el límite del proveedor se ha agotado.');e.retryAfter=retryAfter(provider);throw e}throw unavailable()}
-   const answer=await json(provider,32768,signal);if(answer?.success!==true||typeof answer.result?.response!=='string')throw unavailable();
-   let raw;try{raw=JSON.parse(answer.result.response)}catch{throw fail(503,'AI_DRAFT_RESPONSE','La IA no devolvió el formato esperado. No se ha preparado ningún mensaje.')}
+   let provider;
+   try{provider=await fetcher('https://api.cloudflare.com/client/v4/accounts/'+cloudflareAccountId+'/ai/run/'+GENERATION_MODEL,{method:'POST',headers:{Authorization:'Bearer '+cloudflareToken,'Content-Type':'application/json'},body:JSON.stringify({messages:prompt.messages,guided_json:OUTPUT_SCHEMA,max_tokens:OUTPUT_TOKENS,temperature:0.4}),redirect:'error',signal});signal.throwIfAborted()}
+   catch{signal.throwIfAborted();throw providerUnavailable()}
+   if(!provider.ok){
+    if(provider.status===429){const e=fail(429,'AI_PROVIDER_LIMIT','La cuota gratuita o el límite del proveedor se ha agotado.');e.retryAfter=retryAfter(provider);throw e}
+    if([401,403].includes(provider.status))throw fail(503,'AI_PROVIDER_AUTH','Cloudflare ha rechazado el token o los permisos de Workers AI. Revisa la configuración del motor.');
+    if([400,404].includes(provider.status))throw fail(503,'AI_PROVIDER_REQUEST','Cloudflare ha rechazado la petición del modelo configurado. Revisa el contrato de Workers AI.');
+    throw providerUnavailable();
+   }
+   let answer;try{answer=await json(provider,32768,signal)}catch(error){signal.throwIfAborted();if(error instanceof GenerationFailure&&error.code==='AI_SIZE')throw error;throw providerUnavailable()}
+   if(answer?.success!==true)throw providerUnavailable();
+   const content=answer.result?.response;
+   let raw;
+   if(typeof content==='string')try{raw=JSON.parse(content)}catch{throw fail(503,'AI_DRAFT_RESPONSE','La IA no devolvió el formato esperado. No se ha preparado ningún mensaje.')}
+   else if(content!==null&&typeof content==='object'&&!Array.isArray(content)&&Object.getPrototypeOf(content)===Object.prototype)raw=content;
+   else throw fail(503,'AI_DRAFT_RESPONSE','La IA no devolvió el formato esperado. No se ha preparado ningún mensaje.');
    const payload=validateGeneratedOutput(raw,prompt,pool);
    const current=validatedPool(await rpc('bruff_generation_pool',{w,c}),scope);if(current.revision!==pool.revision||await historyHash(await load())!==hash)throw stale();
    // The sole service-key route: attest validated output against an existing

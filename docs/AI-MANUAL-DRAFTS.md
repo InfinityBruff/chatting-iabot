@@ -7,6 +7,8 @@ El conocimiento persistente es independiente del historial de ChatGPT. El conect
 - **Banco / búsqueda semántica:** originales documentados, con su traducción y referencia. Se conserva el contrato de SQL040/041.
 - **Generación manual:** texto nuevo, identificado como **Borrador IA · Revisar**, con inglés, traducción, referencias utilizadas y datos pendientes. No se presenta como un original verificado.
 
+El panel ofrece dos modos explícitos: **Crear con IA** y **Buscar ejemplos**. El primero comprueba activación y fuentes antes de llamar al motor; una falta de configuración o un error no se sustituye por una búsqueda de originales. Los avisos distinguen generación desactivada, fuentes pendientes de aprobación, errores de contexto/configuración/proveedor y cuotas. Elegir un modo no inicia consultas. El último mensaje confirmado del fan se conserva al compactar el contexto; tanto JSON estructurado como JSON textual del proveedor pasan la misma validación.
+
 La generación usa Mistral Small 3.1 (`@cf/mistralai/mistral-small-3.1-24b-instruct`) alojado en Cloudflare Workers AI. El modelo tiene licencia Apache 2.0; el alojamiento es un servicio de Cloudflare. No depende de OnlyX ni ejecuta herramientas de envío. Este primer motor prepara conversación no explícita; no genera guiones eróticos, propuestas de contenido ni precios.
 
 ## Enseñanza y revisión

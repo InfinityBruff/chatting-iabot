@@ -8,7 +8,7 @@ const request=(patch={})=>({context,scope:context.scope,revision:context.revisio
 const result=id=>({engine:'generative',valid:true,aiGenerated:true,aiVerified:false,generationId:id,actorId:actor,workspaceId:workspace,creatorId:account,fanId:'123',revision:'a'.repeat(32),contextHash:'b'.repeat(64),expiresAt:new Date(Date.now()+600000).toISOString(),drafts:[{id:'1',english:'hey! how is your day?',spanish:'¡Hola! ¿Cómo va tu día?',exampleIds:[example],knowledgeIds:[]}],unknowns:['No hay datos de ubicación.'],approvedCount:1,engineInvoked:true});
 function fixture(options={}){
  const calls=[];let saved;
- const client={rpc(name,args){calls.push({name,args});const data={actorId:actor,workspaceId:workspace,creatorId:account,settings:{enabled:true},version:1};return Promise.resolve(options.poolError?{error:options.poolError}:{data:options.pool?options.pool(data):data})},functions:{async invoke(name,args){calls.push({name,args});if(options.invokeError)return{error:options.invokeError};const body=args.body;if(body.operation==='generate'){saved=result(body.request_id);return{data:options.generated?options.generated(saved):saved}}const data={...saved,engineInvoked:false};return{data:options.verified?options.verified(data):data}}}};
+ const client={rpc(name,args){calls.push({name,args});const data={actorId:actor,workspaceId:workspace,creatorId:account,settings:{enabled:true},version:1,approvedCount:1};return Promise.resolve(options.poolError?{error:options.poolError}:{data:options.pool?options.pool(data):data})},functions:{async invoke(name,args){calls.push({name,args});if(options.invokeError)return{error:options.invokeError};const body=args.body;if(body.operation==='generate'){saved=result(body.request_id);return{data:options.generated?options.generated(saved):saved}}const data={...saved,engineInvoked:false};return{data:options.verified?options.verified(data):data}}}};
  return{calls,source:createChatDirectSource(client,{actor,workspace,engineEndpoint:true,generationEndpoint:true})};
 }
 test('generated flow sends only fixed active scope IDs; no client transcript, operator prompt or source text',async()=>{
@@ -36,7 +36,16 @@ test('revoked or stale configurations never become silent bank fallbacks',async(
  for(const status of [401,403,409,429,503]){const f=fixture({invokeError:{context:{status},message:'raw secret'}});await assert.rejects(()=>f.source(request()),e=>!e.message.includes('secret'));assert.equal(f.calls.length,2)}
 });
 test('changing scope or cancelling while generation is pending discards its result',async()=>{
- let complete;const pending=new Promise(resolve=>{complete=resolve}),f=fixture();const controller=new AbortController(),client={rpc:()=>Promise.resolve({data:{actorId:actor,workspaceId:workspace,creatorId:account,settings:{enabled:true},version:1}}),functions:{invoke:async(name,args)=>{await pending;return{data:result(args.body.request_id)}}}};
+ let complete;const pending=new Promise(resolve=>{complete=resolve}),f=fixture();const controller=new AbortController(),client={rpc:()=>Promise.resolve({data:{actorId:actor,workspaceId:workspace,creatorId:account,settings:{enabled:true},version:1,approvedCount:1}}),functions:{invoke:async(name,args)=>{await pending;return{data:result(args.body.request_id)}}}};
  const source=createChatDirectSource(client,{actor,workspace,generationEndpoint:true}),job=source(request({signal:controller.signal}));await Promise.resolve();await Promise.resolve();controller.abort();complete();await assert.rejects(job,{name:'AbortError'});
  await assert.rejects(()=>f.source(request({context:{...context,fanId:'999'}})));assert.equal(f.calls.length,0);
+});
+test('generation disabled, no approved sources and missing RPC are explicit and never silently query the bank',async()=>{
+ for(const [options,reason] of [[{pool:x=>({...x,settings:{enabled:false},approvedCount:0})},'disabled'],[{pool:x=>({...x,approvedCount:0})},'no_sources'],[{poolError:{code:'PGRST202'}},'rpc_missing']]){const f=fixture(options);await assert.rejects(()=>f.source(request()),e=>e.diagnostic?.reason===reason&&e.diagnostic?.engine==='generative');assert.equal(f.calls.length,1);assert.equal(f.calls[0].name,'bruff_generation_pool')}
+});
+test('explicit bank selection skips generation readiness and preserves exact approved originals',async()=>{
+ const calls=[],candidate={id:'example1',english:'Thanks for asking!',spanish:'¡Gracias por preguntar!',source:{kind:'document',modelId:account,referenceId:'guide1',label:'Approved guide',version:'1.r1',verified:true}};
+ const client={functions:{async invoke(name,args){calls.push({name,args});assert.equal(name,'bruff-ai');return{data:{actorId:actor,workspaceId:workspace,creatorId:account,status:'connected',approvedCount:1,rows:[candidate],engine:'bank',configured:true,engineInvoked:false}}}},rpc(){throw Error('Unexpected generation readiness call')}};
+ const source=createChatDirectSource(client,{actor,workspace,engineEndpoint:true,generationEndpoint:true}),payload=await source(request({mode:'bank',input:'How are you?'}));assert.equal(payload.knowledge.engine,'bank');assert.equal(payload.candidates[0].english,candidate.english);assert.equal(calls.length,1);
+ await assert.rejects(()=>source(request({mode:'unknown'})),/Elige/);assert.equal(calls.length,1);
 });

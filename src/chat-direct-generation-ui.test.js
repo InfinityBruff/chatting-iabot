@@ -17,15 +17,15 @@ after(async()=>{await vite.close();if(previousWindow===undefined)delete globalTh
 const actor='11111111-1111-4111-8111-111111111111',workspace='22222222-2222-4222-8222-222222222222',account='33333333-3333-4333-8333-333333333333',generation='44444444-4444-4444-8444-444444444444',example='55555555-5555-4555-8555-555555555555';
 const draft=patch=>({id:'gen.'+generation+'.1',english:'Good morning! How is your day?',spanish:'¡Buenos días! ¿Cómo va tu día?',variables:[],aiGenerated:true,aiVerified:false,generationId:generation,exampleIds:[example],knowledgeIds:[],expiresAt:new Date(Date.now()+600000).toISOString(),source:{kind:'generated',modelId:account,verified:false,label:'Borrador IA · Revisión humana',version:'a'.repeat(32)},...patch});
 const literal={id:example,english:'Hello! How is your morning?',spanish:'¡Hola! ¿Cómo va tu mañana?',variables:[],source:{kind:'document',modelId:account,verified:true,label:'Fuente documental de QA',referenceId:'qa-morning',version:'v1.r1'}};
-function render({candidates=[],selected=null,knowledge=null,canManage=true,input='',messages=[{id:'1',text:'Good morning',isFromMe:false,createdAt:'2026-11-06T10:00:00Z'}]}={}){
- const context={scope:JSON.stringify([actor,workspace,account,'99']),revision:'context',actor,workspace,account,fanId:'99',modelName:'Modelo de QA',fanName:'Fan de QA',canRead:true,canInsert:true,canVault:false,messages,historyComplete:false},entry={candidates,selectedId:selected,insertToken:'manual-choice',values:{},input,knowledge,busy:false,inserted:false};
- return renderToStaticMarkup(React.createElement(Panel,{context,entry,canManage,actor,workspace,sourceAvailable:true,captureEnabled:false,focusRequest:0,onFrame(){},onClose(){},onInput(){},onValue(){},onSelect(){},onConsult(){throw Error('Static render must not consult')},onInsert(){throw Error('Static render must not insert')},setCaptureEnabled(){}}));
+function render({candidates=[],selected=null,knowledge=null,canManage=true,input='',mode,diagnostic=null,error='',busy=false,sourceAvailable=true,messages=[{id:'1',text:'Good morning',isFromMe:false,createdAt:'2026-11-06T10:00:00Z'}]}={}){
+ const context={scope:JSON.stringify([actor,workspace,account,'99']),revision:'context',actor,workspace,account,fanId:'99',modelName:'Modelo de QA',fanName:'Fan de QA',canRead:true,canInsert:true,canVault:false,messages,historyComplete:false},entry={mode,candidates,selectedId:selected,insertToken:'manual-choice',values:{},input,knowledge,diagnostic,error,busy,inserted:false};
+ return renderToStaticMarkup(React.createElement(Panel,{context,entry,canManage,actor,workspace,sourceAvailable,captureEnabled:false,focusRequest:0,onFrame(){},onClose(){},onInput(){},onValue(){},onSelect(){},onMode(){throw Error('Static render must not change mode')},onConsult(){throw Error('Static render must not consult')},onInsert(){throw Error('Static render must not insert')},setCaptureEnabled(){}}));
 }
 
 test('generated cards disclose new AI prose, actual reference IDs and missing facts without a verified-literal badge',()=>{
  const candidate=draft(),html=render({candidates:[candidate],selected:candidate.id,knowledge:{engine:'generative',engineInvoked:true,status:'connected',approvedCount:1,unknowns:['Edad sin confirmar']}});
  for(const text of ['IA generativa consultada','Borrador IA · Revisar','ENGLISH · BORRADOR IA','ESPAÑOL · TRADUCCIÓN IA','Fuentes utilizadas y trazabilidad',generation,example,'Datos sin confirmar','Edad sin confirmar'])assert.ok(html.includes(text),text);
- assert.ok(!html.includes('class="chat-direct-verified"'));assert.ok(!html.includes('Verificada · v'));assert.ok(html.includes('no acreditan que esta respuesta sea una cita literal'));assert.ok(html.includes('CREAR BORRADORES IA'));
+ assert.ok(!html.includes('class="chat-direct-verified"'));assert.ok(!html.includes('Verificada · v'));assert.ok(html.includes('no acreditan que esta respuesta sea una cita literal'));assert.ok(html.includes('GENERAR 3 RESPUESTAS'));
 });
 
 test('literal bank cards retain their original English, Spanish and verified documentary reference',()=>{
@@ -56,4 +56,40 @@ test('owner curation is absent from the worker panel, and the knowledge hub keep
 test('initial model knowledge has no fabricated personal data and generation has no assumed server state',()=>{
  const props={actor,workspace,account},knowledge=renderToStaticMarkup(React.createElement(ModelKnowledge,props)),settings=renderToStaticMarkup(React.createElement(ModelKnowledge,{...props,mode:'generation'}));
  assert.equal((knowledge.match(/Sin verificar/gu)||[]).length,6);assert.ok(!knowledge.includes('<form'));assert.ok(!settings.includes('Estado guardado'));assert.ok(!settings.includes('<form'));assert.ok(settings.includes('Cada respuesta requiere revisión humana'));assert.equal(requests,0);
+});
+
+test('the explicit request mode controls the primary action before any results exist, with no claimed failure at idle',()=>{
+ const gen=render({mode:'generative',messages:[]}),bank=render({mode:'bank'});
+ assert.ok(gen.includes('GENERAR 3 RESPUESTAS'));assert.ok(gen.includes('Listo para crear borradores IA'));assert.ok(!gen.includes('Sin respuestas verificadas disponibles'));assert.ok(!gen.includes('Banco sin ejemplos aprobados'));assert.ok(!gen.includes('<textarea'));
+ assert.ok(bank.includes('CONSULTAR EJEMPLOS'));assert.ok(bank.includes('Listo para buscar ejemplos'));assert.ok(bank.includes('<textarea'));assert.match(gen,/aria-pressed="true"[^>]*><strong>Crear con IA<\/strong>/u);assert.match(bank,/aria-pressed="true"[^>]*><strong>Buscar ejemplos<\/strong>/u);assert.equal(requests,0);
+});
+
+test('disabled generation explains the exact known prerequisite and offers owner navigation without claiming a bank search',()=>{
+ const props={mode:'generative',diagnostic:{engine:'generative',reason:'disabled'},error:'Generación desactivada'},owner=render(props),worker=render({...props,canManage:false});
+ assert.ok(owner.includes('Generación desactivada'));assert.ok(owner.includes('La IA no se ha consultado'));assert.ok(owner.includes('también deben existir ejemplos aprobados'));assert.ok(owner.includes('>Revisar Generación</button>'));assert.ok(owner.includes('>Revisar ejemplos</button>'));assert.ok(!owner.includes('Banco sin ejemplos aprobados'));assert.ok(!owner.includes('class="chat-direct-empty"'));
+ assert.ok(worker.includes('Solicita al propietario'));assert.ok(!worker.includes('>Revisar Generación</button>'));assert.ok(!worker.includes('>Revisar ejemplos</button>'));assert.equal(requests,0);
+});
+
+test('missing approved sources is distinct from disabled generation and generic service errors',()=>{
+ const missing=render({mode:'generative',diagnostic:{engine:'generative',reason:'no_sources'},error:'Faltan fuentes'}),generic=render({mode:'generative',error:'No se pudo verificar el servicio.'});assert.ok(missing.includes('Faltan ejemplos aprobados'));assert.ok(missing.includes('>Revisar ejemplos</button>'));assert.ok(!missing.includes('La IA no se ha consultado. El propietario debe revisar y habilitar'));assert.ok(!missing.includes('class="chat-direct-empty"'));assert.ok(generic.includes('Consulta no completada'));assert.ok(generic.includes('No se pudo verificar el servicio.'));assert.ok(!generic.includes('class="chat-direct-empty"'));
+});
+
+test('bank-empty, no matches and zero generated drafts remain three separate successful outcomes',()=>{
+ const empty=render({mode:'bank',knowledge:{engine:'bank',engineInvoked:false,status:'empty',approvedCount:0}}),noMatch=render({mode:'bank',knowledge:{engine:'semantic',engineInvoked:true,status:'connected',approvedCount:4}}),noDraft=render({mode:'generative',knowledge:{engine:'generative',engineInvoked:true,status:'connected',approvedCount:1,unknowns:['Falta contexto suficiente.']}});
+ assert.ok(empty.includes('Banco sin ejemplos aprobados'));assert.ok(empty.includes('Guardar un borrador no lo aprueba'));assert.ok(!empty.includes('Generación desactivada'));assert.ok(noMatch.includes('Sin coincidencias en el banco'));assert.ok(noMatch.includes('Hay 4 ejemplos aprobados'));assert.ok(!noMatch.includes('Banco sin ejemplos aprobados'));assert.ok(noDraft.includes('La IA no propuso borradores'));assert.ok(noDraft.includes('Falta contexto suficiente.'));assert.ok(!noDraft.includes('Sin coincidencias en el banco'));
+});
+
+test('only recognized generation diagnostics and bounded retry values affect guidance',()=>{
+ const limited=render({mode:'generative',error:'Espera',diagnostic:{engine:'generative',reason:'provider_limit',retryAfter:17}});assert.ok(limited.includes('Proveedor temporalmente limitado'));assert.ok(limited.includes('17 s.'));assert.ok(!limited.includes('class="chat-direct-empty"'));
+ for(const diagnostic of [{engine:'bank',reason:'disabled'},{engine:'generative',reason:'unknown'},{engine:'generative',reason:'local_limit',retryAfter:999999}]){const html=render({mode:'generative',error:'Consulta fallida',diagnostic});assert.ok(!html.includes('999999'));assert.ok(!html.includes('>Revisar Generación</button>'))}
+});
+
+test('provider connection and request rejections have distinct local guidance without exposing administration actions to workers',()=>{
+ for(const [reason,title] of [['provider_auth','Conexión del motor rechazada'],['provider_request','Petición al modelo rechazada']]){
+  const input={mode:'generative',error:'Consulta rechazada',diagnostic:{engine:'generative',reason}},owner=render(input),worker=render({...input,canManage:false});assert.ok(owner.includes(title));assert.ok(owner.includes('>Revisar Generación</button>'));assert.ok(!worker.includes('>Revisar Generación</button>'));assert.ok(worker.includes('Solicita al propietario'));assert.ok(!owner.includes('class="chat-direct-empty"'));
+ }
+});
+
+test('the owner knowledge view can open its exact generation subtab without mounting the examples editor',()=>{
+ const html=renderToStaticMarkup(React.createElement(Knowledge,{actor,workspace,account,initialSection:'generation'}));assert.match(html,/role="tab"[^>]*aria-selected="true"[^>]*>Generación<\/button>/u);assert.ok(html.includes('Borradores con contexto'));assert.ok(!html.includes('aria-label="Ejemplos documentados"'));assert.equal(requests,0);
 });
