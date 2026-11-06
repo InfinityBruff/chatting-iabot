@@ -19,6 +19,7 @@ import {navigationSections,resolveSection,sectionAccount} from '../workspace-nav
 import {teamRoles} from '../team.js';
 import {LiveVault} from './LiveMedia.jsx';
 import LiveInbox from './LiveInbox.jsx';
+import {ChatDirectProvider} from './ChatDirectContext.jsx';
 import React,{useEffect,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
 import './live.css';
@@ -86,7 +87,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const activeSection=sections.find(s=>s.id===view);
  const selectView=(next,id)=>{if(!allowNavigation())return;if(id)setSelected(id);setTab(next);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
  const pageKey=workspace.id+':'+(account?.id||'agency')+':'+view+':'+account?.chat+':'+account?.analytics+':'+account?.send+':'+account?.vault;
- return <PanelLayout key={viewKey} scope={viewKey}><FanDirectory user={currentUserId} workspace={workspace.id} accounts={available} role={workspace.role} section={view} activeModel={account?.id}><ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
+ return <ChatDirectProvider actor={currentUserId} workspace={workspace.id}><PanelLayout key={viewKey} scope={viewKey}><FanDirectory user={currentUserId} workspace={workspace.id} accounts={available} role={workspace.role} section={view} activeModel={account?.id}><ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
   <WorkspaceNavigation unread={notifications.count} sections={sections} active={view} onSelect={selectView} collapsed={collapsed} onBack={()=>{if(allowNavigation())onBack()}} workspace={workspace}/>
   <div className="live-main workspace-main">
    <header className="workspace-topbar"><button aria-label={collapsed?'Expandir menú':'Contraer menú'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><WorkspaceIcon name="menu"/></button><Brand/><div className="workspace-breadcrumb"><span>{activeSection?.group}</span><b>/</b><strong>{activeSection?.label}</strong></div><span className="workspace-user">{teamRoles[workspace.role]}<span className="workspace-user-avatar">{workspace.name?.slice(0,1)||'B'}</span></span></header>
@@ -108,5 +109,5 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
    </div></React.Suspense>}
   </div>
  <NotificationToasts feed={notifications} accounts={available} onOpen={selectView}/>
- </main></ModelProfiles></FanDirectory></PanelLayout>
+ </main></ModelProfiles></FanDirectory></PanelLayout></ChatDirectProvider>
 }

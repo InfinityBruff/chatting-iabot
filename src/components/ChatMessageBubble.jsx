@@ -14,7 +14,7 @@ function translationProgress(value){
  if(typeof number==='number'&&Number.isFinite(number))return 'Preparando traducción · '+Math.round(Math.max(0,Math.min(100,number<=1?number*100:number)))+' %';
  return typeof value?.message==='string'?value.message.slice(0,160):'Preparando traducción…';
 }
-function ChatMessageBubble({m,likeState,onLike,canLike,onReply,canReply,translate}){
+function ChatMessageBubble({m,likeState,onLike,canLike,onReply,canReply,translate,captureMode=false,onCapture,captureSelected=false}){
  const text=typeof m.text==='string'?m.text:'',scope=JSON.stringify([String(m.id),text]),scopeRef=useRef(scope);scopeRef.current=scope;
  const [menuOpen,setMenuOpen]=useState(false),[position,setPosition]=useState(null),[copy,setCopy]=useState(null),[translation,setTranslation]=useState(()=>idleTranslation(scope));
  const menuId=useId(),triggerId=useId(),trigger=useRef(null),menu=useRef(null),focusLast=useRef(false),revision=useRef(0),translationRequest=useRef(null);
@@ -22,6 +22,8 @@ function ChatMessageBubble({m,likeState,onLike,canLike,onReply,canReply,translat
  const liked=['pending','confirmed'].includes(likeState?.phase)?likeState.desired===true:unconfirmed?likeState.previous===true:m.isLiked===true;
  const fanMessage=m.isFromMe===false&&!m.delivery,canReact=fanMessage&&canLike&&typeof onLike==='function';
  const translated=translation.scope===scope?translation:idleTranslation(scope),translating=translated.phase==='pending';
+ const canCapture=captureMode&&fanMessage&&!!text.trim()&&typeof onCapture==='function';
+ const capture=event=>{if(!canCapture)return;if(event&&event.target.closest('button,a,video,audio,input,textarea,[role="menu"]'))return;if(typeof window!=='undefined'&&window.getSelection()?.isCollapsed===false)return;onCapture(m)};
  const hasText=!!text.trim(),likeLabel=unconfirmed?'Reintentar cambio de Me gusta':liked?'Quitar Me gusta':'Me gusta';
  const translateLabel=translating?'Traduciendo…':translated.phase==='ready'?(translated.visible?'Ocultar traducción':'Mostrar traducción'):translated.phase==='error'?'Reintentar traducción':'Traducir';
  function closeMenu(restoreFocus=true){setMenuOpen(false);if(restoreFocus)trigger.current?.focus({preventScroll:true})}
@@ -67,8 +69,9 @@ function ChatMessageBubble({m,likeState,onLike,canLike,onReply,canReply,translat
   {fanMessage&&<><button type="button" role="menuitem" tabIndex={-1} disabled={!canReply||typeof onReply!=='function'} onClick={reply}><span aria-hidden="true">↩</span>Responder</button><button type="button" role="menuitem" tabIndex={-1} disabled={!canReact||pending} onClick={react}><span aria-hidden="true">{liked?'♥':'♡'}</span>{pending?'Guardando…':likeLabel}</button><div className="chat-message-menu-separator" role="separator"/></>}
   <button type="button" role="menuitem" tabIndex={-1} disabled={!hasText} onClick={copyText}><span aria-hidden="true">⧉</span>Copiar texto</button><button type="button" role="menuitem" tabIndex={-1} disabled={!hasText||translating} onClick={showTranslation}><ChatIcon name="translate" size={15}/>{translateLabel}</button>
  </div>,document.body):null;
- return <article data-message-id={String(m.id)} className={(m.isFromMe?'own ':'')+'chat-message-bubble'} onDoubleClick={event=>{if(!event.target.closest('button,a,video,audio,input,textarea,[role="menu"]')&&canReact&&!pending)react()}}>
+ return <article data-message-id={String(m.id)} className={(m.isFromMe?'own ':'')+'chat-message-bubble'+(canCapture?' chat-direct-message-capturable':'')+(canCapture&&captureSelected?' chat-direct-message-selected':'')} onClick={capture} onDoubleClick={event=>{if(!captureMode&&!event.target.closest('button,a,video,audio,input,textarea,[role="menu"]')&&canReact&&!pending)react()}}>
   {restoreReply(m.bruffReply)&&<aside className="chat-message-reply"><small>Respuesta a {m.bruffReply.name}</small><p>{m.bruffReply.text}</p></aside>}
+  {canCapture&&<button type="button" className="chat-direct-message-capture" aria-label="Analizar este mensaje en BRUFF IA" aria-pressed={captureSelected} onClick={()=>onCapture(m)}>{captureSelected?'Seleccionado para BRUFF IA ✓':'Analizar con BRUFF IA'}</button>}
   <p>{text||(!m.media?.length?'Mensaje sin texto':'')}</p>
   {m.media?.map((item,index)=><MediaPreview key={item.id??index} item={item}/>)}
   {m.mediaCount>0&&!m.media?.length&&<small>{m.mediaCount} archivos · Vista previa no disponible</small>}
