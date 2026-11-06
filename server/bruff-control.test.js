@@ -221,14 +221,22 @@ test('generation settings can be read enabled but updates are strictly disabled 
  const saved=fixture(),result=await saved.handler(call('bruff_update_generation_settings',{workspace_id:w.toUpperCase(),model_id:c.toUpperCase(),expected_version:3,settings:{enabled:false,dailyLimit:12,maxResults:1}}));assert.equal(result.status,200);assert.equal((await body(result)).result.structuredContent.version,4);assert.deepEqual(saved.calls[2].body,{w,c,op:'save',expected:3,value:{enabled:false,dailyLimit:12,maxResults:1}});
 });
 
-test('generation cannot be activated, coerced, expanded, or injected by MCP arguments',async()=>{
- for(const patch of [{enabled:true},{enabled:'false'},{enabled:0},{dailyLimit:0},{dailyLimit:13},{dailyLimit:1.5},{maxResults:0},{maxResults:4},{maxResults:'2'},{mode:'semantic'},{provider:'other'},{send:true}]){const f=fixture(),response=await f.handler(call('bruff_update_generation_settings',{workspace_id:w,model_id:c,expected_version:0,settings:{...generationSettings,...patch}}));assert.equal(response.status,400,JSON.stringify(patch));assert.equal(f.calls.length,0)}
+test('manual generation supports expanded daily caps while preserving disabled-only MCP saves',async()=>{
+ for(const dailyLimit of [100,1000]){
+  const read=fixture({generation:{actorId:actor,workspaceId:w,creatorId:c,settings:{enabled:true,dailyLimit,maxResults:3},version:2}});
+  const r=await read.handler(call('bruff_read_generation_settings'));assert.equal((await body(r)).result.structuredContent.settings.dailyLimit,dailyLimit);
+  const save=fixture();const s=await save.handler(call('bruff_update_generation_settings',{workspace_id:w,model_id:c,expected_version:0,settings:{enabled:false,dailyLimit,maxResults:3}}));assert.equal((await body(s)).result.structuredContent.settings.dailyLimit,dailyLimit);assert.deepEqual(save.calls[2].body.value,{enabled:false,dailyLimit,maxResults:3});
+ }
+});
+
+test('generation cannot be activated, coerced, exceed the supported cap, or be injected by MCP arguments',async()=>{
+ for(const patch of [{enabled:true},{enabled:'false'},{enabled:0},{dailyLimit:0},{dailyLimit:1001},{dailyLimit:1.5},{maxResults:0},{maxResults:4},{maxResults:'2'},{mode:'semantic'},{provider:'other'},{send:true}]){const f=fixture(),response=await f.handler(call('bruff_update_generation_settings',{workspace_id:w,model_id:c,expected_version:0,settings:{...generationSettings,...patch}}));assert.equal(response.status,400,JSON.stringify(patch));assert.equal(f.calls.length,0)}
  for(const patch of [{expected_version:-1},{expected_version:'0'},{expected_version:0.1},{op:'enable'},{actorId:other},{rpc:'bruff_generation_claim'},{url:'https://private.example'}]){const f=fixture(),response=await f.handler(call('bruff_update_generation_settings',{workspace_id:w,model_id:c,expected_version:0,settings:generationSettings,...patch}));assert.equal(response.status,400);assert.equal(f.calls.length,0)}
 });
 
 test('generation responses reject wrong scope, unknown settings, activation and stale CAS after save',async()=>{
  const baseline={actorId:actor,workspaceId:w,creatorId:c,settings:generationSettings,version:1};
- for(const patch of [{actorId:other},{workspaceId:other},{creatorId:other},{settings:{...generationSettings,enabled:'false'}},{settings:{...generationSettings,dailyLimit:13}},{settings:{...generationSettings,extra:'private'}},{version:-1},{version:1.5}]){const f=fixture({generation:{...baseline,...patch}}),response=await f.handler(call('bruff_read_generation_settings'));assert.equal(response.status,200);const data=await body(response);assert.equal(data.result.isError,true);assert.ok(!JSON.stringify(data).includes('private'))}
+ for(const patch of [{actorId:other},{workspaceId:other},{creatorId:other},{settings:{...generationSettings,enabled:'false'}},{settings:{...generationSettings,dailyLimit:1001}},{settings:{...generationSettings,extra:'private'}},{version:-1},{version:1.5}]){const f=fixture({generation:{...baseline,...patch}}),response=await f.handler(call('bruff_read_generation_settings'));assert.equal(response.status,200);const data=await body(response);assert.equal(data.result.isError,true);assert.ok(!JSON.stringify(data).includes('private'))}
  for(const patch of [{settings:{...generationSettings,enabled:true}},{settings:{...generationSettings,dailyLimit:12}},{settings:{...generationSettings,maxResults:1}},{version:0},{version:2}]){const f=fixture({generation:{...baseline,...patch}}),response=await f.handler(call('bruff_update_generation_settings',{workspace_id:w,model_id:c,expected_version:0,settings:generationSettings}));assert.equal((await body(response)).result.isError,true);assert.equal(f.calls.length,3)}
 });
 

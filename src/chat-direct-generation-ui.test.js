@@ -10,22 +10,22 @@ import {fileURLToPath} from 'node:url';
 const vite=await createServer({root:fileURLToPath(new URL('../',import.meta.url)),server:{middlewareMode:true,ws:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom',plugins:[{name:'ssr-panel-portal-only',enforce:'pre',transform(code,id){if(id.split('?')[0].endsWith('/src/components/ChatDirectPanel.jsx'))return code.replace("import {createPortal} from 'react-dom';",'const createPortal=children=>children;')}}]});
 const {authClient}=await vite.ssrLoadModule('/src/auth.js');let requests=0;
 authClient.rpc=()=>{requests++;throw Error('No RPC is allowed during static UI verification')};authClient.functions.invoke=()=>{requests++;throw Error('No provider call is allowed during static UI verification')};
-const {default:Panel}=await vite.ssrLoadModule('/src/components/ChatDirectPanel.jsx'),{default:Knowledge}=await vite.ssrLoadModule('/src/components/ChatDirectKnowledge.jsx'),{default:ModelKnowledge}=await vite.ssrLoadModule('/src/components/ChatDirectModelKnowledge.jsx');
+const {default:Panel}=await vite.ssrLoadModule('/src/components/ChatDirectPanel.jsx'),{default:Knowledge}=await vite.ssrLoadModule('/src/components/ChatDirectKnowledge.jsx'),{default:ModelKnowledge,validateGenerationSettingsSnapshot}=await vite.ssrLoadModule('/src/components/ChatDirectModelKnowledge.jsx');
 const previousWindow=globalThis.window,previousDocument=globalThis.document;
 globalThis.window={innerWidth:1280,innerHeight:900};globalThis.document={body:{}};
 after(async()=>{await vite.close();if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument});
 const actor='11111111-1111-4111-8111-111111111111',workspace='22222222-2222-4222-8222-222222222222',account='33333333-3333-4333-8333-333333333333',generation='44444444-4444-4444-8444-444444444444',example='55555555-5555-4555-8555-555555555555';
 const draft=patch=>({id:'gen.'+generation+'.1',english:'Good morning! How is your day?',spanish:'¡Buenos días! ¿Cómo va tu día?',variables:[],aiGenerated:true,aiVerified:false,generationId:generation,exampleIds:[example],knowledgeIds:[],expiresAt:new Date(Date.now()+600000).toISOString(),source:{kind:'generated',modelId:account,verified:false,label:'Borrador IA · Revisión humana',version:'a'.repeat(32)},...patch});
 const literal={id:example,english:'Hello! How is your morning?',spanish:'¡Hola! ¿Cómo va tu mañana?',variables:[],source:{kind:'document',modelId:account,verified:true,label:'Fuente documental de QA',referenceId:'qa-morning',version:'v1.r1'}};
-function render({candidates=[],selected=null,knowledge=null,canManage=true,input='',mode,diagnostic=null,error='',busy=false,sourceAvailable=true,messages=[{id:'1',text:'Good morning',isFromMe:false,createdAt:'2026-11-06T10:00:00Z'}]}={}){
- const context={scope:JSON.stringify([actor,workspace,account,'99']),revision:'context',actor,workspace,account,fanId:'99',modelName:'Modelo de QA',fanName:'Fan de QA',canRead:true,canInsert:true,canVault:false,messages,historyComplete:false},entry={mode,candidates,selectedId:selected,insertToken:'manual-choice',values:{},input,knowledge,diagnostic,error,busy,inserted:false};
- return renderToStaticMarkup(React.createElement(Panel,{context,entry,canManage,actor,workspace,sourceAvailable,captureEnabled:false,focusRequest:0,onFrame(){},onClose(){},onInput(){},onValue(){},onSelect(){},onMode(){throw Error('Static render must not change mode')},onConsult(){throw Error('Static render must not consult')},onInsert(){throw Error('Static render must not insert')},setCaptureEnabled(){}}));
+function render({candidates=[],selected=null,knowledge=null,quota=null,quotaAt=null,quotaBusy=false,quotaError='',canManage=true,input='',mode,diagnostic=null,error='',busy=false,sourceAvailable=true,messages=[{id:'1',text:'Good morning',isFromMe:false,createdAt:'2026-11-06T10:00:00Z'}]}={}){
+ const context={scope:JSON.stringify([actor,workspace,account,'99']),revision:'context',actor,workspace,account,fanId:'99',modelName:'Modelo de QA',fanName:'Fan de QA',canRead:true,canInsert:true,canVault:false,messages,historyComplete:false},entry={mode,candidates,selectedId:selected,insertToken:'manual-choice',values:{},input,knowledge,quota,quotaAt,quotaBusy,quotaError,diagnostic,error,busy,inserted:false};
+ return renderToStaticMarkup(React.createElement(Panel,{context,entry,canManage,actor,workspace,sourceAvailable,captureEnabled:false,focusRequest:0,onFrame(){},onClose(){},onInput(){},onValue(){},onSelect(){},onMode(){throw Error('Static render must not change mode')},onConsult(){throw Error('Static render must not consult')},onQuota(){throw Error('Static render must not refresh quota')},onInsert(){throw Error('Static render must not insert')},setCaptureEnabled(){}}));
 }
 
 test('generated cards disclose new AI prose, actual reference IDs and missing facts without a verified-literal badge',()=>{
  const candidate=draft(),html=render({candidates:[candidate],selected:candidate.id,knowledge:{engine:'generative',engineInvoked:true,status:'connected',approvedCount:1,unknowns:['Edad sin confirmar']}});
  for(const text of ['IA generativa consultada','Borrador IA · Revisar','ENGLISH · BORRADOR IA','ESPAÑOL · TRADUCCIÓN IA','Fuentes utilizadas y trazabilidad',generation,example,'Datos sin confirmar','Edad sin confirmar'])assert.ok(html.includes(text),text);
- assert.ok(!html.includes('class="chat-direct-verified"'));assert.ok(!html.includes('Verificada · v'));assert.ok(html.includes('no acreditan que esta respuesta sea una cita literal'));assert.ok(html.includes('GENERAR 3 RESPUESTAS'));
+ assert.ok(!html.includes('class="chat-direct-verified"'));assert.ok(!html.includes('Verificada · v'));assert.ok(html.includes('no acreditan que esta respuesta sea una cita literal'));assert.ok(html.includes('GENERAR RESPUESTAS'));
 });
 
 test('literal bank cards retain their original English, Spanish and verified documentary reference',()=>{
@@ -60,7 +60,7 @@ test('initial model knowledge has no fabricated personal data and generation has
 
 test('the explicit request mode controls the primary action before any results exist, with no claimed failure at idle',()=>{
  const gen=render({mode:'generative',messages:[]}),bank=render({mode:'bank'});
- assert.ok(gen.includes('GENERAR 3 RESPUESTAS'));assert.ok(gen.includes('Listo para crear borradores IA'));assert.ok(!gen.includes('Sin respuestas verificadas disponibles'));assert.ok(!gen.includes('Banco sin ejemplos aprobados'));assert.ok(!gen.includes('<textarea'));
+ assert.ok(gen.includes('GENERAR RESPUESTAS'));assert.ok(gen.includes('Listo para crear borradores IA'));assert.ok(!gen.includes('Sin respuestas verificadas disponibles'));assert.ok(!gen.includes('Banco sin ejemplos aprobados'));assert.ok(!gen.includes('<textarea'));
  assert.ok(bank.includes('CONSULTAR EJEMPLOS'));assert.ok(bank.includes('Listo para buscar ejemplos'));assert.ok(bank.includes('<textarea'));assert.match(gen,/aria-pressed="true"[^>]*><strong>Crear con IA<\/strong>/u);assert.match(bank,/aria-pressed="true"[^>]*><strong>Buscar ejemplos<\/strong>/u);assert.equal(requests,0);
 });
 
@@ -92,4 +92,26 @@ test('provider connection and request rejections have distinct local guidance wi
 
 test('the owner knowledge view can open its exact generation subtab without mounting the examples editor',()=>{
  const html=renderToStaticMarkup(React.createElement(Knowledge,{actor,workspace,account,initialSection:'generation'}));assert.match(html,/role="tab"[^>]*aria-selected="true"[^>]*>Generación<\/button>/u);assert.ok(html.includes('Borradores con contexto'));assert.ok(!html.includes('aria-label="Ejemplos documentados"'));assert.equal(requests,0);
+});
+const quota=patch=>({usageDay:'2026-11-06',resetsAt:'2026-11-07T00:00:00.000Z',modelQueries:6,modelDailyLimit:100,sharedBudgetNeurons:7500,calculatedNeurons:30,reservedNeurons:600,chargedNeurons:630,remainingNeurons:6870,observedRequests:5,reservedRequests:1,...patch});
+test('reused and empty cached generations expose explicit regeneration without claiming another inference',()=>{
+ const knowledge={engine:'generative',engineInvoked:false,reused:true,status:'connected',approvedCount:1,generationId:generation,expiresAt:new Date(Date.now()+600000).toISOString(),unknowns:['Falta un dato confirmado.']};
+ const html=render({mode:'generative',knowledge,candidates:[]});assert.ok(html.includes('Borradores reutilizados · Sin nueva inferencia'));assert.ok(html.includes('Regenerar · Nueva consulta'));assert.ok(html.includes('Regenerar consume una nueva consulta'));assert.ok(html.includes('La IA no propuso borradores'));
+ const expired=render({mode:'generative',knowledge:{...knowledge,expiresAt:new Date(Date.now()-1).toISOString()}});assert.ok(!expired.includes('>Regenerar · Nueva consulta</button>'));
+});
+test('usage UI separates token-calculated consumption, outstanding reserve and per-model limits',()=>{
+ const knowledge={engine:'generative',engineInvoked:true,status:'connected',approvedCount:1,usage:{status:'observed',promptTokens:200,completionTokens:100,calculatedNeurons:12,chargedNeurons:12}};
+ const html=render({mode:'generative',knowledge,quota:quota(),quotaAt:Date.now()});for(const copy of ['Consultas de esta modelo','6 / 100','Calculado con tokens informados','30 neuronas','Reservas sin consumo confirmado','600 neuronas','Presupuesto BRUFF disponible','12 neuronas calculadas','no es una lectura del consumo global'])assert.ok(html.includes(copy),copy);
+ const reserved=render({mode:'generative',knowledge:{...knowledge,usage:{status:'reserved',promptTokens:null,completionTokens:null,calculatedNeurons:null,chargedNeurons:600}}});assert.ok(reserved.includes('600 neuronas de reserva estimada; consumo de tokens sin confirmar'));
+ const unknown=render({mode:'generative',quota:quota({remainingNeurons:999999})});assert.ok(unknown.includes('Cupo sin confirmar'));assert.ok(!unknown.includes('999999'));assert.ok(!unknown.includes('0 / 100'));
+ assert.equal(requests,0);
+});
+test('same-context cards remain visible while a request is pending but copying and selection are disabled',()=>{
+ const candidate=draft(),html=render({mode:'generative',busy:true,candidates:[candidate]});assert.ok(html.includes(candidate.english));assert.match(html,/disabled=""[^>]*>Copiar inglés/u);assert.match(html,/disabled=""[^>]*aria-pressed="false"[^>]*>Seleccionar/u);
+});
+test('generation settings preserve server versions and accept the new bounded model limit without inventing defaults',()=>{
+ const scope={actor,workspace,account},data={actorId:actor,workspaceId:workspace,creatorId:account,settings:{enabled:true,dailyLimit:100,maxResults:3},version:9};
+ assert.deepEqual(validateGenerationSettingsSnapshot(data,scope),data);assert.equal(validateGenerationSettingsSnapshot({...data,settings:{...data.settings,dailyLimit:1000}},scope).settings.dailyLimit,1000);
+ for(const dailyLimit of [0,1001,1.5])assert.throws(()=>validateGenerationSettingsSnapshot({...data,settings:{...data.settings,dailyLimit}},scope));
+ assert.throws(()=>validateGenerationSettingsSnapshot({...data,actorId:example},scope));assert.throws(()=>validateGenerationSettingsSnapshot({...data,version:-1},scope));
 });

@@ -23,3 +23,8 @@ test('diagnostic data admits only known fields and leaves no mutable object refe
 test('aborted response readers are cancelled and late diagnostics do not consume an unlimited stream',async()=>{
  const controller=new AbortController(),response=new Response(new ReadableStream({pull(){return new Promise(()=>{})}}),{status:503}),job=generationRequestError({context:response},controller.signal);controller.abort();const error=await job;assert.equal(error.diagnostic.reason,'unavailable');
 });
+test('pending generation is a bounded wait instruction, never an automatic retry or a provider inference claim',async()=>{
+ const error=await generationRequestError(failure(409,{code:'AI_PENDING'},{'Retry-After':'3'}));
+ assert.deepEqual(error.diagnostic,{engine:'generative',reason:'pending',retryAfter:3});assert.ok(error.message.includes('no se repetirá automáticamente'));
+ assert.equal((await generationRequestError(failure(503,{code:'AI_PENDING'}))).diagnostic.reason,'unavailable');
+});

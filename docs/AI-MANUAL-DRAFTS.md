@@ -23,7 +23,7 @@ El conector puede consultar y desactivar preferencias de generación. Habilitarl
 
 ## Contexto e inferencia
 
-`bruff-drafts` acepta solo operación manual (`generate`/`verify`), agencia, modelo, conversación y UUID de petición. No admite historial, instrucciones globales, proveedor ni mensajes del navegador como fuente autorizada. Comprueba la sesión real y obtiene el historial mediante una lectura fija de `bruff-live`, con prioridad de fondo para conservar la del chat.
+`bruff-drafts` acepta solo operación manual (`generate`/`verify`), agencia, modelo, conversación y UUID de petición. `generate` admite además `force: true` únicamente para la acción explícita **Regenerar**. No admite historial, instrucciones globales, proveedor ni mensajes del navegador como fuente autorizada. Comprueba la sesión real y obtiene el historial mediante una lectura fija de `bruff-live`, con prioridad de fondo para conservar la del chat.
 
 Se usan hasta 20 mensajes confirmados recientes, hasta seis ejemplos y una selección de conocimiento aprobado, con límite total de 12.288 bytes de mensajes al motor y 900 tokens de salida. Se omiten medios, autores, credenciales y URLs; los identificadores de referencias se sustituyen por alias temporales antes de enviarlos al modelo. La consulta conserva contenido privado del chat, por lo que exige la autorización del propietario para compartir ese contexto con Cloudflare.
 
@@ -33,21 +33,33 @@ La salida JSON se valida antes de aceptarla: ámbito, referencias reales, duplic
 
 - SQL042 crea tres tablas privadas con RLS, sin acceso directo de clientes.
 - La gestión de fuentes y preferencias es solo del propietario confirmado. Consultar borradores requiere permisos actuales de lectura y envío de esa modelo.
-- La reserva deriva al trabajador de su sesión real. El único uso de la clave de servidor es el RPC fijo que registra una salida ya validada contra esa reserva. No se usa para leer historiales ni para impersonar usuarios.
+- La reserva deriva al trabajador de su sesión real. La clave de servidor se limita a dos RPC fijos: liquidar el consumo de una reserva existente y registrar una salida ya validada contra ella. No se usa para leer historiales ni para impersonar usuarios.
 - El resultado canónico queda ligado a trabajador, agencia, modelo, fan, contexto, fuentes y caducidad. Antes de insertar se vuelve a comprobar y se compara el texto exacto. Ninguna de estas operaciones envía mensajes.
 - El historial del proveedor conserva su caché existente de hasta cuatro segundos. Releerlo detecta cambios observados; no garantiza una observación instantánea de OnlyFans.
 - Los borradores caducan lógicamente a los diez minutos. La limpieza de su contenido es oportunista al reservar; no hay un trabajo nuevo que garantice borrado físico exacto al vencer el plazo. La metadata de uso conserva las cuotas y se limpia tras treinta días en ese mismo proceso.
 
+## Reutilización sin inferencia nueva
+
+**Generar respuestas** busca primero un resultado vigente con exactamente el mismo trabajador, agencia, modelo, fan, revisión de fuentes y configuración, huella del historial confirmado y versión del motor. La base de datos realiza la comprobación atómicamente antes de reservar cuota. Una coincidencia conserva su identificador y caducidad originales; no consulta Cloudflare ni consume otra reserva. Se vuelve a leer el historial y las fuentes antes de entregarla.
+
+**Regenerar** pide una inferencia nueva por acción humana. Dos solicitudes idénticas pendientes, incluso forzadas, no ejecutan dos inferencias simultáneas: se devuelve una espera acotada de hasta 45 segundos, sin reintento automático. Un error reciente puede conservar esa espera mientras se descarta una solicitud en curso. La liquidación del consumo no equivale a que el borrador esté terminado.
+
+El panel distingue generado y reutilizado, muestra la hora de caducidad, el consumo calculado, las reservas estimadas y el cupo compartido del módulo. Solo consulta estos contadores al abrir el contexto, al consultar y al actualizar manualmente; no crea un sondeo de fondo ni carga otras conversaciones. El registro de un resultado generado no es un ejemplo documental aprobado.
+
 ## Límites del plan gratuito
 
-La generación está desactivada por defecto. Cada consulta reserva una estimación fija de 600 neuronas, con techo de 7.500 por día UTC para este módulo, entre todas las agencias/modelos. Se aplica además el límite elegido por modelo (1–12 consultas diarias) y dos consultas por minuto por trabajador. Una reserva fallida después de iniciarse no se devuelve ni se reintenta automáticamente.
+La generación está desactivada por defecto. El límite inicial para modelos sin configuración es 100 consultas nuevas al día, editable por el propietario entre 1 y 1.000. Cambiar el máximo admitido no altera automáticamente preferencias existentes ni habilita modelos. Este es un tope de solicitudes, no una promesa de disponibilidad: el presupuesto compartido de 7.500 neuronas por día UTC y dos consultas nuevas por minuto por trabajador siguen aplicándose.
 
-La reserva es una estimación conservadora, no una medición del proveedor. El cupo Workers AI Free es compartido con otros usos de la cuenta, incluida la búsqueda semántica existente. BRUFF no conoce todo ese consumo; el límite local no garantiza cuota restante. No se contratan planes ni se configura pago automático.
+Cada inferencia nueva reserva primero 600 neuronas. Si Cloudflare informa tokens válidos, el servidor registra entrada/salida y liquida la reserva con la tarifa de Mistral Small 3.1: ceil((entrada × 31.876 + salida × 50.488) / 1.000.000), con mínimo de una neurona. Son tokens observados y neuronas calculadas, no una lectura de la factura de Cloudflare. La liquidación es atómica e idempotente; el primer resultado queda fijado. El consumo calculado puede superar la reserva y nunca se recorta para aparentar más cupo.
+
+Sin datos de uso válidos, o ante un resultado incierto, se conservan las 600 neuronas. El consumo observado se registra aunque después falle la validación del texto o cambie el contexto. No hay reintentos automáticos. Las reservas anteriores a SQL043 mantienen su estimación. La fecha de uso corresponde al día UTC de inicio de la reserva.
+
+La reserva de solicitudes pendientes o inciertas es una estimación conservadora, no una medición del proveedor. El cupo Workers AI Free es compartido con otros usos de la cuenta, incluida la búsqueda semántica existente. BRUFF no conoce todo ese consumo; el límite local no garantiza cuota restante. No se contratan planes ni se configura pago automático.
 
 ## Verificación y despliegue
 
-Ejecutar `pnpm check` y `node scripts/check-ai-generation-database.mjs`. El segundo utiliza PostgreSQL en memoria con identidades y datos ficticios, sin conexiones reales. `node scripts/build-manual-ai-functions.mjs /ruta/absoluta/externa` genera los dos bundles revisables sin desplegarlos.
+Ejecutar `pnpm check` y los verificadores `scripts/check-ai-generation-database.mjs` y `scripts/check-ai-generation-budget-database.mjs`, pasando la ruta del módulo PGlite instalado. Usan PostgreSQL en memoria con identidades y datos ficticios, sin conexiones reales. `node scripts/build-manual-ai-functions.mjs /ruta/absoluta/externa` genera los dos bundles revisables sin desplegarlos.
 
-Orden: aplicar SQL042, desplegar `bruff-drafts` con su validación de sesión y actualizar `bruff-control`, publicar el frontend, actualizar las instrucciones del plugin privado y comprobar las herramientas. Todo continúa desactivado. Después, el propietario revisa las fuentes y autoriza una primera consulta manual. Las pruebas locales no acreditan el secreto, la cuota o la calidad de una inferencia real.
+Orden inicial: aplicar SQL042 y después SQL043, desplegar `bruff-drafts` con su validación de sesión y actualizar `bruff-control`, publicar el frontend, actualizar las instrucciones del plugin privado y comprobar las herramientas. SQL043 conserva los estados habilitados y los límites ya guardados; el propietario puede cambiarlos con control de versión en BRUFF. Las modelos nuevas siguen desactivadas hasta revisar fuentes y autorizar una primera consulta manual. Las pruebas locales no acreditan el secreto, la cuota o la calidad de una inferencia real.
 
 Referencias oficiales: [modelo y parámetros](https://developers.cloudflare.com/workers-ai/models/mistral-small-3.1-24b-instruct/), [licencia del modelo](https://mistral.ai/news/mistral-small-3-1/), [precios y cuota gratuita](https://developers.cloudflare.com/workers-ai/platform/pricing/).

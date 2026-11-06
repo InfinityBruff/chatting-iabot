@@ -13,6 +13,7 @@ for(const name of ['bruff-drafts','bruff-control']){
  const build=await rolldown({input:join(root,'supabase/functions',name,'index.ts')});
  try{const result=await build.generate({format:'esm'});if(result.output.length!==1||result.output[0].type!=='chunk')throw Error('Expected one self-contained function.');const code=result.output[0].code;if(!code.includes('Deno.serve('))throw Error('Missing entry point.');const path=join(destination,name+'.js');await writeFile(path,code);functions.push({name,path,sha256:createHash('sha256').update(code).digest('hex'),bytes:Buffer.byteLength(code)})}finally{await build.close()}
 }
-const migration=await readFile(join(root,'supabase/migrations/202611060042_ai_generation_knowledge.sql'));
-await writeFile(join(destination,'manifest.json'),JSON.stringify({functions,migrationSha256:createHash('sha256').update(migration).digest('hex'),remoteChanges:false,inferences:0,fanSends:0},null,2)+'\n');
+const migrations=[];
+for(const name of ['202611060042_ai_generation_knowledge.sql','202611060043_ai_generation_budget.sql']){const migration=await readFile(join(root,'supabase/migrations',name));migrations.push({name,sha256:createHash('sha256').update(migration).digest('hex')})}
+await writeFile(join(destination,'manifest.json'),JSON.stringify({functions,migrations,remoteChanges:false,inferences:0,fanSends:0},null,2)+'\n');
 console.log(JSON.stringify({functions,remoteChanges:false}));

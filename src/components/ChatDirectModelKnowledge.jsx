@@ -24,10 +24,10 @@ function knowledgeSnapshot(data,scope){
  }
  return {...data,complete:data.complete&&data.total===data.items.length};
 }
-function configSnapshot(data,scope){
+export function validateGenerationSettingsSnapshot(data,scope){
  if(!identity(data,scope))throw invalidIdentity();
  const s=data.settings;
- if(!s||Object.keys(s).length!==3||typeof s.enabled!=='boolean'||!Number.isSafeInteger(s.dailyLimit)||s.dailyLimit<1||s.dailyLimit>12||!Number.isSafeInteger(s.maxResults)||s.maxResults<1||s.maxResults>3||!Number.isSafeInteger(data.version)||data.version<0)throw Error('schema');
+ if(!s||Object.keys(s).length!==3||typeof s.enabled!=='boolean'||!Number.isSafeInteger(s.dailyLimit)||s.dailyLimit<1||s.dailyLimit>1000||!Number.isSafeInteger(s.maxResults)||s.maxResults<1||s.maxResults>3||!Number.isSafeInteger(data.version)||data.version<0)throw Error('schema');
  return {...data,settings:{enabled:s.enabled,dailyLimit:s.dailyLimit,maxResults:s.maxResults}};
 }
 
@@ -36,7 +36,7 @@ function configSnapshot(data,scope){
 function useOwnerResource(scope,type,onChanged){
  const [data,setData]=useState(null),[loading,setLoading]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[needsReload,setNeedsReload]=useState(false);
  const alive=useRef(false),read=useRef(null),epoch=useRef(0),writeEpoch=useRef(0),lock=useRef(false),changed=useRef(onChanged);changed.current=onChanged;
- const {workspace,account,actor}=scope,valid=[workspace,account,actor].every(value=>typeof value==='string'&&!!value),rpc=type==='knowledge'?'bruff_model_knowledge':'bruff_generation_control',normalize=type==='knowledge'?knowledgeSnapshot:configSnapshot;
+ const {workspace,account,actor}=scope,valid=[workspace,account,actor].every(value=>typeof value==='string'&&!!value),rpc=type==='knowledge'?'bruff_model_knowledge':'bruff_generation_control',normalize=type==='knowledge'?knowledgeSnapshot:validateGenerationSettingsSnapshot;
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;epoch.current++;writeEpoch.current++;read.current?.abort()}},[]);
  const load=useCallback(async()=>{
   if(!valid||lock.current)return null;read.current?.abort();const controller=new AbortController(),serial=++epoch.current;read.current=controller;
@@ -110,7 +110,7 @@ function GenerationSettings({scope,onChanged}){
  const refresh=async()=>{if(dirty.current&&!refreshReview){setRefreshReview(true);return}dirty.current=false;setConsent(false);setRefreshReview(false);const next=await resource.load();if(next)setDraft({settings:{...next.settings},version:next.version})};
  const save=async()=>{
   if(!draft||resource.saving||resource.needsReload)return;const s=draft.settings;
-  if(!Number.isSafeInteger(s.dailyLimit)||s.dailyLimit<1||s.dailyLimit>12||!Number.isSafeInteger(s.maxResults)||s.maxResults<1||s.maxResults>3){resource.setError('Elige entre 1 y 12 consultas diarias y entre 1 y 3 borradores.');return}
+  if(!Number.isSafeInteger(s.dailyLimit)||s.dailyLimit<1||s.dailyLimit>1000||!Number.isSafeInteger(s.maxResults)||s.maxResults<1||s.maxResults>3){resource.setError('Elige entre 1 y 1.000 consultas diarias y entre 1 y 3 borradores. El presupuesto compartido también se comprueba en cada consulta.');return}
   if(s.enabled&&!consent){resource.setError('Revisa y autoriza la transferencia de contexto antes de habilitar las consultas.');return}
   const next=await resource.mutate({op:'save',expected:draft.version,value:{enabled:s.enabled,dailyLimit:s.dailyLimit,maxResults:s.maxResults}},s.enabled?'Preferencias guardadas. Las consultas generativas se realizarán solo cuando las solicites; no se ha consultado el motor ni enviado mensajes.':'Generación desactivada. Se conserva el funcionamiento del banco y su configuración.');
   if(next){dirty.current=false;setConsent(false);setDraft({settings:{...next.settings},version:next.version})}
@@ -122,8 +122,8 @@ function GenerationSettings({scope,onChanged}){
   <Feedback resource={resource}/>{resource.loading&&<p className="cd-model-hint" role="status">Consultando configuración…</p>}{refreshReview&&<div className="cd-model-confirm"><p>Actualizar sustituirá los cambios sin guardar por la configuración del servidor.</p><div><button type="button" onClick={()=>void refresh()}>Descartar cambios y actualizar</button><button type="button" onClick={()=>setRefreshReview(false)}>Cancelar</button></div></div>}
   {draft&&resource.data&&<form onSubmit={event=>event.preventDefault()}><div className="cd-generation-state"><span>Estado guardado</span><strong>{resource.data.settings.enabled?'Habilitado para consultas manuales':'Desactivado'}</strong><small>Revisión {resource.data.version}{dirty.current?' · Cambios sin guardar':''}</small></div><fieldset disabled={locked}>
    <label className="cd-model-check"><input type="checkbox" checked={draft.settings.enabled} onChange={event=>edit('enabled',event.target.checked)}/><span>Habilitar borradores generativos para esta modelo</span></label>
-   <div className="cd-model-two"><label htmlFor={id+'-daily'}><span>Máximo de consultas por día</span><input id={id+'-daily'} type="number" min="1" max="12" step="1" value={draft.settings.dailyLimit} onChange={event=>edit('dailyLimit',event.target.value===''?'':Number(event.target.value))}/></label><label htmlFor={id+'-results'}><span>Borradores por consulta</span><select id={id+'-results'} value={draft.settings.maxResults} onChange={event=>edit('maxResults',Number(event.target.value))}>{[1,2,3].map(number=><option value={number} key={number}>Hasta {number}</option>)}</select></label></div>
-   <div className="cd-generation-transfer"><strong>Qué se comparte al consultar</strong><p>Se transferirán a Cloudflare hasta 20 mensajes recientes confirmados del chat y una selección acotada de ejemplos, reglas y datos aprobados. El contexto se limita en el servidor; no se comparte todo el historial ni otros fans o modelos.</p><p>Las consultas consumen una reserva del cupo gratuito compartido. El límite de BRUFF no garantiza la cuota restante de Cloudflare. Si faltan fuentes, configuración o cuota, no se presentan respuestas inventadas.</p></div>
+   <div className="cd-model-two"><label htmlFor={id+'-daily'}><span>Máximo de consultas por día</span><input id={id+'-daily'} type="number" min="1" max="1000" step="1" value={draft.settings.dailyLimit} onChange={event=>edit('dailyLimit',event.target.value===''?'':Number(event.target.value))}/></label><label htmlFor={id+'-results'}><span>Borradores por consulta</span><select id={id+'-results'} value={draft.settings.maxResults} onChange={event=>edit('maxResults',Number(event.target.value))}>{[1,2,3].map(number=><option value={number} key={number}>Hasta {number}</option>)}</select></label></div>
+   <div className="cd-generation-transfer"><strong>Qué se comparte al consultar</strong><p>Se transferirán a Cloudflare hasta 20 mensajes recientes confirmados del chat y una selección acotada de ejemplos, reglas y datos aprobados. El contexto se limita en el servidor; no se comparte todo el historial ni otros fans o modelos.</p><p>Una inferencia nueva reserva presupuesto compartido; el consumo se calcula cuando el proveedor informa tokens. Reutilizar un borrador vigente no solicita otra inferencia. El límite de esta modelo no garantiza la cuota restante de Cloudflare. Si faltan fuentes, configuración o cuota, no se presentan respuestas inventadas.</p></div>
    {draft.settings.enabled&&<label className="cd-model-check cd-generation-consent"><input type="checkbox" checked={consent} onChange={event=>setConsent(event.target.checked)}/><span>Entiendo y autorizo esta transferencia de contexto a Cloudflare al solicitar cada consulta manual. Revisaré los borradores antes de enviarlos desde el chat.</span></label>}
   </fieldset><div className="cd-model-actions"><button type="button" className="cd-model-primary" disabled={locked||resource.needsReload||draft.settings.enabled&&!consent} onClick={()=>void save()}>{resource.saving?'Guardando…':'Guardar preferencias'}</button></div><p className="cd-model-hint">Guardar no prueba que el proveedor esté conectado. Una consulta real debe confirmarse después. Con la generación desactivada puedes usar «Buscar ejemplos»; ese modo conserva los ajustes del banco o búsqueda semántica.</p></form>}
  </section>;
