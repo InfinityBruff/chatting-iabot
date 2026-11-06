@@ -8,7 +8,7 @@ const messages=()=>[{id:'10',text:'hey, how are you today?',isFromMe:false,creat
 const output=()=>({drafts:[{id:'1',english:'im good too!! how is your day?',spanish:'¡Yo también estoy bien! ¿Cómo va tu día?',exampleIds:['E1'],knowledgeIds:['K1']}],unknowns:[]});
 const response=(data,status=200,headers={})=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json',...headers}});
 function fixture(options={}){
- const calls=[];let claimArgs,stored,poolCount=0,historyCount=0;
+ const calls=[],configLogs=[];let claimArgs,stored,poolCount=0,historyCount=0;
  const runFetch=async(url,input={})=>{
   const body=input.body?JSON.parse(input.body):null;calls.push({url,input,body});
   if(url.endsWith('/auth/v1/user'))return options.auth?.()||response(options.user||{id:actor,email_confirmed_at:'2026-11-01T00:00:00Z'});
@@ -23,9 +23,9 @@ function fixture(options={}){
   if(url.endsWith('/bruff_generation_result'))return response(options.result||stored||{generationId:req,actorId:actor,workspaceId:w,creatorId:c,fanId:'123',revision:'a'.repeat(32),contextHash:await historyHash(historySnapshot({data:{messages:messages()}})),expiresAt:new Date(Date.now()+600000).toISOString(),drafts:[{...output().drafts[0],exampleIds:[example],knowledgeIds:[knowledge]}],unknowns:[],aiGenerated:true,aiVerified:false});
   throw Error('Unexpected path '+url);
  };
- const handler=createDraftsHandler({url:'https://auth.test',anonKey:'public-anon',serviceKey:'fixed-service-key',cloudflareAccountId:'b'.repeat(32),cloudflareToken:'private-token',freeTierConfirmed:true,fetcher:runFetch,...options.config});
+ const handler=createDraftsHandler({url:'https://auth.test',anonKey:'public-anon',serviceKey:'fixed-service-key',cloudflareAccountId:'b'.repeat(32),cloudflareToken:'private-token',freeTierConfirmed:true,fetcher:runFetch,onConfigFailure:record=>configLogs.push(record),...options.config});
  const run=(patch={},headers={})=>handler(new Request('https://edge.test/functions/v1/bruff-drafts',{method:'POST',headers:{Authorization:'Bearer user-session','Content-Type':'application/json',...headers},body:JSON.stringify({operation:'generate',workspace_id:w,creator_id:c,conversation_id:'123',request_id:req,...patch})}));
- return {handler,run,calls};
+ return {handler,run,calls,configLogs};
 }
 const providerCalls=f=>f.calls.filter(x=>x.url.startsWith('https://api.cloudflare.com/'));
 test('manual draft reads real authorized history, generates once, rechecks and stores via one service-only attestation',async()=>{
@@ -50,6 +50,48 @@ test('authentication and origin are mandatory before any source, history or mode
 });
 test('disabled generation, missing approved sources, missing configuration and cross-model pool stop before history or inference',async()=>{
  for(const options of [{pool:p=>({...p,settings:{...p.settings,enabled:false}})},{pool:p=>({...p,approvedCount:0,examples:[]})},{pool:p=>({...p,creatorId:example})},{pool:p=>({...p,actorId:example})},{config:{cloudflareToken:null}},{config:{freeTierConfirmed:false}},{config:{serviceKey:null}},{config:{cloudflareAccountId:'../wrong'}}]){const f=fixture(options);assert.ok([403,409,503].includes((await f.run()).status));assert.equal(providerCalls(f).length,0);assert.ok(!f.calls.some(x=>x.url.endsWith('/bruff-live')))}
+});
+test('authenticated configuration diagnostics distinguish missing, malformed and trim-compatible requirements using booleans only',async()=>{
+ const cases=[
+  {config:{serviceKey:undefined},field:'serviceKey',expected:{rawPresent:false,isString:false,usableRaw:false,usableAfterTrim:false}},
+  {config:{serviceKey:42},field:'serviceKey',expected:{rawPresent:true,isString:false,usableRaw:false,usableAfterTrim:false}},
+  {config:{serviceKey:''},field:'serviceKey',expected:{rawPresent:true,isString:true,usableRaw:false,usableAfterTrim:false}},
+  {config:{serviceKey:'\n fixed-service-key \n'},field:'serviceKey',expected:{rawPresent:true,isString:true,usableRaw:false,usableAfterTrim:true}},
+  {config:{cloudflareToken:' private-token\n',serviceKey:null},field:'cloudflareToken',expected:{rawPresent:true,isString:true,usableRaw:false,usableAfterTrim:true}},
+  {config:{cloudflareToken:'private\ntoken'},field:'cloudflareToken',expected:{rawPresent:true,isString:true,usableRaw:false,usableAfterTrim:false}},
+  {config:{cloudflareToken:'private,token'},field:'cloudflareToken',expected:{rawPresent:true,isString:true,usableRaw:false,usableAfterTrim:false}},
+  {config:{cloudflareAccountId:' '+ 'b'.repeat(32)+'\n'},field:'cloudflareAccount',expected:{rawPresent:true,isString:true,validRaw:false,validAfterTrim:true}},
+  {config:{cloudflareAccountId:'not-an-account'},field:'cloudflareAccount',expected:{rawPresent:true,isString:true,validRaw:false,validAfterTrim:false}},
+  {config:{freeTierConfirmed:false},field:'freeTierConfirmed',expected:false},
+ ];
+ for(const {config,field,expected} of cases){
+  const f=fixture({config}),r=await f.run(),data=await r.json();assert.equal(r.status,503);assert.equal(data.code,'AI_CONFIG');assert.equal(f.configLogs.length,1);const log=f.configLogs[0];assert.deepEqual(Object.keys(log),['event','stage','requirements']);assert.equal(log.event,'bruff_drafts_configuration');assert.equal(log.stage,'authenticated_generate');assert.deepEqual(Object.keys(log.requirements),['serviceKey','cloudflareToken','cloudflareAccount','freeTierConfirmed']);assert.deepEqual(log.requirements[field],expected);
+  for(const value of Object.values(log.requirements))assert.ok(typeof value==='boolean'||Object.values(value).every(x=>typeof x==='boolean'));
+  for(const forbidden of [actor,w,c,req,'private-token','fixed-service-key','b'.repeat(32),'not-an-account','Bearer user-session','contextHash'])assert.ok(!JSON.stringify(log).includes(forbidden));
+  assert.equal(f.calls.length,2);assert.equal(providerCalls(f).length,0);assert.ok(!f.calls.some(x=>/bruff-live|bruff_generation_claim|bruff_generation_commit/u.test(x.url)));
+ }
+});
+test('configuration diagnostics never precede authentication or replace disabled and empty-source guards',async()=>{
+ for(const options of [{user:{id:actor}},{auth:()=>response({},403)},{pool:p=>({...p,settings:{...p.settings,enabled:false}})},{pool:p=>({...p,approvedCount:0,examples:[]})},{pool:p=>({...p,creatorId:example})}]){const f=fixture({...options,config:{cloudflareToken:null}});await f.run();assert.equal(f.configLogs.length,0)}
+ const unauthorized=fixture({config:{cloudflareToken:null}});assert.equal((await unauthorized.run({}, {Authorization:''})).status,401);assert.equal(unauthorized.configLogs.length,0);assert.equal(unauthorized.calls.length,0);
+ const valid=fixture();assert.equal((await valid.run()).status,200);assert.equal(valid.configLogs.length,0);
+ const verify=fixture({config:{cloudflareToken:null,serviceKey:null}});assert.equal((await verify.run({operation:'verify'})).status,200);assert.equal(verify.configLogs.length,0);assert.equal(providerCalls(verify).length,0);
+});
+test('the production configuration logger emits one safe JSON record and a broken logger cannot change the response',async t=>{
+ const logged=[];t.mock.method(console,'error',value=>logged.push(value));
+ const f=fixture({config:{cloudflareToken:' private-token\n',serviceKey:null,onConfigFailure:undefined}}),r=await f.run();assert.equal(r.status,503);assert.equal((await r.json()).code,'AI_CONFIG');assert.equal(logged.length,1);assert.equal(typeof logged[0],'string');const log=JSON.parse(logged[0]);assert.equal(log.requirements.cloudflareToken.usableRaw,false);assert.equal(log.requirements.cloudflareToken.usableAfterTrim,true);assert.ok(!logged[0].includes('private-token'));assert.equal(f.calls.length,2);
+ const broken=fixture({config:{cloudflareToken:null,onConfigFailure:()=>{throw Error('private logger details')}}}),failed=await broken.run();assert.equal(failed.status,503);const data=await failed.json();assert.equal(data.code,'AI_CONFIG');assert.ok(!JSON.stringify(data).includes('private'));assert.equal(broken.calls.length,2);
+});
+test('Cloudflare token paste whitespace is trimmed for validation and the actual provider Authorization header only',async()=>{
+ for(const cloudflareToken of [' private-token\n','\tprivate-token\r\n','\u00a0private-token\uFEFF']){
+  const f=fixture({config:{cloudflareToken}}),r=await f.run(),data=await r.json();assert.equal(r.status,200);assert.equal(data.aiGenerated,true);assert.equal(data.aiVerified,false);assert.equal(f.configLogs.length,0);assert.equal(providerCalls(f).length,1);assert.equal(providerCalls(f)[0].input.headers.Authorization,'Bearer private-token');
+  for(const call of f.calls.filter(x=>x.url.startsWith('https://auth.test/'))){const commit=call.url.endsWith('/bruff_generation_commit');assert.equal(call.input.headers.Authorization,commit?'Bearer fixed-service-key':'Bearer user-session')}
+ }
+});
+test('Cloudflare token internal whitespace, commas and empty content still fail before history, reservation or provider calls',async()=>{
+ for(const cloudflareToken of ['private token','private\ntoken',' private\n token ','private,token','',' \t\r\n ']){
+  const f=fixture({config:{cloudflareToken}}),r=await f.run(),data=await r.json();assert.equal(r.status,503);assert.equal(data.code,'AI_CONFIG');assert.equal(f.calls.length,2);assert.equal(providerCalls(f).length,0);assert.ok(!f.calls.some(x=>/bruff-live|bruff_generation_claim|bruff_generation_commit/u.test(x.url)));assert.equal(f.configLogs.length,1);assert.equal(f.configLogs[0].requirements.cloudflareToken.usableAfterTrim,false);
+ }
 });
 test('source payload is strictly bounded, approved and scoped; malformed facts or refs never reach provider',async()=>{
  for(const poolChange of [p=>({...p,version:-1}),p=>({...p,revision:'wrong'}),p=>({...p,settings:{...p.settings,maxResults:4}}),p=>({...p,examples:[...p.examples,p.examples[0]]}),p=>({...p,knowledge:p.knowledge.map(k=>({...k,state:'draft'}))}),p=>({...p,examples:p.examples.map(e=>({...e,english:''}))})]){const f=fixture({pool:poolChange});assert.equal((await f.run()).status,503);assert.equal(providerCalls(f).length,0)}

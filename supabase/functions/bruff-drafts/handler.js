@@ -20,9 +20,16 @@ function canonical(data,{actor,w,c,fan,requestId,revision,hash}){
  for(const d of data.drafts){if(!['1','2','3'].includes(d.id)||ids.has(d.id)||typeof d.english!=='string'||!d.english.trim()||d.english.length>700||typeof d.spanish!=='string'||!d.spanish.trim()||d.spanish.length>1000||!Array.isArray(d.exampleIds)||!d.exampleIds.length||d.exampleIds.some(x=>!uuid(x))||!Array.isArray(d.knowledgeIds)||d.knowledgeIds.some(x=>!uuid(x)))throw stale();ids.add(d.id)}
  return data;
 }
-export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,cloudflareToken,freeTierConfirmed=false,fetcher=fetch,origins=defaults,timeoutMs=30000}={}){
+export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,cloudflareToken,freeTierConfirmed=false,fetcher=fetch,origins=defaults,timeoutMs=30000,onConfigFailure=record=>console.error(JSON.stringify(record))}={}){
  let base;try{const u=new URL(url);if(u.protocol==='https:'&&!u.username&&!u.password&&!u.search&&!u.hash&&['','/'].includes(u.pathname))base=u.origin}catch{}
- const configured=typeof serviceKey==='string'&&!!serviceKey&&!/[\s,]/u.test(serviceKey)&&typeof cloudflareAccountId==='string'&&/^[a-f0-9]{32}$/u.test(cloudflareAccountId)&&typeof cloudflareToken==='string'&&!!cloudflareToken&&!/[\s,]/u.test(cloudflareToken)&&freeTierConfirmed===true;
+ const usable=value=>typeof value==='string'&&!!value&&!/[\s,]/u.test(value),accountValid=value=>typeof value==='string'&&/^[a-f0-9]{32}$/u.test(value);
+ const credentialStatus=value=>({rawPresent:value!==undefined&&value!==null,isString:typeof value==='string',usableRaw:usable(value),usableAfterTrim:typeof value==='string'&&usable(value.trim())});
+ const configuration={serviceKey:credentialStatus(serviceKey),cloudflareToken:credentialStatus(cloudflareToken),cloudflareAccount:{rawPresent:cloudflareAccountId!==undefined&&cloudflareAccountId!==null,isString:typeof cloudflareAccountId==='string',validRaw:accountValid(cloudflareAccountId),validAfterTrim:typeof cloudflareAccountId==='string'&&accountValid(cloudflareAccountId.trim())},freeTierConfirmed:freeTierConfirmed===true};
+ // Only the Cloudflare token accepts external paste whitespace. Internal
+ // whitespace, commas, empty tokens and every other credential stay rejected.
+ // Diagnostics still describe the original input using booleans only.
+ const providerToken=typeof cloudflareToken==='string'?cloudflareToken.trim():cloudflareToken;
+ const configured=configuration.serviceKey.usableRaw&&configuration.cloudflareAccount.validRaw&&usable(providerToken)&&configuration.freeTierConfirmed;
  return async request=>{
   const origin=request.headers.get('Origin'),headers={'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Vary':'Origin',...(origins.includes(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info','Access-Control-Allow-Methods':'POST, OPTIONS'}:{})};
   const reply=(status,value,extra={})=>new Response(value===undefined?null:JSON.stringify(value),{status,headers:{...headers,...extra}});
@@ -57,7 +64,7 @@ export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,
    const pool=validatedPool(await rpc('bruff_generation_pool',{w,c}),scope);
    if(pool.settings.enabled!==true)throw fail(409,'AI_DISABLED','La generación manual está desactivada para esta modelo.');
    if(!pool.examples.length)throw fail(409,'AI_SOURCES','Aprueba al menos un ejemplo de esta modelo antes de consultar la IA.');
-   if(input.operation==='generate'&&!configured)throw fail(503,'AI_CONFIG','Falta configurar el motor y confirmar el plan gratuito.');
+   if(input.operation==='generate'&&!configured){try{onConfigFailure?.({event:'bruff_drafts_configuration',stage:'authenticated_generate',requirements:configuration})}catch{/* Diagnostics must never change authentication or the response. */}throw fail(503,'AI_CONFIG','Falta configurar el motor y confirmar el plan gratuito.')}
    const load=async()=>historySnapshot(await call('/functions/v1/bruff-live',{workspace_id:w,creator_id:c,operation:'messages',conversation_id:fan,background:true}));
    const history=await load(),hash=await historyHash(history),identity={actor,w,c,fan,requestId,revision:pool.revision,hash};
    if(input.operation==='verify'){
@@ -70,7 +77,7 @@ export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,
    if(!claim.allowed){if(['model_daily_limit','global_daily_limit','actor_minute_limit'].includes(claim.reason)){const e=fail(429,'AI_LOCAL_LIMIT','Se alcanzó el límite gratuito reservado para los borradores.');e.retryAfter=claim.retryAfter||60;throw e}throw stale()}
    if(claim.reason!=='allowed')throw unavailable();
    let provider;
-   try{provider=await fetcher('https://api.cloudflare.com/client/v4/accounts/'+cloudflareAccountId+'/ai/run/'+GENERATION_MODEL,{method:'POST',headers:{Authorization:'Bearer '+cloudflareToken,'Content-Type':'application/json'},body:JSON.stringify({messages:prompt.messages,guided_json:OUTPUT_SCHEMA,max_tokens:OUTPUT_TOKENS,temperature:0.4}),redirect:'error',signal});signal.throwIfAborted()}
+   try{provider=await fetcher('https://api.cloudflare.com/client/v4/accounts/'+cloudflareAccountId+'/ai/run/'+GENERATION_MODEL,{method:'POST',headers:{Authorization:'Bearer '+providerToken,'Content-Type':'application/json'},body:JSON.stringify({messages:prompt.messages,guided_json:OUTPUT_SCHEMA,max_tokens:OUTPUT_TOKENS,temperature:0.4}),redirect:'error',signal});signal.throwIfAborted()}
    catch{signal.throwIfAborted();throw providerUnavailable()}
    if(!provider.ok){
     if(provider.status===429){const e=fail(429,'AI_PROVIDER_LIMIT','La cuota gratuita o el límite del proveedor se ha agotado.');e.retryAfter=retryAfter(provider);throw e}
