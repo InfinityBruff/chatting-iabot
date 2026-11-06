@@ -9,7 +9,7 @@ const request=(over={})=>({context,scope:context.scope,revision:'r1',input:'How 
 function fixture(data,error=null){
  const scope={actorId:'worker',workspaceId:'agency',creatorId:'model'};if(data&&typeof data==='object')data={...scope,...data};
  const calls=[];const client={rpc:(name,args)=>{let signal;calls.push({name,args});return {abortSignal(value){signal=value;calls.at(-1).signal=value;return this},then(resolve,reject){return Promise.resolve(typeof data==='function'?data():{data,error}).then(resolve,reject)}}}};
- return{calls,source:createChatDirectSource(client,{actor:'worker',workspace:'agency'})};
+ return{client,calls,source:createChatDirectSource(client,{actor:'worker',workspace:'agency'})};
 }
 test('queries only the selected model and exact input, not transcripts or fan identity',async()=>{
  const {source,calls}=fixture({status:'connected',approvedCount:1,rows:[candidate]});
@@ -57,4 +57,14 @@ test('rechecks an exact reference version before preparing and denies revoked ex
 
 test('rejects authoritative actor, agency or model changes even when the old request scope matches',async()=>{
  for(const changed of [{actorId:'other'},{workspaceId:'other'},{creatorId:'other'}]){const {source}=fixture({status:'connected',approvedCount:1,rows:[candidate],valid:true,...changed});await assert.rejects(()=>source(request()),/sesión o la modelo/);await assert.rejects(()=>source.verify(request({candidate})),/sesión o la modelo/)}
+});
+
+test('engine bridge passes no fan/history and retains exact approved responses',async()=>{
+ const {client}=fixture(null),calls=[];client.functions={invoke:async(name,args)=>{calls.push({name,args});return{data:{actorId:'worker',workspaceId:'agency',creatorId:'model',status:'connected',approvedCount:1,rows:[candidate],engine:'semantic',configured:true,engineInvoked:true},error:null}}};
+ const source=createChatDirectSource(client,{actor:'worker',workspace:'agency',engineEndpoint:true}),result=await source(request());
+ assert.equal(calls[0].name,'bruff-ai');assert.deepEqual(Object.keys(calls[0].args.body).sort(),['workspace_id','creator_id','query','request_id'].sort());assert.equal(calls[0].args.body.query,'How does this work?');assert.match(calls[0].args.body.request_id,/^[0-9a-f-]{36}$/);assert.equal(result.candidates[0].english,candidate.english);assert.equal(result.knowledge.engine,'semantic');assert.equal(result.knowledge.engineInvoked,true);
+});
+test('engine missing configuration, limits, revocation and stale results never fall back silently',async()=>{
+ for(const status of [401,403,409,429,503,500]){const {client,calls}=fixture(null);client.functions={invoke:async()=>({error:{context:{status},message:'secret'}})};const source=createChatDirectSource(client,{actor:'worker',workspace:'agency',engineEndpoint:true});await assert.rejects(()=>source(request()),error=>!error.message.includes('secret'));assert.equal(calls.length,0)}
+ for(const patch of [{configured:false},{engine:'unknown'},{engineInvoked:'yes'}]){const {client}=fixture(null);client.functions={invoke:async()=>({data:{actorId:'worker',workspaceId:'agency',creatorId:'model',status:'empty',approvedCount:0,rows:[],engine:'bank',configured:true,engineInvoked:false,...patch}})};await assert.rejects(()=>createChatDirectSource(client,{actor:'worker',workspace:'agency',engineEndpoint:true})(request()))}
 });

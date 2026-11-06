@@ -2,3 +2,12 @@
 # an active owner in SQL. Legacy gateway JWT verification is intentionally off.
 [functions.bruff-team-invite]
 verify_jwt = false
+
+# OAuth discovery is public; every private tool verifies Supabase Auth and the
+# active owner in the handler and SQL. No legacy gateway secret is used.
+[functions.bruff-control]
+verify_jwt = false
+
+# The isolated ranking endpoint validates the user's bearer token with Auth.
+[functions.bruff-ai]
+verify_jwt = false

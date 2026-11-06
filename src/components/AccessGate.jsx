@@ -12,6 +12,7 @@ const LiveWorkspace=lazy(workspaceModule.load);
 import PasswordAccess, {hasAuthLink} from './PasswordAccess.jsx';
 import './access.css';
 const LiveTeam=lazy(()=>import('./LiveTeam.jsx'));
+const OAuthConsent=lazy(()=>import('./OAuthConsent.jsx'));
 import MyDisplayName from './MyDisplayName.jsx';
 import {teamRoles as roles} from '../team.js';
 import {startAccessReadPoll} from '../access-read-poll.js';
@@ -23,7 +24,7 @@ function WorkspaceEntry({entryToken,actor,workspace,onCommit,...props}){
 }
 const accessLoading=<main className="access-page" role="status"><section className="access-card"><Brand/><div className="bruff-loading-orbit"/><p>Abriendo tu espacio…</p></section></main>;
 
-export default function AccessGate(){return <Suspense fallback={accessLoading}><AccessContent/></Suspense>}
+export default function AccessGate(){return <Suspense fallback={accessLoading}>{window.location.pathname==='/oauth/consent'?<OAuthConsent/>:<AccessContent/>}</Suspense>}
 function AccessContent(){
  const [demo,setDemo]=useState(false),[session,setSession]=useState(null),[workspaces,setWorkspaces]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [flow,setFlow]=useState(hasAuthLink?'link':null);
