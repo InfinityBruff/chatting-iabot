@@ -1,6 +1,8 @@
 import {readSession,writeSession,sessionKey} from '../chat-sync.js';
 import {useChatDirect} from './ChatDirectContext.jsx';
-import {scopeKey,applyDraftInsertion} from '../chat-direct.js';
+import {scopeKey} from '../chat-direct.js';
+import {applyChatDirectDraft,resolveChatDirectMedia} from '../chat-direct-draft.js';
+import {pageCacheEpoch} from '../live-page-cache.js';
 import {MediaPreview} from './MediaPreview.jsx';
 import ComposerAttachments from './ComposerAttachments.jsx';
 import ComposerVaultDialog from './ComposerVaultDialog.jsx';
@@ -42,20 +44,32 @@ export function Composer({workspace,account,fan,canVault,enabled,onSent,onProgre
  const amount=Number(price.replace(',','.'));const priceValid=price===''||/^\d+(?:[.,]\d{1,2})?$/.test(price)&&Number.isSafeInteger(Math.round(amount*100));
  const priceEditable=!busy&&enabled&&!review;
  const directSnapshot=useRef(null),consumedDirect=useRef(new Set());
- directSnapshot.current={scope:directScope,revision:chatDirectRevision,text,enabled:priceEditable&&!blocked};
+ directSnapshot.current={scope:directScope,revision:chatDirectRevision,draft:{text,price,attachments,reply},enabled:priceEditable&&!blocked&&!vault,canVault:canVault===true};
  const registerDirectComposer=direct?.registerComposer;
- useEffect(()=>{if(!directScope||typeof registerDirectComposer!=='function')return;return registerDirectComposer(directScope,request=>{
+ useEffect(()=>{if(!directScope||typeof registerDirectComposer!=='function')return;return registerDirectComposer(directScope,async request=>{
+  const epoch=pageCacheEpoch();
+  const active=()=>{const value=directSnapshot.current;return epoch===pageCacheEpoch()&&value?.scope===request.scope&&value?.revision===request.revision&&value.enabled&&!lock.current&&typeof request.active==='function'&&request.active()===true};
+  if(!active())return {status:'stale'};
+  const initial=directSnapshot.current;
+  if(request.content&&(!initial.canVault||request.content.accountId!==account))return {status:'blocked'};
+  const resolve=()=>resolveChatDirectMedia({content:request.content,active:()=>active()&&directSnapshot.current?.canVault===true,request:(operation,args)=>liveRequest(workspace,operation,args,{active:()=>active()&&directSnapshot.current?.canVault===true})});
+  if(request.mode==='resolve-content')return resolve();
+  let resolved;
+  if(request.content&&request.mode!=='check'){
+   resolved=await resolve();if(!active())return {status:'stale'};
+   if(resolved.status!=='resolved')return resolved;
+  }
   const current=directSnapshot.current;
-  if(!current||request.scope!==current.scope||request.revision!==current.revision)return {status:'stale'};
-  const decision=applyDraftInsertion({scope:request.scope,currentScope:current.scope,token:request.token,consumed:consumedDirect.current,text:request.text,currentText:current.text,expectedText:request.expectedText,mode:request.mode,enabled:current.enabled,locked:lock.current});
+  const decision=applyChatDirectDraft({scope:request.scope,currentScope:current.scope,token:request.token,consumed:consumedDirect.current,text:request.text,draft:current.draft,expectedSnapshot:request.expectedSnapshot,mode:request.mode,content:request.content,attachments:resolved?.items,enabled:current.enabled,locked:lock.current});
   if(decision.status==='ready'){
    consumedDirect.current.add(request.token);if(consumedDirect.current.size>100)consumedDirect.current.delete(consumedDirect.current.values().next().value);
-   current.text=decision.text;setText(decision.text);
+   current.draft={...current.draft,text:decision.text,price:decision.price,attachments:decision.attachments};setText(decision.text);setPrice(decision.price);setAttachments(decision.attachments);
+   if(request.content)setPricing(false);
    requestAnimationFrame(()=>{const latest=directSnapshot.current;if(latest?.scope===request.scope&&latest.enabled&&!lock.current)input.current?.focus({preventScroll:true})});
    return {status:'inserted'};
   }
-  return {...decision,currentText:current.text};
- })},[directScope,registerDirectComposer]);
+  return decision;
+ })},[directScope,registerDirectComposer,workspace,account]);
  const clearPrice=()=>{if(lock.current||!priceEditable)return;setPrice('0');setPricing(false)};
  const removeAttachment=item=>{if(lock.current||!priceEditable)return;const index=vaultSelectionIndex(attachments,item);if(index<0)return;const remaining=attachments.filter((_,i)=>i!==index);setAttachments(remaining);if(!remaining.length){setPrice('0');setPricing(false)}};
  const formatPrice=n=>new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(n);
@@ -92,7 +106,7 @@ export function Composer({workspace,account,fan,canVault,enabled,onSent,onProgre
   <div className="chat-compose-line"><textarea ref={input} aria-label="Escribir mensaje" placeholder="Escribe un mensaje…" maxLength={10000} disabled={busy||!enabled||!!review} value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!reviewDisabled)prepare()}}}/></div>
   <div className="reference-quick-replies"><button disabled={busy||!enabled||!!review} onClick={()=>setQuick(!quick)}>Respuesta rápida</button>{[['Saludo','Hola, ¿cómo estás?'],['Pregunta','¿Qué tal ha ido tu día?'],['Gracias','¡Muchas gracias!']].map(([label,value])=><button key={label} disabled={busy||!enabled||!!review} onClick={()=>setText(t=>(t+(t?' ':'')+value).slice(0,10000))}>{label}</button>)}<button type="button" disabled={!direct} onClick={e=>direct?.openFrom(e.currentTarget)}>Sugerencias IA</button></div>
   {quick&&<div className="reference-quick-editor"><input aria-label="Respuesta rápida personalizada" placeholder="Escribe tu respuesta rápida…" value={snippet} onChange={e=>setSnippet(e.target.value)} maxLength={10000}/><button disabled={!snippet.trim()||busy||!enabled||!!review} onClick={()=>{setText(t=>(t+(t?' ':'')+snippet).slice(0,10000));setQuick(false)}}>Insertar</button></div>}
-  <div className="reference-compose-toolbar"><div>{[['image','Adjuntar fotos'],['video','Adjuntar vídeo'],['mic','Adjuntar audio']].map(([icon,label])=><button key={icon} aria-label={label} title={label} disabled={busy||!enabled||!!review} onClick={openVault}><ChatIcon name={icon}/></button>)}<button aria-label="Adjuntar GIF" title="Adjuntar GIF" disabled={busy||!enabled||!!review} onClick={openVault}>GIF</button><button aria-label="Abrir baúl" title="Abrir baúl" disabled={busy||!enabled||!!review} onClick={openVault}><ChatIcon name="image"/></button>{direct&&<button type="button" className="chat-direct-launcher" aria-label="Abrir BRUFF IA · Chat directo" title="BRUFF IA · Chat directo" aria-haspopup="dialog" aria-expanded={direct.open} onClick={e=>direct.openFrom(e.currentTarget)}><img src="/brand/bruff-chat-direct-gorilla.png" alt="" width="24" height="24"/></button>}<button aria-label="Programar mensaje" title="Programar mensaje · Pendiente" onClick={()=>setNotice('Programación de mensajes')}><ChatIcon name="calendar"/></button><button aria-label="Precio del contenido" title="Precio del mensaje" aria-expanded={pricing} aria-pressed={amount>0} disabled={busy||!enabled||!!review} onClick={()=>setPricing(!pricing)}><ChatIcon name="tag"/></button><button aria-label="Insertar nombre del fan" title="Insertar nombre del fan" disabled={busy||!enabled||!!review} onClick={()=>setText(t=>(t+(fan.name||fan.username||'')).slice(0,10000))}><ChatIcon name="at"/></button><button aria-label="Traducir borrador" title="Traducir borrador · Pendiente" onClick={()=>setNotice('Traducción del borrador')}><ChatIcon name="translate"/></button></div><button ref={sendButton} className="chat-review-button" title="Enviar mensaje" aria-label="Enviar mensaje" disabled={reviewDisabled} onClick={prepare}>{busy?'Enviando…':review?'REINTENTAR':'ENVIAR'}<ChatIcon name="send" size={15}/></button></div>
+  <div className="reference-compose-toolbar"><div>{[['image','Adjuntar fotos'],['video','Adjuntar vídeo'],['mic','Adjuntar audio']].map(([icon,label])=><button key={icon} aria-label={label} title={label} disabled={busy||!enabled||!!review} onClick={openVault}><ChatIcon name={icon}/></button>)}<button aria-label="Adjuntar GIF" title="Adjuntar GIF" disabled={busy||!enabled||!!review} onClick={openVault}>GIF</button><button aria-label="Abrir baúl" title="Abrir baúl" disabled={busy||!enabled||!!review} onClick={openVault}><ChatIcon name="image"/></button>{direct&&<button type="button" className="chat-direct-launcher" aria-label="Abrir BRUFF IA · Chat directo" title="BRUFF IA · Chat directo" aria-haspopup="dialog" aria-expanded={direct.open} onClick={e=>direct.openFrom(e.currentTarget)}><img src="/brand/bruff-chat-direct-gorilla-transparent-red.png" alt="" width="24" height="24"/></button>}<button aria-label="Programar mensaje" title="Programar mensaje · Pendiente" onClick={()=>setNotice('Programación de mensajes')}><ChatIcon name="calendar"/></button><button aria-label="Precio del contenido" title="Precio del mensaje" aria-expanded={pricing} aria-pressed={amount>0} disabled={busy||!enabled||!!review} onClick={()=>setPricing(!pricing)}><ChatIcon name="tag"/></button><button aria-label="Insertar nombre del fan" title="Insertar nombre del fan" disabled={busy||!enabled||!!review} onClick={()=>setText(t=>(t+(fan.name||fan.username||'')).slice(0,10000))}><ChatIcon name="at"/></button><button aria-label="Traducir borrador" title="Traducir borrador · Pendiente" onClick={()=>setNotice('Traducción del borrador')}><ChatIcon name="translate"/></button></div><button ref={sendButton} className="chat-review-button" title="Enviar mensaje" aria-label="Enviar mensaje" disabled={reviewDisabled} onClick={prepare}>{busy?'Enviando…':review?'REINTENTAR':'ENVIAR'}<ChatIcon name="send" size={15}/></button></div>
   {notice&&<PendingChatFeature feature={notice} onClose={()=>setNotice('')}/>}
 
   {!priceValid&&<p role="alert">Introduce un precio de cero o más con un máximo de dos decimales.</p>}{priceValid&&amount>0&&!attachments.length&&<p role="alert">Adjunta contenido o cambia el precio a 0 para enviar solo texto.</p>}

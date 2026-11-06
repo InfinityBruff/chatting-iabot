@@ -69,6 +69,22 @@ function candidateSnapshot(candidate){
  return Object.freeze({id:candidate.id,english:candidate.english,spanish:candidate.spanish,source,variables});
 }
 
+// A corpus references vault IDs; it cannot supply attachment capabilities,
+// preview URLs, uploads or arbitrary media objects. Those come from an
+// authorized vault read for the current operator after this validation.
+function contentSnapshot(content,account){
+ if(!record(content)||content.accountId!==account||content.currency!=='USD'||!Array.isArray(content.mediaIds)||content.mediaIds.length<1||content.mediaIds.length>10)throw invalid();
+ const mediaIds=content.mediaIds.map(value=>{if(typeof value!=='string'||!/^[1-9]\d{0,23}$/u.test(value))throw invalid();return value});
+ if(new Set(mediaIds).size!==mediaIds.length)throw invalid();
+ const priceCents=content.priceCents===undefined?null:content.priceCents;
+ if(priceCents!==null&&(!Number.isSafeInteger(priceCents)||priceCents<0||Math.round(priceCents/100*100)!==priceCents))throw invalid();
+ if(typeof content.reason!=='string'||!content.reason.trim()||content.reason.length>500||/[\u0000-\u001f\u007f]/u.test(content.reason))throw invalid();
+ const reference=content.reference,version=Number.isSafeInteger(reference?.version)&&reference.version>0?String(reference.version):reference?.version;
+ if(!record(reference)||reference.verified!==true||!identifier(reference.id)||!identifier(version)||version==='0')throw invalid();
+ if(content.categoryId!==undefined&&(typeof content.categoryId!=='string'||!/^\d{1,20}$/u.test(content.categoryId)))throw invalid();
+ return Object.freeze({accountId:account,currency:'USD',priceCents,mediaIds:Object.freeze(mediaIds),reason:content.reason,reference:Object.freeze({id:reference.id,version,verified:true}),...(content.categoryId!==undefined?{categoryId:content.categoryId}:{})});
+}
+
 // Structural validation only. A future authorized server adapter must establish
 // provenance; a caller-supplied verified:true is not proof of a real transcript.
 export function validateSuggestions(payload,{scope,revision,allowedSourceModels}={}){
@@ -76,9 +92,10 @@ export function validateSuggestions(payload,{scope,revision,allowedSourceModels}
  if(!target||typeof revision!=='string'||!revision||!record(payload)||payload.scope!==scope||payload.revision!==revision||!Array.isArray(payload.candidates)||payload.candidates.length>3)throw invalid();
  const models=allowedSourceModels===undefined?[target.account]:allowedSourceModels instanceof Set?[...allowedSourceModels]:allowedSourceModels;
  if(!Array.isArray(models)||models.some(model=>!identifier(model)))throw invalid();
- const allowed=new Set(models),byId=new Map(),byText=new Map(),definitions=new Map(),result=[];
+ const allowed=new Set(models),byId=new Map(),byText=new Map(),definitions=new Map(),result=[];let contentCount=0;
  for(const raw of payload.candidates){
-  const candidate=candidateSnapshot(raw);if(!allowed.has(candidate.source.modelId))throw invalid();
+  const base=candidateSnapshot(raw),content=raw.content===undefined?null:contentSnapshot(raw.content,target.account);
+  const candidate=content?Object.freeze({...base,content}):base;if(!allowed.has(candidate.source.modelId))throw invalid();
   for(const variable of candidate.variables){
    const prior=definitions.get(variable.key);
    if(prior&&(prior.label!==variable.label||prior.type!==variable.type))throw invalid();
@@ -87,9 +104,10 @@ export function validateSuggestions(payload,{scope,revision,allowedSourceModels}
   const serialized=JSON.stringify(candidate),sameId=byId.get(candidate.id);
   if(sameId){if(sameId!==serialized)throw invalid();continue}
   byId.set(candidate.id,serialized);
-  const prior=byText.get(candidate.english);
+  const textKey=JSON.stringify([candidate.english,candidate.content||null]),prior=byText.get(textKey);
   if(prior){if(JSON.stringify(prior.variables)!==JSON.stringify(candidate.variables)||prior.spanish!==candidate.spanish)throw invalid();continue}
-  byText.set(candidate.english,candidate);result.push(candidate);
+  if(content&&++contentCount>1)throw invalid();
+  byText.set(textKey,candidate);result.push(candidate);
  }
  return Object.freeze(result);
 }

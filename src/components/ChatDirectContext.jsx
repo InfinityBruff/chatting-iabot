@@ -1,5 +1,5 @@
 import React,{createContext,lazy,Suspense,useCallback,useContext,useEffect,useMemo,useRef,useState} from 'react';
-import {scopeKey,validateSuggestions} from '../chat-direct.js';
+import {scopeKey,validateSuggestions,materializeSuggestion} from '../chat-direct.js';
 import {pageCacheEpoch} from '../live-page-cache.js';
 import './chat-direct.css';
 
@@ -37,13 +37,14 @@ function ScopedProvider({actor,workspace,source,children}){
    abort();if(payload?.scope)memory.current.delete(payload.scope);contexts.current=null;entryRef.current=blank();setActiveContext(null);setEntry(entryRef.current);captureRef.current=false;setCapture(false);lastDirect.current=null;return;
   }
   const previous=contexts.current,changed=previous?.scope!==payload.scope||previous?.revision!==payload.revision;
-  if(!changed&&previous?.canInsert===payload.canInsert&&previous?.modelName===payload.modelName&&previous?.fanName===payload.fanName&&previous?.historyComplete===payload.historyComplete)return;
+  if(!changed&&previous?.canInsert===payload.canInsert&&previous?.canVault===payload.canVault&&previous?.modelName===payload.modelName&&previous?.fanName===payload.fanName&&previous?.historyComplete===payload.historyComplete)return;
   if(changed)abort();
   const value={...payload,messages:payload.messages.slice()};contexts.current=value;
   let saved=previous?.scope===payload.scope?entryRef.current:memory.current.get(payload.scope)||blank();
   if(saved.revision!==payload.revision)saved={...saved,candidates:[],selectedId:null,selectedMessageId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false,revision:payload.revision};
   else if(previous?.scope!==payload.scope&&saved.busy)saved={...saved,busy:false};
   if(!sourceRef.current&&saved.candidates.length)saved={...saved,candidates:[],selectedId:null,insertToken:null,inserted:false};
+  if(payload.canVault!==true&&saved.candidates.some(candidate=>candidate.content))saved={...saved,candidates:saved.candidates.map(candidate=>candidate.content?{...candidate,resolvedContent:{status:'unavailable',items:[],message:'No tienes acceso al baúl de esta modelo.'}}:candidate)};
   entryRef.current=saved;remember(payload.scope,saved);setEntry(saved);setActiveContext(value);
   if(previous?.scope!==payload.scope)lastDirect.current=null;
  },[actor,workspace,abort,syncEpoch,remember]);
@@ -78,8 +79,28 @@ function ScopedProvider({actor,workspace,source,children}){
   if(typeof sourceRef.current!=='function'){request.current=null;commit(previous=>({...previous,busy:false,error:'Fuente verificada sin conectar. Todavía no se pueden recuperar respuestas documentadas.'}));return}
   try{
    const payload=await sourceRef.current({scope:current.scope,revision:current.revision,input,context:{...current,selectedMessageId:selected?String(selected.id):entryRef.current.selectedMessageId},signal:controller.signal});
-   if(!live())return;const candidates=validateSuggestions(payload,{scope:current.scope,revision:current.revision,allowedSourceModels:[current.account]});
-   commit(previous=>({...previous,candidates,busy:false,revision:current.revision,notice:candidates.length?'Referencias verificadas recibidas. Selecciona una para revisarla.':'No hay respuestas documentadas comparables en la fuente consultada.'}));
+   if(!live())return;const verified=validateSuggestions(payload,{scope:current.scope,revision:current.revision,allowedSourceModels:[current.account]}),candidates=[];let contentError='';
+   for(const candidate of verified){
+    if(!candidate.content){candidates.push(candidate);continue}
+    const resolver=composers.current.get(current.scope)?.handler;
+    let resolvedContent={status:'unavailable',items:[],message:contexts.current?.canVault===true?'Abre el compositor de esta conversación para comprobar el contenido.':'No tienes acceso al baúl de esta modelo.'};
+    if(contexts.current?.canVault===true&&resolver){
+     const active=()=>live()&&contexts.current?.canVault===true;
+     try{
+      const result=await resolver({mode:'resolve-content',scope:current.scope,revision:current.revision,content:candidate.content,active});
+      if(!live())return;
+      if(active()&&result?.status==='resolved'&&Array.isArray(result.items))resolvedContent={status:'resolved',items:result.items};
+      else resolvedContent={status:'unavailable',items:[],message:result?.message||'No se pudo verificar todo el contenido propuesto en el baúl.'};
+     }catch(error){
+      if(!live())return;
+      const message=error?.status===429?'El proveedor ha limitado la lectura del baúl. Respeta su espera y pulsa GENERAR 3 RESPUESTAS para volver a comprobar.':error?.status===401||error?.status===403?'No se pudo autorizar la consulta del baúl de esta modelo.':'No se pudo consultar el contenido propuesto. Vuelve a comprobar las referencias.';
+      resolvedContent={status:'unavailable',items:[],message};contentError=message;
+     }
+    }
+    if(!live())return;candidates.push({...candidate,resolvedContent});
+   }
+   if(!live())return;
+   commit(previous=>({...previous,candidates,busy:false,error:contentError,revision:current.revision,notice:candidates.length?'Referencias verificadas recibidas. Selecciona una para revisarla.':'No hay respuestas documentadas comparables en la fuente consultada.'}));
   }catch(error){if(live()&&!cancelled(error))commit(previous=>({...previous,busy:false,candidates:[],selectedId:null,error:error?.message||'No se pudieron verificar las referencias.'}))}
   finally{if(request.current===controller)request.current=null}
  },[abort,commit,syncEpoch]);
@@ -88,11 +109,25 @@ function ScopedProvider({actor,workspace,source,children}){
  const editInput=useCallback(value=>{abort();lastDirect.current=null;commit(previous=>({...previous,input:String(value).slice(0,10000),candidates:[],selectedId:null,selectedMessageId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false}))},[abort,commit]);
  const editValue=useCallback((key,value)=>commit(previous=>({...previous,values:{...previous.values,[key]:value},insertToken:crypto.randomUUID(),inserted:false,notice:''})),[commit]);
  const selectCandidate=useCallback(id=>commit(previous=>{const selected=previous.candidates.some(candidate=>candidate.id===id)?id:null;return {...previous,selectedId:selected,insertToken:selected?previous.selectedId===selected&&previous.insertToken?previous.insertToken:crypto.randomUUID():null,inserted:!!selected&&previous.selectedId===selected&&previous.inserted,notice:''}}),[commit]);
- const insert=useCallback(async({text,expectedText,mode,token})=>{
+ const insert=useCallback(async({text,expectedText,expectedSnapshot,mode,token})=>{
   if(!syncEpoch()||!mounted.current||!openRef.current)return{status:'stale'};const active=contexts.current,handler=active?.canInsert&&composers.current.get(active.scope)?.handler;
-  if(!active?.canRead||!handler||entryRef.current.busy||typeof text!=='string'||!text.trim()||token!==entryRef.current.insertToken)return{status:'blocked'};
-  const scope=active.scope,revision=active.revision,epoch=ownerEpoch.current,result=await handler({scope,revision,token,text,expectedText,mode});
-  if(!mounted.current||epoch!==pageCacheEpoch()||contexts.current?.scope!==scope||contexts.current?.revision!==revision||contexts.current?.canRead!==true||contexts.current?.canInsert!==true)return{status:'stale'};
+  const chosen=entryRef.current.candidates.find(candidate=>candidate.id===entryRef.current.selectedId);
+  if(!active?.canRead||!handler||!chosen||entryRef.current.busy||typeof text!=='string'||!text.trim()||token!==entryRef.current.insertToken)return{status:'blocked'};
+  if(!(chosen.content?['check','replace-bundle']:['check','append','replace']).includes(mode))return{status:'blocked'};
+  const values=Object.fromEntries((chosen.variables||[]).filter(variable=>Object.hasOwn(entryRef.current.values,variable.key)).map(variable=>[variable.key,entryRef.current.values[variable.key]])),materialized=materializeSuggestion(chosen,values);
+  if(!materialized.complete||text!==materialized.english)return{status:'stale'};
+  if(chosen.content&&(active.canVault!==true||chosen.content.priceCents===null||chosen.resolvedContent?.status!=='resolved'))return{status:'blocked'};
+  const scope=active.scope,revision=active.revision,epoch=ownerEpoch.current;
+  const live=()=>mounted.current&&openRef.current&&epoch===pageCacheEpoch()&&contexts.current?.scope===scope&&contexts.current?.revision===revision&&contexts.current?.canRead===true&&contexts.current?.canInsert===true&&entryRef.current.insertToken===token&&entryRef.current.selectedId===chosen.id&&(!chosen.content||contexts.current?.canVault===true);
+  let result;
+  try{result=await handler({scope,revision,token,text:materialized.english,expectedText,expectedSnapshot,mode,content:chosen.content||null,active:live})}
+  catch(error){
+   if(!live())return{status:'stale'};
+   if(!chosen.content)throw error;
+   result={status:'unavailable',message:error?.status===429?'El proveedor ha limitado la lectura del baúl. Respeta su espera y vuelve a GENERAR 3 RESPUESTAS.':error?.status===401||error?.status===403?'No se pudo autorizar el contenido del baúl. Vuelve a comprobar la propuesta.':'No se pudo volver a verificar el contenido. Genera de nuevo las referencias antes de preparar.'};
+  }
+  if(!live())return{status:'stale'};
+  if(chosen.content&&result?.status==='unavailable')commit(previous=>({...previous,candidates:previous.candidates.map(candidate=>candidate.id===chosen.id?{...candidate,resolvedContent:{status:'unavailable',items:[],message:result.message}}:candidate),notice:''}));
   if(result?.status==='inserted'||result?.status==='duplicate')commit(previous=>({...previous,inserted:true,notice:result.status==='duplicate'?'Esta opción ya se insertó.':'Insertada en el borrador. No se ha enviado ningún mensaje.'}));
   return result||{status:'blocked'};
  },[commit,syncEpoch]);

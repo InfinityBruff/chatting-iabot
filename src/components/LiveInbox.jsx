@@ -75,7 +75,7 @@ const Thread=React.memo(function Thread({names,currentUserId,onLatest,workspace,
  const directRevision=useMemo(()=>contextRevision(loaded),[loaded]);
  const setDirectContext=direct?.setContext,clearDirectContext=direct?.clearContext;
  const directCanRead=!!result&&!error;
- const directContext=useMemo(()=>({scope:directScope,actor:currentUserId,workspace,account,fanId,modelName:model,fanName:name(fan),messages:directCanRead?loaded:EMPTY_MESSAGES,revision:directRevision,historyComplete:directCanRead&&result?.data?.hasMore===false,canRead:directCanRead,canInsert:directCanRead&&canSend&&enabled&&!blocked&&!editLocked}),[directScope,currentUserId,workspace,account,fanId,model,fan.name,fan.customName,fan.username,loaded,directRevision,result,directCanRead,canSend,enabled,blocked,editLocked]);
+ const directContext=useMemo(()=>({scope:directScope,actor:currentUserId,workspace,account,fanId,modelName:model,fanName:name(fan),messages:directCanRead?loaded:EMPTY_MESSAGES,revision:directRevision,historyComplete:directCanRead&&result?.data?.hasMore===false,canRead:directCanRead,canVault:directCanRead&&canVault===true,canInsert:directCanRead&&canSend&&enabled&&!blocked&&!editLocked}),[directScope,currentUserId,workspace,account,fanId,model,fan.name,fan.customName,fan.username,loaded,directRevision,result,directCanRead,canSend,canVault,enabled,blocked,editLocked]);
  useEffect(()=>{setDirectContext?.(directContext)},[setDirectContext,directContext]);
  useEffect(()=>()=>clearDirectContext?.(directScope),[clearDirectContext,directScope]);
  const directCapture=!!direct?.captureEnabled&&direct.activeScope===directScope&&directCanRead;
