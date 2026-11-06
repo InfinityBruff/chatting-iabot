@@ -8,6 +8,10 @@ const settings={mode:'bank',maxResults:3,minScore:.65,dailyLimit:20};
 const entry={trigger:'How is your morning?',english:'Good morning! 🙂',spanish:'¡Buenos días! 🙂',reference_id:'guide.morning',label:'Guía documental',source_version:'v1'};
 const row=patch=>({id:example,version:1,state:'draft',trigger:entry.trigger,english:entry.english,spanish:entry.spanish,referenceId:entry.reference_id,label:entry.label,sourceVersion:entry.source_version,reviewedBy:other,...patch});
 const examples=patch=>({schemaVersion:1,status:'connected',canEdit:true,items:[row()],total:1,limit:200,complete:true,savedId:null,...patch});
+const generationSettings={enabled:false,dailyLimit:4,maxResults:3};
+const knowledgeEntry={kind:'model_fact',key:'language',text:'English and Spanish.',reference_id:'profile.languages',label:'Ficha proporcionada por la modelo',source_version:'v1'};
+const knowledgeRow=patch=>({id:example,version:1,kind:knowledgeEntry.kind,key:knowledgeEntry.key,text:knowledgeEntry.text,referenceId:knowledgeEntry.reference_id,label:knowledgeEntry.label,sourceVersion:knowledgeEntry.source_version,state:'draft',...patch});
+const knowledge=patch=>({schemaVersion:1,actorId:actor,workspaceId:w,creatorId:c,canEdit:true,items:[knowledgeRow()],total:1,limit:200,complete:true,savedId:null,...patch});
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
 function fixture(overrides={}){
  const calls=[],state={revoked:false};
@@ -18,6 +22,8 @@ function fixture(overrides={}){
   if(url===base+'/rest/v1/rpc/bruff_ai_models')return state.revoked?json({code:'42501',message:'private owner details'},403):json(overrides.models??{actorId:actor,workspaces:[{id:w,name:'Agencia',models:[{id:c,name:'Modelo'}]}]});
   if(url===base+'/rest/v1/rpc/bruff_ai_control')return json(overrides.control??{actorId:actor,workspaceId:w,creatorId:c,settings:body.op==='save'?body.value:settings,version:body.op==='save'?1:0});
   if(url===base+'/rest/v1/rpc/bruff_chat_direct_knowledge')return json(overrides.knowledge??examples(body.op==='list'?{}:{savedId:body.example_id||example,items:[row({id:body.example_id||example,version:body.op==='archive'?2:1,state:body.op==='archive'?'archived':'draft'})]}));
+  if(url===base+'/rest/v1/rpc/bruff_model_knowledge')return json(overrides.modelKnowledge??knowledge(body.op==='list'?{}:{savedId:body.entry_id||example,items:[knowledgeRow({id:body.entry_id||example,version:body.expected+1,state:body.op==='archive'?'archived':'draft',...(body.value??{}),...(body.op==='save'?{key:body.value.kind==='model_fact'?body.value.key:null}:{})})]}));
+  if(url===base+'/rest/v1/rpc/bruff_generation_control')return json(overrides.generation??{actorId:actor,workspaceId:w,creatorId:c,settings:body.op==='save'?body.value:generationSettings,version:body.op==='save'?body.expected+1:0});
   throw Error('Non-allowlisted network request');
  }});
  return {handler,calls,state};
@@ -61,8 +67,9 @@ test('legacy initialized notification is accepted without creating a session or 
 });
 
 test('tool discovery requires a real confirmed user and a current owner RPC',async()=>{
- const f=fixture(),response=await f.handler(request());assert.equal(response.status,200);const data=await body(response);assert.deepEqual(data.result.tools.map(tool=>tool.name),['bruff_list_models','bruff_read_ai_settings','bruff_update_ai_settings','bruff_list_examples','bruff_save_example_draft','bruff_archive_example']);assert.deepEqual(f.calls.map(item=>item.url),[base+'/auth/v1/user',base+'/rest/v1/rpc/bruff_ai_models']);
- for(const tool of data.result.tools){assert.equal(tool.inputSchema.additionalProperties,false);assert.equal(tool.annotations.openWorldHint,false);assert.deepEqual(tool.securitySchemes,[{type:'oauth2',scopes:['openid','email','profile']}]);assert.deepEqual(tool.securitySchemes,tool._meta.securitySchemes);const readOnly=['bruff_list_models','bruff_read_ai_settings','bruff_list_examples'].includes(tool.name);assert.equal(tool.annotations.readOnlyHint,readOnly);assert.equal(tool.annotations.destructiveHint,!readOnly);assert.equal(tool.annotations.idempotentHint,readOnly)}
+ const f=fixture(),response=await f.handler(request());assert.equal(response.status,200);const data=await body(response);assert.deepEqual(data.result.tools.map(tool=>tool.name),['bruff_list_models','bruff_read_ai_settings','bruff_update_ai_settings','bruff_list_examples','bruff_save_example_draft','bruff_archive_example','bruff_list_model_knowledge','bruff_save_model_knowledge_draft','bruff_archive_model_knowledge','bruff_read_generation_settings','bruff_update_generation_settings']);assert.deepEqual(f.calls.map(item=>item.url),[base+'/auth/v1/user',base+'/rest/v1/rpc/bruff_ai_models']);
+ for(const tool of data.result.tools){assert.equal(tool.inputSchema.additionalProperties,false);assert.equal(tool.annotations.openWorldHint,false);assert.deepEqual(tool.securitySchemes,[{type:'oauth2',scopes:['openid','email','profile']}]);assert.deepEqual(tool.securitySchemes,tool._meta.securitySchemes);const readOnly=['bruff_list_models','bruff_read_ai_settings','bruff_list_examples','bruff_list_model_knowledge','bruff_read_generation_settings'].includes(tool.name);assert.equal(tool.annotations.readOnlyHint,readOnly);assert.equal(tool.annotations.destructiveHint,!readOnly);assert.equal(tool.annotations.idempotentHint,readOnly)}
+ const update=data.result.tools.find(tool=>tool.name==='bruff_update_generation_settings');assert.deepEqual(update.inputSchema.properties.settings.properties.enabled,{type:'boolean',const:false});
 });
 
 test('missing or expired authorization returns a metadata challenge, without privileged fallback',async()=>{
@@ -131,8 +138,8 @@ test('unexpected approval or wrong example in a draft-save response is not repor
  for(const patch of [{savedId:example,items:[row({state:'verified'})]},{savedId:other,items:[row()]}]){const f=fixture({knowledge:examples(patch)}),response=await f.handler(call('bruff_save_example_draft',{workspace_id:w,model_id:c,example_id:example,expected_version:1,entry}));assert.equal(response.status,200);assert.equal((await body(response)).result.isError,true)}
 });
 
-test('only the six allowlisted tools and three fixed RPC paths are reachable',async()=>{
- for(const name of ['send_message','bruff_approve_example','bruff_delete_example','bruff_activate_bot','bruff_ai_generate','bruff_chat_direct_knowledge','__proto__']){const f=fixture();assert.equal((await f.handler(call(name))).status,400);assert.equal(f.calls.length,0)}
+test('only the eleven allowlisted tools and five fixed RPC paths are reachable',async()=>{
+ for(const name of ['send_message','bruff_approve_example','bruff_delete_example','bruff_activate_bot','bruff_ai_generate','bruff_chat_direct_knowledge','bruff_approve_model_knowledge','bruff_generate_drafts','bruff_generation_claim','bruff_generation_commit','bruff_model_knowledge','bruff_generation_control','__proto__']){const f=fixture();assert.equal((await f.handler(call(name))).status,400);assert.equal(f.calls.length,0)}
  const f=fixture();assert.equal((await f.handler(request('rpc',{name:'bruff_send'}))).status,404);assert.equal(f.calls.length,0);
 });
 
@@ -201,4 +208,71 @@ test('authentication timeouts are safe and cannot fall back to owner or provider
 test('configuration cannot become a user-controlled URL or service-role transport',async()=>{
  const handler=createBruffControlHandler({url:'http://127.0.0.1',anonKey:'key',fetcher:()=>{throw Error('Must not fetch')}});assert.equal((await handler(request())).status,503);
  const source=await readFile(new URL('../supabase/functions/bruff-control/index.ts',import.meta.url),'utf8');assert.match(source,/SUPABASE_ANON_KEY/);assert.doesNotMatch(source,/SERVICE_ROLE|serviceKey|OFMAPI|ONLYX/i);
+});
+
+test('knowledge and generation tools retain real owner preflight and cannot cross model scopes',async()=>{
+ const tools=[['bruff_list_model_knowledge',{}],['bruff_save_model_knowledge_draft',{expected_version:0,entry:knowledgeEntry}],['bruff_archive_model_knowledge',{entry_id:example,expected_version:1}],['bruff_read_generation_settings',{}],['bruff_update_generation_settings',{expected_version:0,settings:generationSettings}]];
+ for(const [name,args] of tools){const f=fixture(),response=await f.handler(call(name,{workspace_id:w,model_id:other,...args}));assert.equal(response.status,403,name);assert.deepEqual(f.calls.map(item=>item.url),[base+'/auth/v1/user',base+'/rest/v1/rpc/bruff_ai_models']);assert.deepEqual(f.calls[1].body,{w})}
+ for(const rpc of ['bruff_model_knowledge','bruff_generation_control']){const name=rpc==='bruff_model_knowledge'?'bruff_list_model_knowledge':'bruff_read_generation_settings';const f=fixture({respond:url=>url.endsWith('/'+rpc)?json({code:'42501',message:'private revoked model details'},403):undefined}),response=await f.handler(call(name));assert.equal(response.status,403);assert.equal(f.calls.length,3);assert.ok(!(await response.text()).includes('private'))}
+});
+
+test('generation settings can be read enabled but updates are strictly disabled and identity-bound',async()=>{
+ const f=fixture({generation:{actorId:actor,workspaceId:w,creatorId:c,settings:{...generationSettings,enabled:true},version:2}}),response=await f.handler(call('bruff_read_generation_settings'));assert.equal(response.status,200);assert.deepEqual((await body(response)).result.structuredContent,{actorId:actor,workspaceId:w,modelId:c,settings:{...generationSettings,enabled:true},version:2});assert.deepEqual(f.calls[2].body,{w,c,op:'read',expected:null,value:null});
+ const saved=fixture(),result=await saved.handler(call('bruff_update_generation_settings',{workspace_id:w.toUpperCase(),model_id:c.toUpperCase(),expected_version:3,settings:{enabled:false,dailyLimit:12,maxResults:1}}));assert.equal(result.status,200);assert.equal((await body(result)).result.structuredContent.version,4);assert.deepEqual(saved.calls[2].body,{w,c,op:'save',expected:3,value:{enabled:false,dailyLimit:12,maxResults:1}});
+});
+
+test('generation cannot be activated, coerced, expanded, or injected by MCP arguments',async()=>{
+ for(const patch of [{enabled:true},{enabled:'false'},{enabled:0},{dailyLimit:0},{dailyLimit:13},{dailyLimit:1.5},{maxResults:0},{maxResults:4},{maxResults:'2'},{mode:'semantic'},{provider:'other'},{send:true}]){const f=fixture(),response=await f.handler(call('bruff_update_generation_settings',{workspace_id:w,model_id:c,expected_version:0,settings:{...generationSettings,...patch}}));assert.equal(response.status,400,JSON.stringify(patch));assert.equal(f.calls.length,0)}
+ for(const patch of [{expected_version:-1},{expected_version:'0'},{expected_version:0.1},{op:'enable'},{actorId:other},{rpc:'bruff_generation_claim'},{url:'https://private.example'}]){const f=fixture(),response=await f.handler(call('bruff_update_generation_settings',{workspace_id:w,model_id:c,expected_version:0,settings:generationSettings,...patch}));assert.equal(response.status,400);assert.equal(f.calls.length,0)}
+});
+
+test('generation responses reject wrong scope, unknown settings, activation and stale CAS after save',async()=>{
+ const baseline={actorId:actor,workspaceId:w,creatorId:c,settings:generationSettings,version:1};
+ for(const patch of [{actorId:other},{workspaceId:other},{creatorId:other},{settings:{...generationSettings,enabled:'false'}},{settings:{...generationSettings,dailyLimit:13}},{settings:{...generationSettings,extra:'private'}},{version:-1},{version:1.5}]){const f=fixture({generation:{...baseline,...patch}}),response=await f.handler(call('bruff_read_generation_settings'));assert.equal(response.status,200);const data=await body(response);assert.equal(data.result.isError,true);assert.ok(!JSON.stringify(data).includes('private'))}
+ for(const patch of [{settings:{...generationSettings,enabled:true}},{settings:{...generationSettings,dailyLimit:12}},{settings:{...generationSettings,maxResults:1}},{version:0},{version:2}]){const f=fixture({generation:{...baseline,...patch}}),response=await f.handler(call('bruff_update_generation_settings',{workspace_id:w,model_id:c,expected_version:0,settings:generationSettings}));assert.equal((await body(response)).result.isError,true);assert.equal(f.calls.length,3)}
+});
+
+test('model facts, style rules and boundaries save only sourced drafts without transforming text',async()=>{
+ for(const input of [knowledgeEntry,{kind:'style_rule',text:'  Prefer short, clear replies.\nPreserve a calm tone.  ',reference_id:'guide.style',label:'Guía revisada',source_version:'v2'},{kind:'boundary',text:'Do not make promises without evidence.',reference_id:'policy.boundary',label:'Límite del propietario',source_version:'v1'}]){
+  const f=fixture(),response=await f.handler(call('bruff_save_model_knowledge_draft',{workspace_id:w,model_id:c,expected_version:0,entry:input}));assert.equal(response.status,200);const data=(await body(response)).result.structuredContent;assert.equal(data.items[0].state,'draft');assert.equal(data.items[0].version,1);assert.equal(data.items[0].text,input.text);assert.equal(data.items[0].key,input.key??null);assert.deepEqual(f.calls[2].body,{w,c,op:'save',entry_id:null,expected:0,value:{kind:input.kind,...(input.key?{key:input.key}:{}),text:input.text,referenceId:input.reference_id,label:input.label,sourceVersion:input.source_version,state:'draft'}});
+ }
+});
+
+test('knowledge labels are normalized before storage confirmation while original text remains literal',async()=>{
+ const original='  Keep this original text.\nIncluding its spacing.  ';
+ const f=fixture(),response=await f.handler(call('bruff_save_model_knowledge_draft',{workspace_id:w,model_id:c,expected_version:0,entry:{...knowledgeEntry,label:'  Fuente comprobada  ',text:original}}));
+ assert.equal(response.status,200);const data=(await body(response)).result;assert.equal(data.isError,false);assert.equal(data.structuredContent.items[0].label,'Fuente comprobada');assert.equal(data.structuredContent.items[0].text,original);assert.equal(f.calls[2].body.value.label,'Fuente comprobada');assert.equal(f.calls[2].body.value.text,original);assert.equal(f.calls.length,3);
+});
+
+test('knowledge arguments reject approval, fabricated fact keys, unsourced text and arbitrary paths',async()=>{
+ const invalid=[{...knowledgeEntry,key:'salary'},{...knowledgeEntry,key:'Language'},{...knowledgeEntry,kind:'system_prompt'},{...knowledgeEntry,kind:'style_rule'},{...knowledgeEntry,kind:'boundary',key:null},{...knowledgeEntry,state:'verified'},{...knowledgeEntry,approved:true},{...knowledgeEntry,reviewedBy:actor},{...knowledgeEntry,reference_id:''},{...knowledgeEntry,source_version:'https://private.example'},{...knowledgeEntry,text:' '},{...knowledgeEntry,text:'x'.repeat(1201)},{...knowledgeEntry,label:'x'.repeat(161)},{...knowledgeEntry,text:'line\u0000bad'}];
+ const noKey={...knowledgeEntry};delete noKey.key;invalid.push(noKey);
+ for(const input of invalid){const f=fixture(),response=await f.handler(call('bruff_save_model_knowledge_draft',{workspace_id:w,model_id:c,expected_version:0,entry:input}));assert.equal(response.status,400,JSON.stringify(input));assert.equal(f.calls.length,0)}
+ for(const extra of [{op:'approve'},{actor:other},{value:{state:'verified'}},{entry_id:example},{rpc:'bruff_generation_commit'}]){const f=fixture(),response=await f.handler(call('bruff_list_model_knowledge',{workspace_id:w,model_id:c,...extra}));assert.equal(response.status,400);assert.equal(f.calls.length,0)}
+});
+
+test('knowledge editing and archiving enforce positive concrete CAS and draft or archive results',async()=>{
+ const f=fixture(),response=await f.handler(call('bruff_archive_model_knowledge',{workspace_id:w,model_id:c,entry_id:example,expected_version:7}));assert.equal(response.status,200);assert.deepEqual(f.calls[2].body,{w,c,op:'archive',entry_id:example,expected:7,value:null});const archived=(await body(response)).result.structuredContent;assert.equal(archived.items[0].state,'archived');assert.equal(archived.items[0].version,8);
+ const edited=fixture(),edit=await edited.handler(call('bruff_save_model_knowledge_draft',{workspace_id:w,model_id:c,entry_id:example,expected_version:2,entry:knowledgeEntry}));assert.equal(edit.status,200);assert.equal((await body(edit)).result.structuredContent.items[0].state,'draft');assert.equal(edited.calls[2].body.expected,2);
+ for(const args of [{entry_id:example,expected_version:0},{expected_version:1},{entry_id:example,expected_version:-1},{entry_id:example,expected_version:'1'}]){const invalid=fixture();assert.equal((await invalid.handler(call('bruff_save_model_knowledge_draft',{workspace_id:w,model_id:c,...args,entry:knowledgeEntry}))).status,400);assert.equal(invalid.calls.length,0)}
+ for(const args of [{entry_id:example,expected_version:0},{expected_version:1}]){const invalid=fixture();assert.equal((await invalid.handler(call('bruff_archive_model_knowledge',{workspace_id:w,model_id:c,...args}))).status,400);assert.equal(invalid.calls.length,0)}
+});
+
+test('knowledge snapshot binds database identity and validates all entries before exposing any content',async()=>{
+ for(const patch of [{actorId:other},{workspaceId:other},{creatorId:other},{schemaVersion:2},{canEdit:false},{limit:201},{total:201},{total:0},{complete:'true'},{items:[knowledgeRow({key:'private_fact'})]},{items:[knowledgeRow({kind:'style_rule',key:'language'})]},{items:[knowledgeRow({kind:'boundary',key:undefined})]},{items:[knowledgeRow({state:'approved'})]},{items:[knowledgeRow({version:0})]},{items:[knowledgeRow(),knowledgeRow({id:example.toUpperCase()})],total:2},{savedId:'invalid'}]){
+  const f=fixture({modelKnowledge:knowledge(patch)}),response=await f.handler(call('bruff_list_model_knowledge'));assert.equal(response.status,200);const data=await body(response);assert.equal(data.result.isError,true,JSON.stringify(patch));assert.equal(data.result.structuredContent,undefined);
+ }
+ const f=fixture({modelKnowledge:knowledge({items:[knowledgeRow({state:'verified',reviewedBy:other,providerKey:'private-secret'})]})}),response=await f.handler(call('bruff_list_model_knowledge'));assert.equal(response.status,200);const data=(await body(response)).result.structuredContent;assert.equal(data.items[0].state,'verified');assert.equal(data.savedId,null);assert.ok(!JSON.stringify(data).includes('private-secret'));assert.ok(!JSON.stringify(data).includes(other));assert.equal(data.items[0].reference_id,knowledgeEntry.reference_id);
+});
+
+test('knowledge save or archive cannot report unexpected approval, wrong IDs or unchanged versions as success',async()=>{
+ for(const op of ['save','archive'])for(const patch of [{savedId:other},{savedId:example,items:[knowledgeRow({state:'verified',version:2})]},{savedId:example,items:[knowledgeRow({state:op==='save'?'draft':'archived',version:1})]},{savedId:example,items:[knowledgeRow({state:op==='save'?'draft':'archived',version:3})]}]){const f=fixture({modelKnowledge:knowledge(patch)}),response=await f.handler(call(op==='save'?'bruff_save_model_knowledge_draft':'bruff_archive_model_knowledge',{workspace_id:w,model_id:c,entry_id:example,expected_version:1,...(op==='save'?{entry:knowledgeEntry}:{})}));assert.equal(response.status,200);assert.equal((await body(response)).result.isError,true)}
+});
+
+test('a knowledge save response must confirm the exact submitted draft rather than another source or fact',async()=>{
+ for(const patch of [{text:'A different fact.'},{referenceId:'other.source'},{sourceVersion:'v2'},{label:'Another source'},{key:'age'},{kind:'boundary',key:null}]){const f=fixture({modelKnowledge:knowledge({savedId:example,items:[knowledgeRow({version:2,...patch})]})}),response=await f.handler(call('bruff_save_model_knowledge_draft',{workspace_id:w,model_id:c,entry_id:example,expected_version:1,entry:knowledgeEntry}));assert.equal(response.status,200);assert.equal((await body(response)).result.isError,true);assert.equal(f.calls.length,3)}
+});
+
+test('new teaching RPC conflicts, capacity and revoked sessions are safe and never automatically retried',async()=>{
+ for(const [rpc,name,args] of [['bruff_model_knowledge','bruff_save_model_knowledge_draft',{expected_version:0,entry:knowledgeEntry}],['bruff_generation_control','bruff_update_generation_settings',{expected_version:0,settings:generationSettings}]])for(const [status,code] of [[409,'40001'],[400,'23514'],[400,'22023'],[409,'23505'],[401,'invalid']]){const f=fixture({respond:url=>url.endsWith('/'+rpc)?json({code,message:'private SQL data'},status):undefined}),response=await f.handler(call(name,{workspace_id:w,model_id:c,...args}));assert.equal(response.status,status===401?401:200);const data=await body(response);if(status===401)assert.ok(response.headers.get('WWW-Authenticate').includes('resource_metadata='));else assert.equal(data.result.isError,true);assert.ok(!JSON.stringify(data).includes('private SQL'));assert.equal(f.calls.length,3);assert.equal(f.calls.filter(item=>item.url.endsWith('/'+rpc)).length,1)}
 });

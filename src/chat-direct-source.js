@@ -1,4 +1,4 @@
-import {scopeKey,validateSuggestions} from './chat-direct.js';
+import {scopeKey,validateSuggestions,validateChatDirectSuggestions} from './chat-direct.js';
 
 const abort=signal=>{if(signal?.aborted)throw Object.assign(new Error('Consulta cancelada.'),{name:'AbortError'})};
 const unavailable=()=>new Error('No se pudo consultar el banco de ejemplos. Comprueba la conexión y vuelve a intentarlo.');
@@ -30,16 +30,46 @@ async function engineRead(client,context,query,signal){
 function identity(data,context){
  if(data?.actorId!==context.actor||data?.workspaceId!==context.workspace||data?.creatorId!==context.account)throw new Error('La sesión o la modelo han cambiado. Consulta de nuevo desde la conversación actual.');
 }
-// No provider key, full transcript, fan identifier or generation service is
-// needed. PostgreSQL derives the actor from the existing authenticated session.
-export function createChatDirectSource(client,{actor,workspace,engineEndpoint=false}){
+async function generationPool(client,context,signal){
+ abort(signal);let call=client.rpc('bruff_generation_pool',{w:context.workspace,c:context.account});if(signal&&typeof call.abortSignal==='function')call=call.abortSignal(signal);
+ const {data,error}=await call;abort(signal);
+ // Staged deployment only: a genuinely absent new RPC keeps the old bank.
+ // Revocation, outages and malformed configuration never become a fallback.
+ if(error){if(['PGRST202','42883'].includes(error.code))return null;throw rpcError(error)}
+ identity(data,context);
+ if(typeof data?.settings?.enabled!=='boolean'||!Number.isSafeInteger(data.version)||data.version<0)throw unavailable();
+ return data;
+}
+async function generatedRead(client,context,operation,requestId,signal){
+ abort(signal);
+ const {data,error}=await client.functions.invoke('bruff-drafts',{body:{operation,workspace_id:context.workspace,creator_id:context.account,conversation_id:context.fanId,request_id:requestId},signal});abort(signal);
+ if(error){const status=error.context?.status||error.status;if([401,403].includes(status))throw rpcError({status});if(status===429)throw new Error('Se alcanzó el límite gratuito o temporal de la IA. Espera antes de volver a consultar.');if(status===409)throw new Error('El historial o las fuentes cambiaron, o falta aprobar ejemplos. Genera de nuevo desde el chat actual.');throw new Error('La generación manual todavía no está disponible. Revisa su configuración y las fuentes aprobadas.')}
+ identity(data,context);
+ if(data?.engine!=='generative'||data.valid!==true||data.aiGenerated!==true||data.aiVerified!==false||data.generationId!==requestId||data.fanId!==context.fanId||typeof data.revision!=='string'||!/^[a-f0-9]{32}$/u.test(data.revision)||typeof data.contextHash!=='string'||!/^[a-f0-9]{64}$/u.test(data.contextHash)||typeof data.expiresAt!=='string'||!Number.isFinite(Date.parse(data.expiresAt))||Date.parse(data.expiresAt)<=Date.now()||!Array.isArray(data.drafts)||data.drafts.length>3||!Array.isArray(data.unknowns)||data.unknowns.length>5||data.unknowns.some(x=>typeof x!=='string'||!x.trim()||x.length>160)||!Number.isSafeInteger(data.approvedCount)||data.approvedCount<1||data.engineInvoked!==(operation==='generate'))throw unavailable();
+ return data;
+}
+function generatedCandidate(draft,data,account){return {id:'gen.'+data.generationId+'.'+draft.id,english:draft.english,spanish:draft.spanish,variables:[],aiGenerated:true,aiVerified:false,generationId:data.generationId,expiresAt:data.expiresAt,exampleIds:draft.exampleIds,knowledgeIds:draft.knowledgeIds,source:{kind:'generated',modelId:account,verified:false,label:'Borrador IA · Revisión humana',version:data.revision}}}
+// Secrets and transcript reads stay on the server. The browser supplies only
+// its already-authorized active conversation ID to the manual draft endpoint.
+export function createChatDirectSource(client,{actor,workspace,engineEndpoint=false,generationEndpoint=false}){
  const check=request=>{
   const context=request?.context;
   if(!context||context.actor!==actor||context.workspace!==workspace||context.canRead!==true||context.canInsert!==true||scopeKey(context)!==request.scope||context.scope!==request.scope||context.revision!==request.revision)throw new Error('La conversación o sus permisos han cambiado.');
   abort(request.signal);return context;
  };
  const source=async request=>{
-  const context=check(request),input=request.input;
+  const context=check(request);
+  if(generationEndpoint){
+   const pool=await generationPool(client,context,request.signal);check(request);
+   if(pool?.settings.enabled===true){
+    const data=await generatedRead(client,context,'generate',crypto.randomUUID(),request.signal);check(request);
+    const payload={scope:request.scope,revision:request.revision,candidates:data.drafts.map(d=>generatedCandidate(d,data,context.account))};
+    const candidates=validateChatDirectSuggestions(payload,{scope:request.scope,revision:request.revision,allowedSourceModels:[context.account]});
+    return {...payload,candidates,knowledge:{status:'connected',approvedCount:data.approvedCount,engine:'generative',engineInvoked:true,unknowns:data.unknowns}};
+   }
+  }
+  const fallback=(context.messages||[]).filter(m=>m?.isFromMe===false&&!m.delivery&&typeof m.text==='string'&&m.text.trim()).sort((a,b)=>(Date.parse(b.createdAt)||0)-(Date.parse(a.createdAt)||0)||String(b.id).localeCompare(String(a.id),undefined,{numeric:true}))[0]?.text;
+  const input=typeof request.input==='string'&&!request.input.trim()&&generationEndpoint?fallback:request.input;
   if(typeof input!=='string'||!input.trim()||input.length>2000)throw new Error('Consulta un mensaje de entre 1 y 2.000 caracteres.');
   const data=engineEndpoint?await engineRead(client,context,input,request.signal):await read(client,'bruff_chat_direct_suggestions',{w:workspace,c:context.account,query:input},request.signal);check(request);identity(data,context);
   if(!data||!['connected','empty'].includes(data.status)||!Array.isArray(data.rows)||!Number.isSafeInteger(data.approvedCount)||data.approvedCount<0||data.status==='empty'&&(data.approvedCount!==0||data.rows.length))throw unavailable();
@@ -50,6 +80,13 @@ export function createChatDirectSource(client,{actor,workspace,engineEndpoint=fa
  };
  source.verify=async request=>{
   const context=check(request),candidate=request.candidate;
+  if(candidate?.aiGenerated===true){
+   validateChatDirectSuggestions({scope:request.scope,revision:request.revision,candidates:[candidate]},{scope:request.scope,revision:request.revision,allowedSourceModels:[context.account]});
+   const data=await generatedRead(client,context,'verify',candidate.generationId,request.signal);check(request);
+   const raw=data.drafts.find(d=>'gen.'+data.generationId+'.'+d.id===candidate.id),canonical=raw&&generatedCandidate(raw,data,context.account);
+   if(!canonical||JSON.stringify(canonical)!==JSON.stringify({id:candidate.id,english:candidate.english,spanish:candidate.spanish,variables:candidate.variables,aiGenerated:candidate.aiGenerated,aiVerified:candidate.aiVerified,generationId:candidate.generationId,expiresAt:candidate.expiresAt,exampleIds:candidate.exampleIds,knowledgeIds:candidate.knowledgeIds,source:candidate.source}))throw new Error('El borrador cambió o caducó. Genera de nuevo antes de insertarlo.');
+   return true;
+  }
   if(candidate?.source?.kind!=='document'||candidate.source.modelId!==context.account)throw new Error('La referencia no pertenece a esta modelo.');
   const data=await read(client,'bruff_chat_direct_reference',{w:workspace,c:context.account,example_id:candidate.id,expected:candidate.source.version},request.signal);check(request);identity(data,context);
   if(data?.valid!==true)throw new Error('El ejemplo ha cambiado o fue retirado. Consulta de nuevo las referencias antes de preparar el mensaje.');

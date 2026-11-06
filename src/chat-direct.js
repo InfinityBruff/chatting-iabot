@@ -139,6 +139,32 @@ export function materializeSuggestion(candidate,values={}){
  return {english,spanish,complete:missing.length===0&&Object.keys(errors).length===0,missing,errors};
 }
 
+// Generated prose has a separate provenance contract. Never relax the literal
+// bank validator or turn an unverified draft into an approved document.
+const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(value);
+export function generatedDraftSnapshot(candidate,account){
+ if(!record(candidate)||candidate.aiGenerated!==true||candidate.aiVerified!==false||!uuid(candidate.generationId)||typeof candidate.id!=='string'||!['1','2','3'].some(n=>candidate.id==='gen.'+candidate.generationId+'.'+n)||typeof candidate.english!=='string'||!candidate.english.trim()||candidate.english.length>700||typeof candidate.spanish!=='string'||!candidate.spanish.trim()||candidate.spanish.length>1000||typeof candidate.expiresAt!=='string'||!Number.isFinite(Date.parse(candidate.expiresAt))||!Array.isArray(candidate.exampleIds)||candidate.exampleIds.length<1||candidate.exampleIds.length>6||!Array.isArray(candidate.knowledgeIds)||candidate.knowledgeIds.length>12||[...candidate.exampleIds,...candidate.knowledgeIds].some(x=>!uuid(x))||new Set(candidate.exampleIds).size!==candidate.exampleIds.length||new Set(candidate.knowledgeIds).size!==candidate.knowledgeIds.length||candidate.content!==undefined||!Array.isArray(candidate.variables)||candidate.variables.length)throw invalid();
+ const s=candidate.source;
+ if(!record(s)||s.kind!=='generated'||s.verified!==false||s.modelId!==account||!identifier(s.modelId)||typeof s.version!=='string'||!/^[a-f0-9]{32}$/u.test(s.version)||s.label!=='Borrador IA · Revisión humana')throw invalid();
+ return Object.freeze({id:candidate.id,english:candidate.english,spanish:candidate.spanish,variables:Object.freeze([]),aiGenerated:true,aiVerified:false,generationId:candidate.generationId,expiresAt:candidate.expiresAt,exampleIds:Object.freeze(candidate.exampleIds.slice()),knowledgeIds:Object.freeze(candidate.knowledgeIds.slice()),source:Object.freeze({kind:'generated',modelId:account,verified:false,label:s.label,version:s.version})});
+}
+export function validateChatDirectSuggestions(payload,options={}){
+ if(!payload?.candidates?.some?.(candidate=>candidate?.aiGenerated===true))return validateSuggestions(payload,options);
+ const target=parseScope(options.scope);
+ if(!target||typeof options.revision!=='string'||!options.revision||payload.scope!==options.scope||payload.revision!==options.revision||!Array.isArray(payload.candidates)||payload.candidates.length>3||payload.candidates.some(candidate=>candidate?.aiGenerated!==true))throw invalid();
+ const allowed=options.allowedSourceModels===undefined?[target.account]:options.allowedSourceModels instanceof Set?[...options.allowedSourceModels]:options.allowedSourceModels;
+ if(!Array.isArray(allowed)||!allowed.includes(target.account))throw invalid();
+ const result=payload.candidates.map(c=>generatedDraftSnapshot(c,target.account));
+ if(new Set(result.map(x=>x.id)).size!==result.length||new Set(result.map(x=>x.generationId)).size>1||new Set(result.map(x=>x.source.version)).size>1||new Set(result.map(x=>x.expiresAt)).size>1||new Set(result.map(x=>x.english)).size!==result.length)throw invalid();
+ return Object.freeze(result);
+}
+export function materializeChatDirectSuggestion(candidate,values={}){
+ if(candidate?.aiGenerated!==true)return materializeSuggestion(candidate,values);
+ const original=generatedDraftSnapshot(candidate,candidate.source?.modelId);
+ const complete=record(values)&&Object.keys(values).length===0&&Date.parse(original.expiresAt)>Date.now();
+ return {english:original.english,spanish:original.spanish,complete,missing:[],errors:complete?{}:{_values:'Este borrador ha caducado o contiene modificaciones. Genera uno nuevo.'}};
+}
+
 // The caller applies ready.text atomically and consumes the token afterwards.
 // This helper never mutates a draft/Set, validates a send or invokes transport.
 export function applyDraftInsertion({scope,currentScope,token,consumed,text,currentText,expectedText,mode,enabled,locked=false}={}){

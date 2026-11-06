@@ -1,5 +1,5 @@
 import React,{createContext,lazy,Suspense,useCallback,useContext,useEffect,useMemo,useRef,useState} from 'react';
-import {scopeKey,validateSuggestions,materializeSuggestion} from '../chat-direct.js';
+import {scopeKey,validateChatDirectSuggestions as validateSuggestions,materializeChatDirectSuggestion as materializeSuggestion} from '../chat-direct.js';
 import {pageCacheEpoch} from '../live-page-cache.js';
 import './chat-direct.css';
 
@@ -101,7 +101,7 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
    }
    if(!live())return;
    const knowledge=payload.knowledge&&['connected','empty'].includes(payload.knowledge.status)&&Number.isSafeInteger(payload.knowledge.approvedCount)&&payload.knowledge.approvedCount>=0?payload.knowledge:null;
-   commit(previous=>({...previous,candidates,knowledge,busy:false,error:contentError,revision:current.revision,notice:candidates.length?'Ejemplos revisados recibidos. Selecciona uno para comprobarlo.':knowledge?.status==='empty'?'Banco conectado. Añade y aprueba ejemplos para esta modelo.':'No hay respuestas documentadas comparables en la fuente consultada.'}));
+   commit(previous=>({...previous,candidates,knowledge,busy:false,error:contentError,revision:current.revision,notice:candidates.length?knowledge?.engine==='generative'?'Borradores generados. Revisa el texto y la traducción antes de insertarlos.':'Ejemplos revisados recibidos. Selecciona uno para comprobarlo.':knowledge?.status==='empty'?'Banco conectado. Añade y aprueba ejemplos para esta modelo.':knowledge?.engine==='generative'?'La IA no propuso un borrador con las fuentes disponibles. Revisa los datos pendientes.':'No hay respuestas documentadas comparables en la fuente consultada.'}));
   }catch(error){if(live()&&!cancelled(error))commit(previous=>({...previous,busy:false,candidates:[],knowledge:null,selectedId:null,error:error?.message||'No se pudieron verificar las referencias.'}))}
   finally{if(request.current===controller)request.current=null}
  },[abort,commit,syncEpoch]);

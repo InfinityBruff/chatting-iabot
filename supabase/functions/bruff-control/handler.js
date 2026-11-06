@@ -2,7 +2,7 @@
 // No service role, provider API, arbitrary RPC, approval, generation or send path.
 const MODERN='2026-07-28',LEGACY='2025-03-26',VERSIONS=[MODERN,LEGACY];
 const SERVER={name:'bruff-control',version:'1.0.0',title:'BRUFF · Control privado'};
-const INSTRUCTIONS='Control privado de preferencias y ejemplos documentales no explícitos. Solo propietario. Guardar un ejemplo crea un borrador; la aprobación humana se realiza en BRUFF. Ninguna herramienta genera contenido, activa bots ni envía mensajes.';
+const INSTRUCTIONS='Control privado de preferencias, ejemplos documentales y conocimiento no explícito por modelo. Solo propietario. Guardar crea borradores; la aprobación humana y la activación del generador se realizan exclusivamente en BRUFF. Ninguna herramienta genera contenido, activa generadores o bots ni envía mensajes.';
 const UUID='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
 const IDENTIFIER='^[A-Za-z0-9][A-Za-z0-9_.:-]*$';
 const object=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
@@ -11,6 +11,10 @@ const text=(maxLength,multiline=false)=>({type:'string',minLength:1,maxLength,pa
 const identifier=maxLength=>({type:'string',minLength:1,maxLength,pattern:IDENTIFIER});
 const SETTINGS=object({mode:{type:'string',enum:['bank','semantic']},maxResults:integer(1,3),minScore:{type:'number',minimum:.5,maximum:.99},dailyLimit:integer(1,100)});
 const ENTRY=object({trigger:text(2000),english:text(10000,true),spanish:text(10000,true),reference_id:identifier(128),label:text(200),source_version:identifier(96)});
+const FACT_KEYS=['public_name','age','country','city','language','about'];
+const KNOWLEDGE_ENTRY=object({kind:{type:'string',enum:['style_rule','model_fact','boundary']},key:{type:'string',enum:FACT_KEYS},text:text(1200,true),reference_id:identifier(128),label:text(160),source_version:identifier(96)},['kind','text','reference_id','label','source_version']);
+const GENERATION_SETTINGS=object({enabled:{type:'boolean'},dailyLimit:integer(1,12),maxResults:integer(1,3)});
+const DISABLED_GENERATION_SETTINGS=object({...GENERATION_SETTINGS.properties,enabled:{type:'boolean',const:false}});
 const SCOPE={workspace_id:uuid,model_id:uuid};
 const SECURITY=[{type:'oauth2',scopes:['openid','email','profile']}];
 const definition=(name,title,description,inputSchema,readOnly)=>({name,title,description,inputSchema,securitySchemes:SECURITY,_meta:{securitySchemes:SECURITY},annotations:{readOnlyHint:readOnly,destructiveHint:!readOnly,idempotentHint:readOnly,openWorldHint:false}});
@@ -21,9 +25,14 @@ const TOOLS=[
  definition('bruff_list_examples','Consultar ejemplos documentales','Lee la base documental de una modelo, incluidos borradores y archivo. No presenta un borrador como ejemplo aprobado.',object(SCOPE),true),
  definition('bruff_save_example_draft','Guardar borrador documental','Crea o edita exclusivamente un borrador no explícito con referencia y traducción. Nunca aprueba un ejemplo. Un ejemplo existente pasa a borrador; requiere su versión vigente.',object({...SCOPE,example_id:uuid,expected_version:integer(0),entry:ENTRY},['workspace_id','model_id','expected_version','entry']),false),
  definition('bruff_archive_example','Archivar ejemplo documental','Archiva un ejemplo de la modelo indicada con su versión vigente. Deja de ofrecerse en consultas nuevas; no elimina mensajes ni envía nada.',object({...SCOPE,example_id:uuid,expected_version:integer(1)}),false),
+ definition('bruff_list_model_knowledge','Consultar conocimiento de una modelo','Lee reglas de estilo, hechos documentados y límites por modelo, incluidos borradores y archivo. Un borrador no se presenta como conocimiento aprobado.',object(SCOPE),true),
+ definition('bruff_save_model_knowledge_draft','Guardar borrador de conocimiento','Crea o edita únicamente un borrador no explícito con fuente real. kind distingue regla de estilo, hecho de modelo y límite; key es obligatoria solo para model_fact. Requiere versión vigente al editar y nunca aprueba.',object({...SCOPE,entry_id:uuid,expected_version:integer(0),entry:KNOWLEDGE_ENTRY},['workspace_id','model_id','expected_version','entry']),false),
+ definition('bruff_archive_model_knowledge','Archivar conocimiento de una modelo','Archiva una entrada concreta con su versión vigente. Conserva el registro y no modifica chats, activa funciones ni envía mensajes.',object({...SCOPE,entry_id:uuid,expected_version:integer(1)}),false),
+ definition('bruff_read_generation_settings','Consultar ajustes de borradores IA','Lee si el generador manual está habilitado y sus límites. Leer ajustes no ejecuta una inferencia ni demuestra que el motor funcione.',object(SCOPE),true),
+ definition('bruff_update_generation_settings','Guardar ajustes de borradores IA desactivados','Guarda límites del generador manual exclusivamente con enabled:false y control de versión. Puede desactivar, pero nunca activar el generador; la activación y consentimiento se realizan en BRUFF.',object({...SCOPE,expected_version:integer(0),settings:DISABLED_GENERATION_SETTINGS}),false),
 ];
 const BY_NAME=new Map(TOOLS.map(tool=>[tool.name,tool]));
-const RPCS=new Set(['bruff_ai_models','bruff_ai_control','bruff_chat_direct_knowledge']);
+const RPCS=new Set(['bruff_ai_models','bruff_ai_control','bruff_chat_direct_knowledge','bruff_model_knowledge','bruff_generation_control']);
 // The Supabase relay can remove /functions/v1 before invoking Deno. A function
 // mounted at its own root may also receive /. These are exact aliases only.
 const ROUTES=new Set(['/functions/v1/bruff-control','/bruff-control','']);
@@ -34,6 +43,7 @@ const sameId=(a,b)=>isUuid(a)&&isUuid(b)&&a.toLowerCase()===b.toLowerCase();
 function valid(schema,value){
  if(schema.type==='object')return record(value)&&schema.required.every(key=>own(value,key))&&Object.keys(value).every(key=>own(schema.properties,key)&&valid(schema.properties[key],value[key]));
  if(schema.type==='string')return typeof value==='string'&&(!schema.minLength||value.trim().length>=schema.minLength)&&(!schema.maxLength||value.length<=schema.maxLength)&&(!schema.pattern||new RegExp(schema.pattern,'u').test(value))&&(!schema.enum||schema.enum.includes(value));
+ if(schema.type==='boolean')return typeof value==='boolean'&&(!own(schema,'const')||value===schema.const);
  return typeof value==='number'&&Number.isFinite(value)&&(schema.type!=='integer'||Number.isSafeInteger(value))&&value>=schema.minimum&&value<=schema.maximum;
 }
 class Failure extends Error{constructor(status,code,message){super(message);this.status=status;this.code=code}}
@@ -58,6 +68,24 @@ function modelsSnapshot(data,actor,workspace){
 function settingsSnapshot(data,actor,w,c){
  if(!record(data)||!sameId(data.actorId,actor)||!sameId(data.workspaceId,w)||!sameId(data.creatorId,c)||!valid(SETTINGS,data.settings)||!Number.isSafeInteger(data.version)||data.version<0)throw unavailable();
  return {actorId:actor,workspaceId:w,modelId:c,settings:{mode:data.settings.mode,maxResults:data.settings.maxResults,minScore:data.settings.minScore,dailyLimit:data.settings.dailyLimit},version:data.version};
+}
+function generationSnapshot(data,actor,w,c,{expected,settings}={}){
+ if(!record(data)||!sameId(data.actorId,actor)||!sameId(data.workspaceId,w)||!sameId(data.creatorId,c)||!valid(GENERATION_SETTINGS,data.settings)||!Number.isSafeInteger(data.version)||data.version<0||expected!==undefined&&(data.settings.enabled!==false||data.version!==expected+1||Object.keys(settings).some(key=>data.settings[key]!==settings[key])))throw unavailable();
+ return {actorId:actor,workspaceId:w,modelId:c,settings:{enabled:data.settings.enabled,dailyLimit:data.settings.dailyLimit,maxResults:data.settings.maxResults},version:data.version};
+}
+const validKnowledgeEntry=entry=>valid(KNOWLEDGE_ENTRY,entry)&&(entry.kind==='model_fact'?own(entry,'key'):!own(entry,'key'));
+function knowledgeSnapshot(data,actor,w,c,{operation,entryId,expected,entry}={}){
+ if(!record(data)||data.schemaVersion!==1||!sameId(data.actorId,actor)||!sameId(data.workspaceId,w)||!sameId(data.creatorId,c)||data.canEdit!==true||!Array.isArray(data.items)||data.items.length>200||data.limit!==200||!Number.isSafeInteger(data.total)||data.total<data.items.length||data.total>200||typeof data.complete!=='boolean')throw unavailable();
+ const ids=new Set(),items=data.items.map(item=>{
+  if(!record(item)||!isUuid(item.id)||ids.has(item.id.toLowerCase())||!Number.isSafeInteger(item.version)||item.version<1||!['draft','verified','archived'].includes(item.state)||item.kind!=='model_fact'&&item.key!==null)throw unavailable();
+  const entry={kind:item.kind,...(item.kind==='model_fact'?{key:item.key}:{}),text:item.text,reference_id:item.referenceId,label:item.label,source_version:item.sourceVersion};
+  if(!validKnowledgeEntry(entry))throw unavailable();ids.add(item.id.toLowerCase());
+  return {id:item.id,version:item.version,state:item.state,...entry,key:item.kind==='model_fact'?item.key:null};
+ });
+ const savedId=data.savedId??null;
+ if(savedId!==null&&!isUuid(savedId))throw unavailable();
+ if(operation){const saved=items.find(item=>sameId(item.id,savedId));if(!saved||entryId&&!sameId(savedId,entryId)||saved.state!==(operation==='archive'?'archived':'draft')||saved.version!==expected+1||operation==='save'&&(Object.keys(entry).some(key=>saved[key]!==entry[key])||saved.key!==(entry.key??null)))throw unavailable()}
+ return {actorId:actor,workspaceId:w,modelId:c,items,total:data.total,limit:200,complete:data.complete&&data.total===items.length,savedId};
 }
 function examplesSnapshot(data,actor,w,c,{operation,exampleId}={}){
  if(!record(data)||data.schemaVersion!==1||data.status!=='connected'||data.canEdit!==true||!Array.isArray(data.items)||data.items.length>200||data.limit!==200||!Number.isSafeInteger(data.total)||data.total<data.items.length||typeof data.complete!=='boolean')throw unavailable();
@@ -137,7 +165,8 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
     tool=BY_NAME.get(params.name);args=params.arguments===undefined?{}:params.arguments;
     if(!tool||!valid(tool.inputSchema,args))throw new Failure(400,-32602,'Herramienta o argumentos no válidos.');
     if(tool.name==='bruff_save_example_draft'&&(args.example_id?args.expected_version<1:args.expected_version!==0))throw new Failure(400,-32602,'La versión debe ser cero al crear y positiva al editar.');
-    if(args.entry&&(args.entry.source_version==='0'||[args.entry.trigger,args.entry.english,args.entry.spanish].some(value=>value.includes('{{')||value.includes('}}'))))throw new Failure(400,-32602,'No se admiten variables ni una versión documental cero.');
+    if(tool.name==='bruff_save_example_draft'&&(args.entry.source_version==='0'||[args.entry.trigger,args.entry.english,args.entry.spanish].some(value=>value.includes('{{')||value.includes('}}'))))throw new Failure(400,-32602,'No se admiten variables ni una versión documental cero.');
+    if(tool.name==='bruff_save_model_knowledge_draft'&&(!validKnowledgeEntry(args.entry)||(args.entry_id?args.expected_version<1:args.expected_version!==0)))throw new Failure(400,-32602,'El hecho requiere una clave permitida; las reglas y límites no usan clave. La versión debe ser cero al crear y positiva al editar.');
    }
    const authorization=request.headers.get('authorization')||'';
    if(!/^Bearer [^\s,]+$/i.test(authorization))return fail(401,1001,'Se requiere una sesión de BRUFF.');
@@ -169,6 +198,14 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
    if(['bruff_read_ai_settings','bruff_update_ai_settings'].includes(tool.name)){
     const saving=tool.name==='bruff_update_ai_settings';
     output=settingsSnapshot(await rpc('bruff_ai_control',{w,c,op:saving?'save':'read',expected:saving?args.expected_version:null,value:saving?args.settings:null}),actor,w,c);
+   }else if(['bruff_read_generation_settings','bruff_update_generation_settings'].includes(tool.name)){
+    const saving=tool.name==='bruff_update_generation_settings';
+    output=generationSnapshot(await rpc('bruff_generation_control',{w,c,op:saving?'save':'read',expected:saving?args.expected_version:null,value:saving?args.settings:null}),actor,w,c,saving?{expected:args.expected_version,settings:args.settings}:{});
+   }else if(['bruff_list_model_knowledge','bruff_save_model_knowledge_draft','bruff_archive_model_knowledge'].includes(tool.name)){
+    const op=tool.name==='bruff_save_model_knowledge_draft'?'save':tool.name==='bruff_archive_model_knowledge'?'archive':'list';
+    const entry=args.entry?{...args.entry,label:args.entry.label.trim()}:undefined,value=op==='save'?{kind:entry.kind,...(entry.kind==='model_fact'?{key:entry.key}:{}),text:entry.text,referenceId:entry.reference_id,label:entry.label,sourceVersion:entry.source_version,state:'draft'}:null;
+    const entryId=args.entry_id?.toLowerCase()||null;
+    output=knowledgeSnapshot(await rpc('bruff_model_knowledge',{w,c,op,entry_id:entryId,expected:op==='list'?null:args.expected_version,value}),actor,w,c,op==='list'?{}:{operation:op,entryId,expected:args.expected_version,entry});
    }else{
     const op=tool.name==='bruff_save_example_draft'?'save':tool.name==='bruff_archive_example'?'archive':'list';
     const entry=args.entry,value=op==='save'?{trigger:entry.trigger,english:entry.english,spanish:entry.spanish,state:'draft',referenceId:entry.reference_id,label:entry.label,sourceVersion:entry.source_version}:null;

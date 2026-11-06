@@ -1,13 +1,13 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bruff-control-private",
-  "version": "0.1.1",
-  "description": "Control privado de ajustes y ejemplos revisados de BRUFF IA con la identidad del propietario de BRUFF.",
+  "version": "0.1.2",
+  "description": "Control privado de ajustes, conocimiento por modelo y ejemplos revisados de BRUFF IA con la identidad del propietario.",
   "author": {"name": "BRUFF INC."},
   "extensions": {"com.openai": {"apps": "./.app.json", "interface": {
     "displayName": "BRUFF IA · Control privado",
-    "shortDescription": "Ajustes y ejemplos de BRUFF",
-    "longDescription": "Consulta modelos y configuración, ajusta la recuperación de ejemplos y prepara borradores documentales. Requiere iniciar sesión con una cuenta de propietario de BRUFF. Sin herramientas para enviar mensajes, activar bots o ejecutar campañas.",
+    "shortDescription": "Conocimiento de BRUFF",
+    "longDescription": "Consulta modelos y configuración, prepara ejemplos y conocimiento por modelo para revisión humana. Permite consultar y desactivar preferencias generativas. Requiere una cuenta de propietario de BRUFF. Sin herramientas para aprobar fuentes, ejecutar IA, enviar mensajes, activar bots o ejecutar campañas.",
     "developerName": "BRUFF INC.",
     "category": "Productivity",
     "capabilities": ["Interactive"],
