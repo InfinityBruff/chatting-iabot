@@ -20,6 +20,7 @@ import {teamRoles} from '../team.js';
 import {LiveVault} from './LiveMedia.jsx';
 import LiveInbox from './LiveInbox.jsx';
 import {ChatDirectProvider} from './ChatDirectContext.jsx';
+import {createChatDirectSource} from '../chat-direct-source.js';
 import React,{useEffect,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
 import './live.css';
@@ -63,6 +64,7 @@ export function Analytics({workspace,account,accounts,onAccount,overview=false})
  return <section><div className="analytics-model-card"><div><h2>Analíticas · Datos reales</h2><p>Selecciona la modelo. Todos los importes y gráficos pertenecen exclusivamente a esa cuenta.</p></div><label>Modelo de las estadísticas<ModelSelect label="Modelo de las estadísticas" value={account} onChange={onAccount} accounts={accounts.filter(a=>a.analytics)}/></label></div>{overview?<FinanceOverview workspace={workspace} account={account}/>:<><h3>Explorar un período</h3><div className="analytics-presets">{[["last-month","Último mes completo"],["30days","Últimos 30 días"],["month","Este mes"]].map(([preset,label])=><button key={preset} onClick={()=>{const range=analyticsRange(preset);setDates(range);setApplied(range)}}>{label}</button>)}</div><form className="live-search" onSubmit={e=>{e.preventDefault();setApplied({...dates})}}><label>Desde<input type="date" required value={dates.start} max={dates.end} onChange={e=>setDates({...dates,start:e.target.value})}/></label><label>Hasta<input type="date" required value={dates.end} min={dates.start} max={today} onChange={e=>setDates({...dates,end:e.target.value})}/></label><button>Consultar</button></form><div className="analytics-explainer"><strong>Cómo leer tus resultados</strong><p>El resumen del proveedor corresponde al período consultado en UTC. Debajo puedes auditar los movimientos cargados: importe, comisión y neto son campos distintos; no rellenamos cifras que falten.</p></div><Series key={'series'+JSON.stringify(applied)} workspace={workspace} account={account} {...applied}/><DeferredTransactions key={JSON.stringify([workspace,account,applied])} workspace={workspace} account={account} {...applied}/></>}</section>
 }
 export default function LiveWorkspace({workspace,onBack,currentUserId}){
+ const directSource=React.useMemo(()=>createChatDirectSource(authClient,{actor:currentUserId,workspace:workspace.id}),[currentUserId,workspace.id]);
  const automationDirty=useRef(false);
  const reportAutomationDirty=React.useCallback(value=>{automationDirty.current=value},[]);
  const allowNavigation=()=>!automationDirty.current||window.confirm('Tienes cambios sin guardar en esta campaña. ¿Quieres salir y descartarlos?');
@@ -87,7 +89,7 @@ export default function LiveWorkspace({workspace,onBack,currentUserId}){
  const activeSection=sections.find(s=>s.id===view);
  const selectView=(next,id)=>{if(!allowNavigation())return;if(id)setSelected(id);setTab(next);if(window.matchMedia('(max-width: 800px)').matches)setCollapsed(true)};
  const pageKey=workspace.id+':'+(account?.id||'agency')+':'+view+':'+account?.chat+':'+account?.analytics+':'+account?.send+':'+account?.vault;
- return <ChatDirectProvider actor={currentUserId} workspace={workspace.id}><PanelLayout key={viewKey} scope={viewKey}><FanDirectory user={currentUserId} workspace={workspace.id} accounts={available} role={workspace.role} section={view} activeModel={account?.id}><ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
+ return <ChatDirectProvider actor={currentUserId} workspace={workspace.id} source={directSource} canManage={workspace.role==='owner'}><PanelLayout key={viewKey} scope={viewKey}><FanDirectory user={currentUserId} workspace={workspace.id} accounts={available} role={workspace.role} section={view} activeModel={account?.id}><ModelProfiles key={workspace.id} workspace={workspace.id} accounts={available}><main className={['live-shell workspace-shell',collapsed?'workspace-collapsed':'',view==='chat'?'live-chat-shell':''].join(' ')}>
   <WorkspaceNavigation unread={notifications.count} sections={sections} active={view} onSelect={selectView} collapsed={collapsed} onBack={()=>{if(allowNavigation())onBack()}} workspace={workspace}/>
   <div className="live-main workspace-main">
    <header className="workspace-topbar"><button aria-label={collapsed?'Expandir menú':'Contraer menú'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><WorkspaceIcon name="menu"/></button><Brand/><div className="workspace-breadcrumb"><span>{activeSection?.group}</span><b>/</b><strong>{activeSection?.label}</strong></div><span className="workspace-user">{teamRoles[workspace.role]}<span className="workspace-user-avatar">{workspace.name?.slice(0,1)||'B'}</span></span></header>

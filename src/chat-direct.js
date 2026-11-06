@@ -36,11 +36,18 @@ export function contextRevision(messages){
 }
 
 function sourceSnapshot(source){
- if(!record(source)||source.verified!==true||![source.modelId,source.conversationId,source.messageId].every(identifier))throw invalid();
+ if(!record(source)||source.verified!==true||!identifier(source.modelId))throw invalid();
  const version=Number.isSafeInteger(source.version)&&source.version>0?String(source.version):source.version;
  if(!identifier(version)||version==='0'||source.status!==undefined&&source.status!=='verified')throw invalid();
  if(source.label!==undefined&&(typeof source.label!=='string'||source.label.length>200||/[\u0000-\u001f\u007f]/u.test(source.label)))throw invalid();
- return Object.freeze({verified:true,modelId:source.modelId,conversationId:source.conversationId,messageId:source.messageId,version,...(source.label!==undefined?{label:source.label}:{})});
+ // These are provenance shapes, not proof of approval. Only the authenticated
+ // bank can establish that a referenced document or conversation was reviewed.
+ if(source.kind==='document'){
+  if(!identifier(source.referenceId)||typeof source.label!=='string'||!source.label.trim()||'conversationId'in source||'messageId'in source)throw invalid();
+  return Object.freeze({kind:'document',verified:true,modelId:source.modelId,referenceId:source.referenceId,label:source.label,version});
+ }
+ if(source.kind!==undefined&&source.kind!=='conversation'||'referenceId'in source||![source.conversationId,source.messageId].every(identifier))throw invalid();
+ return Object.freeze({...(source.kind==='conversation'?{kind:'conversation'}:{}),verified:true,modelId:source.modelId,conversationId:source.conversationId,messageId:source.messageId,version,...(source.label!==undefined?{label:source.label}:{})});
 }
 function variablesSnapshot(variables,english,spanish){
  if(variables===undefined)variables=[];
@@ -86,7 +93,7 @@ function contentSnapshot(content,account){
 }
 
 // Structural validation only. A future authorized server adapter must establish
-// provenance; a caller-supplied verified:true is not proof of a real transcript.
+// provenance; a caller-supplied verified:true is not proof of an approved source.
 export function validateSuggestions(payload,{scope,revision,allowedSourceModels}={}){
  const target=parseScope(scope);
  if(!target||typeof revision!=='string'||!revision||!record(payload)||payload.scope!==scope||payload.revision!==revision||!Array.isArray(payload.candidates)||payload.candidates.length>3)throw invalid();

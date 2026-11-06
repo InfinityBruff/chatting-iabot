@@ -4,13 +4,14 @@ import {materializeSuggestion} from '../chat-direct.js';
 import {analyzeChatDirect} from '../chat-direct-analysis.js';
 import {fitChatDirectWindow,changeChatDirectWindow} from '../chat-direct-window.js';
 import {MediaImage} from './MediaPreview.jsx';
+import ChatDirectKnowledge from './ChatDirectKnowledge.jsx';
 import {mediaLabels,vaultDuration} from '../vault-library.js';
 
 const viewport=()=>({left:window.visualViewport?.offsetLeft||0,top:window.visualViewport?.offsetTop||0,width:window.visualViewport?.width||window.innerWidth,height:window.visualViewport?.height||window.innerHeight});
 const money=value=>typeof value==='number'&&Number.isFinite(value)?new Intl.NumberFormat('es-ES',{style:'currency',currency:'USD'}).format(value):'Sin verificar';
-const sourceReference=source=>`${source.modelId} · ${source.conversationId} · ${source.messageId}`;
+const sourceReference=source=>source.kind==='document'?`${source.label} · ${source.referenceId}`:`${source.modelId} · ${source.conversationId} · ${source.messageId}`;
 const valuesFor=(candidate,values)=>Object.fromEntries((candidate.variables||[]).filter(variable=>Object.hasOwn(values,variable.key)).map(variable=>[variable.key,values[variable.key]]));
-export default function ChatDirectPanel({context,entry,sourceAvailable,captureEnabled,setCaptureEnabled,origin,frame,focusRequest,onFrame,onClose,onInput,onValue,onSelect,onConsult,onInsert}){
+export default function ChatDirectPanel({context,entry,canManage,actor,workspace,sourceAvailable,captureEnabled,setCaptureEnabled,origin,frame,focusRequest,onFrame,onClose,onInput,onValue,onSelect,onConsult,onInsert,onKnowledgeChanged}){
  const titleId=useId(),descriptionId=useId(),header=useRef(null),panel=useRef(null),drag=useRef(null),alive=useRef(false),copyVersion=useRef(0),insertLock=useRef(false);
  const [geometry,setGeometry]=useState(()=>fitChatDirectWindow(frame||{},viewport())),[tab,setTab]=useState('direct'),[copy,setCopy]=useState(''),[inserting,setInserting]=useState(false),[insertion,setInsertion]=useState(null),[actionError,setActionError]=useState('');
  const geometryRef=useRef(geometry);geometryRef.current=geometry;
@@ -22,6 +23,7 @@ export default function ChatDirectPanel({context,entry,sourceAvailable,captureEn
  useLayoutEffect(()=>{header.current?.focus({preventScroll:true})},[focusRequest]);
  useLayoutEffect(()=>{copyVersion.current++;setCopy('');setInsertion(null);setActionError('');insertLock.current=false;setInserting(false);if(panel.current?.contains(document.activeElement))header.current?.focus({preventScroll:true})},[scope,revision]);
  useEffect(()=>{setInsertion(null);setActionError('')},[lease]);
+ useEffect(()=>{if(!canManage&&tab==='knowledge')setTab('direct')},[canManage,tab]);
  useEffect(()=>{
   const fit=()=>setGeometry(previous=>fitChatDirectWindow(previous,viewport()));
   window.addEventListener('resize',fit);window.visualViewport?.addEventListener('resize',fit);window.visualViewport?.addEventListener('scroll',fit);
@@ -48,7 +50,7 @@ export default function ChatDirectPanel({context,entry,sourceAvailable,captureEn
  async function apply(mode,expectedText,expectedSnapshot){
   const result=await onInsert({mode,expectedText,expectedSnapshot,text:materialized.english,token:entry.insertToken});if(!currentInsertion())return;
   if(result.status==='conflict'){setInsertion({expectedText:result.currentText??'',expectedSnapshot:result.draftSnapshot,hasPrepared:result.hasPrepared===true,lease});setActionError('La preparación del chat cambió. Revisa de nuevo cómo quieres incorporar la opción.');return}
-  setInsertion(null);if(!['inserted','duplicate'].includes(result.status))setActionError(result.status==='unavailable'?result.message||'El contenido no está disponible. Vuelve a comprobar las referencias.':result.status==='stale'?'El contexto cambió. Selecciona una respuesta del chat actual.':'El compositor no permite editar ahora. Comprueba el acceso o el envío pendiente.');
+  setInsertion(null);if(!['inserted','duplicate'].includes(result.status))setActionError(result.status==='unavailable'?result.message||'La referencia no está disponible. Vuelve a comprobarla.':result.status==='stale'?'El contexto cambió. Selecciona una respuesta del chat actual.':'El compositor no permite editar ahora. Comprueba el acceso o el envío pendiente.');
  }
  async function confirm(mode){
   if(insertLock.current||!context?.canInsert||!materialized?.complete||entry.inserted||!entry.insertToken)return;
@@ -61,7 +63,7 @@ export default function ChatDirectPanel({context,entry,sourceAvailable,captureEn
    if(selected.content?result.hasPrepared===true:!!expectedText){setInsertion({expectedText,expectedSnapshot:result.draftSnapshot,hasPrepared:result.hasPrepared===true,lease});return}
    await apply(selected.content?'replace-bundle':'replace',expectedText,result.draftSnapshot);
   }catch{if(currentInsertion())setActionError('No se pudo insertar en el borrador. No se ha enviado ningún mensaje.')}
-  finally{if(insertLock.current===job){insertLock.current=false;if(currentInsertion())setInserting(false)}}
+  finally{if(insertLock.current===job){insertLock.current=false;if(alive.current)setInserting(false)}}
  }
  const selectedIndex=selected?candidates.findIndex(item=>item.id===selected.id)+1:null;
  const canConfirm=!!context?.canInsert&&!!materialized?.complete&&(!selected?.content||context?.canVault===true&&selected.content.priceCents!==null&&selected.resolvedContent?.status==='resolved'&&selected.resolvedContent.items?.length===selected.content.mediaIds.length)&&!entry.busy&&!entry.inserted&&!inserting;
@@ -72,22 +74,22 @@ export default function ChatDirectPanel({context,entry,sourceAvailable,captureEn
    <span className="chat-direct-brand"><img src="/brand/bruff-chat-direct-gorilla-transparent-red.png" width="40" height="40" alt="" draggable="false"/></span><div><small>ASISTENCIA CON CONTROL HUMANO</small><h2 ref={header} tabIndex={-1} id={titleId}>BRUFF IA <span>· CHAT DIRECTO</span></h2></div><button type="button" className="chat-direct-move" aria-label="Mover panel · usa las flechas" title="Arrastra la cabecera · Flechas para mover · Inicio para centrar" onKeyDown={event=>adjust(event)}>⠿</button><label className="chat-direct-header-toggle" title="Modo directo · Seleccionar mensajes recibidos"><span>Directo</span><input type="checkbox" role="switch" aria-label="Modo directo" checked={captureEnabled} disabled={!context?.canRead} onChange={event=>setCaptureEnabled(event.target.checked)}/></label><button type="button" className="chat-direct-close" aria-label="Cerrar Chat directo" onClick={onClose}>×</button>
   </header>
   <div className="chat-direct-content">
-   <p id={descriptionId} className={'chat-direct-source-state '+(sourceAvailable?'is-connected':'')}><span aria-hidden="true"/>{sourceAvailable?'Fuente de referencias configurada':'Fuente verificada sin conectar'}</p>
+   <p id={descriptionId} className={'chat-direct-source-state '+(sourceAvailable?'is-connected':'')}><span aria-hidden="true"/>{entry.knowledge?`Banco conectado · ${entry.knowledge.approvedCount} ${entry.knowledge.approvedCount===1?'ejemplo aprobado':'ejemplos aprobados'}`:sourceAvailable?'Banco configurado · consulta para comprobar':'Fuente verificada sin conectar'}</p>
    <div className="chat-direct-context"><div><small>MODELO</small><strong>{context?.modelName||'Selecciona una modelo'}</strong></div><div><small>FAN ACTUAL</small><strong>{context?.fanName||'Abre una conversación autorizada'}</strong></div></div>
    <small className="chat-direct-active-chat">{context?.canRead?`Chat activo · ID ${context.fanId}`:"Sin conversación autorizada"}</small>
-   <div className="chat-direct-tabs" role="tablist" aria-label="Panel Chat directo"><button type="button" role="tab" aria-selected={tab==='direct'} onClick={()=>setTab('direct')}>Chat directo</button><button type="button" role="tab" aria-selected={tab==='analysis'} onClick={()=>setTab('analysis')}>Análisis del contexto</button></div>
+   <div className="chat-direct-tabs" role="tablist" aria-label="Panel Chat directo"><button type="button" role="tab" aria-selected={tab==='direct'} onClick={()=>setTab('direct')}>Chat directo</button><button type="button" role="tab" aria-selected={tab==='analysis'} onClick={()=>setTab('analysis')}>Análisis del contexto</button>{canManage&&<button type="button" role="tab" aria-selected={tab==='knowledge'} onClick={()=>setTab('knowledge')}>Base de ejemplos</button>}</div>
    {tab==='direct'?<>
     <div className="chat-direct-toggle"><span><strong>Modo directo</strong><small>Activa el interruptor de la cabecera y selecciona un mensaje recibido en el chat para consultar sus referencias.</small></span></div>
     {selectedMessage&&<section className="chat-direct-received"><small>MENSAJE DEL FAN</small><p>{selectedMessage.text||'Mensaje sin texto disponible'}</p></section>}
-    <label className="chat-direct-input"><span>MENSAJE DEL FAN</span><textarea rows="3" maxLength={10000} disabled={!context?.canRead||entry.busy} value={entry.input} onChange={event=>onInput(event.target.value)} placeholder="Escribe aquí o selecciona un mensaje en modo directo…"/></label>
+    <label className="chat-direct-input"><span>MENSAJE DEL FAN</span><textarea rows="3" maxLength={2000} disabled={!context?.canRead||entry.busy} value={entry.input} onChange={event=>onInput(event.target.value)} placeholder="Escribe aquí o selecciona un mensaje en modo directo…"/></label>
     <button type="button" className="chat-direct-primary chat-direct-consult" disabled={!context?.canRead||entry.busy||!entry.input.trim()} onClick={()=>void onConsult({force:true})}>{entry.busy?'Consultando referencias…':'GENERAR 3 RESPUESTAS'}<span aria-hidden="true">↗</span></button>
-    {!sourceAvailable&&<p className="chat-direct-explanation">El banco de ejemplos todavía no está conectado. Aquí no se inventan respuestas ni se muestran conversaciones de demostración. La selección nunca envía mensajes.</p>}
+    {sourceAvailable&&<p className="chat-direct-explanation">Recuperación de ejemplos revisados, sin generación ni entrenamiento. Hasta 2.000 caracteres por consulta. No se envía nada al fan.</p>}{!sourceAvailable&&<p className="chat-direct-explanation">El banco de ejemplos todavía no está conectado. Aquí no se inventan respuestas ni se muestran conversaciones de demostración. La selección nunca envía mensajes.</p>}
     {entry.error&&<p className="chat-direct-alert" role="alert">{entry.error}</p>}
     {variables.length>0&&<fieldset className="chat-direct-variables"><legend>Completa los datos de la respuesta</legend><p>Solo se sustituyen los campos marcados por la fuente. Revisa cada dato; no se deduce del perfil.</p>{variables.map(variable=><label key={variable.key}><span>{variable.label}</span><input type={['bioAge','age'].includes(variable.type)?'number':'text'} min={['bioAge','age'].includes(variable.type)?18:undefined} max={['bioAge','age'].includes(variable.type)?100:undefined} maxLength={120} value={entry.values[variable.key]??''} onChange={event=>onValue(variable.key,event.target.value)}/></label>)}</fieldset>}
     <div className="chat-direct-results-heading"><h3>Respuestas documentadas</h3><span>{candidates.length} / 3</span></div>
     <div className="chat-direct-results">{candidates.map((candidate,index)=>{const text=materializeSuggestion(candidate,valuesFor(candidate,entry.values)),chosen=candidate.id===entry.selectedId;return <article className={'chat-direct-card '+(chosen?'is-selected':'')} key={candidate.id}><header><span>OPCIÓN {String(index+1).padStart(2,"0")}</span><span className="chat-direct-verified">Verificada · v{candidate.source.version}</span></header>{candidate.content&&<span className="chat-direct-content-badge">MENSAJE + CONTENIDO</span>}<small className="chat-direct-language-label">ENGLISH · PARA ENVIAR</small><div className="chat-direct-english" lang="en">{text.english}</div><div className="chat-direct-spanish" lang="es"><small>ESPAÑOL · TRADUCCIÓN</small><p>{text.spanish}</p></div>{!text.complete&&<p className="chat-direct-field-warning">{Object.values(text.errors).join(" ")||"Completa los campos marcados antes de copiar o insertar."}</p>}{candidate.content&&<ContentProposal candidate={candidate} canVault={context?.canVault===true}/>}<details><summary>Referencia del ejemplo</summary><p>{sourceReference(candidate.source)}</p></details><footer><button type="button" disabled={!text.complete} onClick={()=>copyEnglish(candidate)}>Copiar inglés</button><button type="button" aria-pressed={chosen} onClick={()=>onSelect(candidate.id)}>{chosen?'✓ Seleccionada':'Seleccionar'}</button></footer></article>})}{!candidates.length&&!entry.busy&&<div className="chat-direct-empty"><span aria-hidden="true">⌕</span><strong>{sourceAvailable?'Sin respuestas verificadas disponibles':'Esperando una fuente verificada'}</strong><p>{sourceAvailable?'Se mostrarán únicamente ejemplos comparables con su procedencia.':'Podrás consultar hasta tres opciones originales cuando el banco de referencias esté conectado.'}</p></div>}{entry.busy&&<div className="chat-direct-loading" role="status"><span/>Recuperando ejemplos y comprobando su procedencia…</div>}</div>
     {copy&&<p className="chat-direct-status" role="status">{copy}</p>}
-   </>:<ChatAnalysis analysis={analysis} context={context}/>}
+   </>:tab==='knowledge'&&canManage?<ChatDirectKnowledge key={JSON.stringify([actor,workspace,context?.account])} actor={actor} workspace={workspace} account={context?.account} onChanged={onKnowledgeChanged}/>:<ChatAnalysis analysis={analysis} context={context}/>}
   </div>
   <footer className="chat-direct-footer">
    {selected&&<section className="chat-direct-picked"><strong>HAS ELEGIDO LA OPCIÓN {String(selectedIndex).padStart(2,"0")}</strong><p lang="en">{materialized.english}</p>{selected.content&&<ContentProposal candidate={selected} canVault={context?.canVault===true} compact/>}<div><button type="button" disabled={!materialized.complete} onClick={()=>copyEnglish(selected)}>Copiar seleccionada</button><button type="button" disabled={inserting} onClick={()=>onSelect(null)}>Cambiar selección</button></div></section>}
