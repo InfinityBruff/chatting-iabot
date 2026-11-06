@@ -43,8 +43,8 @@ export function buildPrompt(pool,history){
  // Favor the fan's latest message, with a smaller signal from earlier fan
  // turns. An exact contextual match outranks generic word overlap; older
  // messages must never outweigh the current request.
- const incoming=history.filter(m=>!m.isFromMe).slice(-4);
- const latest=incoming.at(-1).text,latestTerms=tokens(latest),prior=incoming.slice(0,-1);
+ const recentFanTurns=history.filter(m=>!m.isFromMe).slice(-4);
+ const latest=recentFanTurns.at(-1).text,latestTerms=tokens(latest),prior=recentFanTurns.slice(0,-1);
  const ranked=pool.examples.map(e=>{
   const terms=tokens(e.trigger),hits=[...terms].filter(t=>latestTerms.has(t)).length;
   const priorHits=prior.reduce((total,m)=>total+[...terms].filter(t=>tokens(m.text).has(t)).length,0);
