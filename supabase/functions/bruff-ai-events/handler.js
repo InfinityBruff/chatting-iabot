@@ -22,6 +22,14 @@ function timestamp(value,now){
 function envelope(raw,now){
  if(!record(raw)||typeof raw.event!=='string'||raw.event.length>100||!/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/u.test(raw.event)||!uuid(raw.event_id)||!account(raw.account_id)||!['ws','reconcile'].includes(raw.source))throw invalid();
  const common={event_id:raw.event_id.toLowerCase(),account_id:raw.account_id,occurred_at:timestamp(raw.occurred_at,now),ingested_at:timestamp(raw.ingested_at,now),source:raw.source};
+ if(raw.event==='messages.ppv.unlocked'){
+  const payload=raw.payload,fan=numeric(payload?.fan?.id),chat=numeric(payload?.chat_id),message=numeric(payload?.message_id),amount=payload?.amount;
+  const cents=typeof amount==='number'&&Number.isFinite(amount)?Math.round(amount*100):null;
+  if(!fan||fan==='0'||chat!==fan||!message||message==='0'||!Number.isSafeInteger(cents)||cents<=0||Math.abs(amount*100-cents)>0.0000001)throw invalid();
+  // Documented gross USD purchase, tied to one exact fan and message. Never
+  // retain the notification text, user name, avatar or arbitrary raw fields.
+  return {...common,kind:'ppv_purchase',fan_id:fan,message_id:message,amount_cents:cents,contract:'ofmapi-webhooks-20261107-ppv-purchased'};
+ }
  if(!['messages.received','messages.sent'].includes(raw.event))return null;
  const payload=raw.payload;if(!record(payload)||!record(payload.message))throw invalid();
  const fan=numeric(payload.conversation_id),from=numeric(payload.from_user_id),message=numeric(payload.id),nested=numeric(payload.message.id);
@@ -52,14 +60,16 @@ async function readBody(request,timeout){
  }catch(error){if(signal.aborted)throw new EventError(408,'EVENT_TIMEOUT','No se pudo completar la lectura del evento.');if(error instanceof EventError)throw error;throw invalid()}
  finally{signal.removeEventListener('abort',cancel);reader.releaseLock()}
 }
-export function createAiEventsHandler({webhookSecret,previousWebhookSecret,enabled=false,enqueue,now=Date.now,readTimeoutMs=5000}={}){
- const configured=secret(webhookSecret)&&(previousWebhookSecret===undefined||previousWebhookSecret===null||previousWebhookSecret===''||secret(previousWebhookSecret))&&typeof enqueue==='function';
- const secrets=[webhookSecret,...(secret(previousWebhookSecret)?[previousWebhookSecret]:[])];
+export function createAiEventsHandler({webhookSecret,previousWebhookSecret,purchaseWebhookSecret,enabled=false,purchaseEnabled=false,recordPurchase,enqueue,now=Date.now,readTimeoutMs=5000}={}){
+ const purchaseKeyPresent=purchaseWebhookSecret!==undefined&&purchaseWebhookSecret!==null;
+ const purchaseKeyValid=secret(purchaseWebhookSecret)&&!/\s/u.test(purchaseWebhookSecret);
+ const configured=secret(webhookSecret)&&(previousWebhookSecret===undefined||previousWebhookSecret===null||previousWebhookSecret===''||secret(previousWebhookSecret))&&(!purchaseKeyPresent||purchaseKeyValid)&&typeof enqueue==='function';
+ const secrets=[{value:webhookSecret,purchaseOnly:false},...(secret(previousWebhookSecret)?[{value:previousWebhookSecret,purchaseOnly:false}]:[]),...(purchaseKeyValid?[{value:purchaseWebhookSecret,purchaseOnly:true}]:[])];
  const timeout=Number.isSafeInteger(readTimeoutMs)&&readTimeoutMs>0&&readTimeoutMs<=5000?readTimeoutMs:5000;
  return async request=>{
   const reply=(status,data)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...(status===405?{Allow:'POST'}:{})}});
   if(request.method!=='POST')return reply(405,{code:'EVENT_METHOD',error:'Solo se admite POST.'});
-  if(enabled!==true)return reply(503,{code:'EVENT_DISABLED',error:'La recepción automática está desactivada.'});
+  if(enabled!==true&&purchaseEnabled!==true)return reply(503,{code:'EVENT_DISABLED',error:'La recepción automática está desactivada.'});
   if(!configured)return reply(503,{code:'EVENT_CONFIG',error:'La recepción de eventos todavía no está configurada.'});
   if(!/^application\/json(?:\s*;|$)/iu.test(request.headers.get('content-type')||''))return reply(415,{code:'EVENT_TYPE',error:'Se requiere application/json.'});
   try{
@@ -69,10 +79,22 @@ export function createAiEventsHandler({webhookSecret,previousWebhookSecret,enabl
    signature(header,verifiedAt);
    const prefix=encoder.encode(signed.stamp+'.'),input=new Uint8Array(prefix.length+body.length);input.set(prefix);input.set(body,prefix.length);
    // Every configured key is verified, without early success or string equality.
-   const checks=await Promise.all(secrets.map(async value=>{const key=await crypto.subtle.importKey('raw',encoder.encode(value),{name:'HMAC',hash:'SHA-256'},false,['verify']);return crypto.subtle.verify('HMAC',key,signed.bytes,input)}));
+   const checks=await Promise.all(secrets.map(async entry=>{const key=await crypto.subtle.importKey('raw',encoder.encode(entry.value),{name:'HMAC',hash:'SHA-256'},false,['verify']);return crypto.subtle.verify('HMAC',key,signed.bytes,input)}));
    if(checks.reduce((result,valid)=>result|Number(valid),0)!==1)throw signatureError();
+   const purchaseOnlyVerified=checks.reduce((result,valid,index)=>result|Number(valid&&secrets[index].purchaseOnly),0)===1;
    let raw;try{raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body))}catch{throw invalid()}
+   // A purchase credential never authorizes a message queue event, including
+   // accidental reuse of the same bytes as a general credential.
+   if(purchaseOnlyVerified&&raw?.event!=='messages.ppv.unlocked')throw signatureError();
    const event=envelope(raw,verifiedAt);if(!event)return reply(200,{accepted:false,queued:false});
+   if(event.kind==='ppv_purchase'){
+    if(purchaseEnabled!==true)return reply(200,{accepted:false,queued:false});
+    if(typeof recordPurchase!=='function')throw new EventError(503,'EVENT_PURCHASE_CONFIG','La recepción de compras no está configurada.');
+    let result;try{result=await recordPurchase(event,request.signal)}catch{throw new EventError(503,'EVENT_PURCHASE_STORE','No se pudo confirmar el registro de la compra. El proveedor puede reintentar.')}
+    if(!record(result)||typeof result.accepted!=='boolean'||result.queued!==false)throw new EventError(503,'EVENT_PURCHASE_STORE','No se pudo confirmar el registro de la compra.');
+    return reply(200,{accepted:result.accepted,queued:false});
+   }
+   if(enabled!==true)return reply(200,{accepted:false,queued:false});
    if(request.signal.aborted)throw new EventError(408,'EVENT_TIMEOUT','La recepción se ha cancelado.');
    let result;try{result=await enqueue(event)}catch{throw new EventError(503,'EVENT_QUEUE','No se pudo confirmar la recepción. El proveedor puede reintentar.');}
    if(!record(result)||typeof result.accepted!=='boolean'||typeof result.queued!=='boolean'||!result.accepted&&result.queued)throw new EventError(503,'EVENT_QUEUE','No se pudo confirmar la recepción. El proveedor puede reintentar.');

@@ -1,4 +1,5 @@
 import {summarizeScriptProgress} from './progress.js';
+import {assessScriptPlan} from './commerce.js';
 
 export const CATALOG_PROPOSAL_POLICY='bruff-catalog-proposal-v1';
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(x);
@@ -24,7 +25,7 @@ async function fingerprint(value){
 
 // Previously authorized catalog and same-scope observations only. This chooses
 // inventory metadata, never a commercial level, purchase or generated message.
-export async function createCatalogRecommendation({catalog,observations,scope,folderId,mediaId}={}){
+export async function createCatalogRecommendation({catalog,observations,scope,folderId,mediaId,commerce}={}){
  if(!record(scope)||!['ownerId','actorId','workspaceId','creatorId'].every(key=>uuid(scope[key]))||typeof scope.binding!=='string'||!/^acct_[A-Za-z0-9_-]{1,150}$/u.test(scope.binding)||!id(scope.fanId)||!hash(scope.batchHash)||!record(catalog)||catalog.ownerId!==scope.ownerId||catalog.workspaceId!==scope.workspaceId||catalog.creatorId!==scope.creatorId||catalog.batchHash!==scope.batchHash||!Array.isArray(observations)||observations.length>5000)throw invalid();
  if(folderId!==undefined&&!name(folderId)||mediaId!==undefined&&(!id(mediaId)||folderId===undefined))throw selection();
  // Reuse strict identity, folder mapping, observation and duplicate validation.
@@ -49,6 +50,24 @@ export async function createCatalogRecommendation({catalog,observations,scope,fo
   folder??=catalog.folders[0];
  }
  if(!folder)return null;
+ const plan=commerce?.plans?.find(row=>row.folderId===folder.id);
+ if(plan){
+  const assessment=assessScriptPlan(plan,observations,commerce.evidence);
+  if(assessment.complete)return null;
+  const stepIndex=mediaId===undefined?assessment.readyIndex:plan.steps.findIndex(step=>step.mediaId===mediaId);
+  if(!Number.isSafeInteger(stepIndex)||stepIndex<0)throw selection();
+  const step=assessment.steps[stepIndex],item=folder.items.find(row=>row.id===step.mediaId);if(!item)throw selection();
+  const matches=semantic.filter(row=>row.folderId===folder.id&&row.mediaId===item.id),observedCount=new Set(matches.map(row=>row.messageId)).size;
+  const completed=new Set(commerce.evidence.map(row=>row.messageId));
+  const pendingOfferCount=new Set(semantic.filter(row=>row.folderId===folder.id&&row.kind==='offered'&&!completed.has(row.messageId)).map(row=>row.messageId)).size;
+  const progressState=stepIndex!==assessment.readyIndex?'needs_review':step.state==='awaiting_payment'?'awaiting_payment':step.priceCents===null?'needs_review':'ready';
+  const previous=stepIndex>0?assessment.steps[stepIndex-1]:null;
+  const evidenceBasis=previous?.state==='free_sent'?'free_sent':previous?.state==='purchased'?'ppv_purchase_event':previous?.state==='unlock_reported'?'paid_unlock_reported':'none';
+  const reason=[`Paso ${stepIndex+1} del orden revisado.`,progressState==='awaiting_payment'?'El contenido ya se ofreció y falta evidencia de su compra o desbloqueo. No se prepara otra oferta.':progressState==='needs_review'?'La selección o su precio requieren revisión del plan.':'La propuesta sigue los pasos completados que constan en este fan.', 'El historial consultado puede ser parcial. Los desbloqueos reportados no acreditan el importe cobrado ni la ausencia de devoluciones.'].join(' ');
+  const proposal={policyVersion:'bruff-catalog-proposal-v2',folderId:folder.id,mediaId:item.id,priceCents:step.priceCents,currency:'USD',reviewRequired:true,orderConfirmed:true,paidConfirmed:false,reason,observedCount,pendingOfferCount,planVersion:plan.version,planHash:plan.planHash,stepIndex,progressState,evidenceBasis};
+  const identity=Object.fromEntries(['ownerId','actorId','workspaceId','creatorId','binding','fanId','batchHash'].map(key=>[key,scope[key]]));
+  return{id:await fingerprint({scope:identity,catalog,observations:semantic,commerce,selection:proposal}),...proposal};
+ }
  const observedIds=new Set(semantic.filter(row=>row.folderId===folder.id).map(row=>row.mediaId));
  const item=mediaId===undefined?folder.items.find(row=>row.type==='photo'&&!observedIds.has(row.id))||folder.items.find(row=>row.type==='video'&&!observedIds.has(row.id)):folder.items.find(row=>row.id===mediaId);
  if(!item){if(mediaId!==undefined)throw selection();return null}

@@ -2,6 +2,7 @@ import React,{createContext,lazy,Suspense,useCallback,useContext,useEffect,useMe
 import {scopeKey,validateChatDirectSuggestions as validateSuggestions,materializeChatDirectSuggestion as materializeSuggestion} from '../chat-direct.js';
 import {pageCacheEpoch} from '../live-page-cache.js';
 import {safeGenerationDiagnostic} from '../chat-direct-diagnostics.js';
+import {validateCatalogSnapshot} from '../chat-direct-catalog-source.js';
 import {catalogSelection,createCatalogProposal,getCatalogProposal} from '../chat-direct-catalog-proposal.js';
 import './chat-direct.css';
 
@@ -121,6 +122,13 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
   const reviewed=value===true&&!!proposal&&Date.now()>=Math.max(entryRef.current.catalogRetryAt,catalogWaits.current.get(current?.account)||0)&&!entryRef.current.catalogBusy&&!entryRef.current.catalogDenied&&current?.canInsert===true&&current?.canVault===true;
   commit(previous=>({...previous,catalogReviewed:reviewed,insertToken:previous.selectedId?crypto.randomUUID():null,inserted:false,notice:''}));
  },[syncEpoch,commit]);
+ const onCatalogPlanSaved=useCallback(data=>{
+  if(!syncEpoch()||!mounted.current||!openRef.current||!canManage)return;
+  const current=contexts.current;if(!current?.canRead)return;let clean;
+  try{clean=validateCatalogSnapshot(data,current);if(!clean.commerce)return}catch{return}
+  abort();
+  commit(previous=>{const target=!previous.candidates.some(candidate=>candidate.content)?previous.candidates.at(-1)?.id||null:null;return{...previous,catalogData:clean,catalogProposal:null,catalogTargetId:target,catalogBusy:false,catalogReviewed:false,catalogError:target?'El plan se actualizó. Actualiza y revisa la propuesta antes de preparar contenido.':'',busy:false,insertToken:previous.selectedId?crypto.randomUUID():null,inserted:false,notice:'Plan revisado guardado. El texto se conserva; no se ha enviado nada.'}});
+ },[syncEpoch,canManage,abort,commit]);
  const onCatalogDismiss=useCallback(()=>{
   catalogSerial.current++;catalogRequest.current?.abort();catalogRequest.current=null;request.current?.abort();request.current=null;
   commit(previous=>({...previous,catalogProposal:null,catalogTargetId:null,catalogBusy:false,catalogError:'',catalogReviewed:false,insertToken:previous.selectedId?crypto.randomUUID():null,inserted:false,notice:'Contenido descartado. Solo se preparará el texto.'}));
@@ -184,6 +192,7 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
   if(!active?.canRead||!handler||!chosen||entryRef.current.busy||typeof text!=='string'||!text.trim()||token!==entryRef.current.insertToken)return{status:'blocked'};
   const catalog=getCatalogProposal(entryRef.current,chosen,active),associated=entryRef.current.catalogProposal?.candidateId===chosen.id||entryRef.current.catalogTargetId===chosen.id;
   if(entryRef.current.catalogDenied||associated&&(!catalog||Date.now()<Math.max(entryRef.current.catalogRetryAt,catalogWaits.current.get(active.account)||0)||entryRef.current.catalogBusy||entryRef.current.catalogReviewed!==true))return{status:'blocked'};
+  if(catalog?.proposal?.policyVersion==='bruff-catalog-proposal-v2'&&catalog.proposal.progressState!=='ready')return{status:'blocked'};
   const content=chosen.content||catalog?.content||null;
   if(!(content?['check','replace-bundle']:['check','append','replace']).includes(mode))return{status:'blocked'};
   const values=Object.fromEntries((chosen.variables||[]).filter(variable=>Object.hasOwn(entryRef.current.values,variable.key)).map(variable=>[variable.key,entryRef.current.values[variable.key]])),materialized=materializeSuggestion(chosen,values);
@@ -223,6 +232,6 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
  },[commit,syncEpoch]);
  const onKnowledgeChanged=useCallback(()=>{abort();memory.current.clear();quotaMemory.current.clear();lastDirect.current=null;commit(previous=>({...blank(),mode:previous.mode||'generative',input:previous.input,revision:previous.revision,notice:'Base actualizada. Consulta de nuevo con el modo elegido.'}));void loadQuota({force:true})},[abort,commit,loadQuota]);
  const capturing=open&&captureEnabled&&context?.canRead===true;
- const value=useMemo(()=>({setContext,clearContext,registerComposer,openFrom,selectMessage,captureEnabled:capturing,setCaptureEnabled,selectedMessageId:capturing?entry.selectedMessageId:null,activeScope:context?.scope||null,context,revision:context?.revision||null,open}),[setContext,clearContext,registerComposer,openFrom,selectMessage,capturing,setCaptureEnabled,context,entry.selectedMessageId,open]);
- return <Context.Provider value={value}>{children}{open&&<Suspense fallback={null}><Panel {...{context,entry,canManage,actor,workspace,onKnowledgeChanged,onMode,onCatalogRequest,onCatalogReview,onCatalogDismiss,onQuota:()=>loadQuota({force:true}),sourceAvailable:typeof source==='function',captureEnabled:capturing,setCaptureEnabled,origin,frame,focusRequest,onFrame:setFrame,onClose:close,onInput:editInput,onValue:editValue,onSelect:selectCandidate,onConsult:consult,onInsert:insert}}/></Suspense>}</Context.Provider>;
+ const value=useMemo(()=>({setContext,clearContext,registerComposer,openFrom,selectMessage,captureEnabled:capturing,setCaptureEnabled,selectedMessageId:capturing?entry.selectedMessageId:null,activeScope:context?.scope||null,context,revision:context?.revision||null,open,onCatalogPlanSaved}),[setContext,clearContext,registerComposer,openFrom,selectMessage,capturing,setCaptureEnabled,context,entry.selectedMessageId,open,onCatalogPlanSaved]);
+ return <Context.Provider value={value}>{children}{open&&<Suspense fallback={null}><Panel {...{context,entry,canManage,actor,workspace,onKnowledgeChanged,onMode,onCatalogRequest,onCatalogReview,onCatalogDismiss,onCatalogPlanSaved,onQuota:()=>loadQuota({force:true}),sourceAvailable:typeof source==='function',captureEnabled:capturing,setCaptureEnabled,origin,frame,focusRequest,onFrame:setFrame,onClose:close,onInput:editInput,onValue:editValue,onSelect:selectCandidate,onConsult:consult,onInsert:insert}}/></Suspense>}</Context.Provider>;
 }

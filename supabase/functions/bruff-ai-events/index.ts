@@ -1,4 +1,5 @@
 import {createAiEventsHandler} from './handler.js';
+import {createPurchaseRecorder} from './payment-ingest.js';
 
 const url=Deno.env.get('SUPABASE_URL'),serviceKey=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 let base;
@@ -23,5 +24,8 @@ Deno.serve(createAiEventsHandler({
  enabled:Deno.env.get('BRUFF_AI_AUTOPILOT_ENABLED')==='true',
  webhookSecret:Deno.env.get('OFMAPI_WEBHOOK_SECRET'),
  previousWebhookSecret:Deno.env.get('OFMAPI_WEBHOOK_SECRET_PREVIOUS'),
+ purchaseWebhookSecret:Deno.env.get('OFMAPI_PURCHASE_WEBHOOK_SECRET'),
  enqueue,
+ purchaseEnabled:Deno.env.get('BRUFF_MEMORY_ENABLED')==='true',
+ recordPurchase:createPurchaseRecorder({url,serviceKey,enabled:Deno.env.get('BRUFF_MEMORY_ENABLED')==='true',tursoUrl:Deno.env.get('BRUFF_MEMORY_TURSO_URL'),tursoToken:Deno.env.get('BRUFF_MEMORY_TURSO_TOKEN')}),
 }));

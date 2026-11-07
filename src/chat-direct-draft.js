@@ -40,7 +40,7 @@ function contentSnapshot(content){
   // A manually reviewed catalog proposal is not an approved text example.
   // This is a structural guard only: the Provider rechecks the proposal with
   // the authenticated memory service before the compositor resolves media.
-  if(reference!==undefined||content.categoryId!==undefined||content.mediaIds.length!==1||!record(provenance)||Object.keys(provenance).length!==8||provenance.kind!=='catalog_proposal'||provenance.policyVersion!=='bruff-catalog-proposal-v1'||!(/^[a-f0-9]{64}$/u).test(provenance.proposalId)||!(/^[a-f0-9]{64}$/u).test(provenance.batchHash)||!part(provenance.folderId)||provenance.reviewRequired!==true||provenance.orderConfirmed!==false||provenance.paidConfirmed!==false)return null;
+  if(reference!==undefined||content.categoryId!==undefined||content.mediaIds.length!==1||!record(provenance)||Object.keys(provenance).length!==8||provenance.kind!=='catalog_proposal'||!['bruff-catalog-proposal-v1','bruff-catalog-proposal-v2'].includes(provenance.policyVersion)||!(/^[a-f0-9]{64}$/u).test(provenance.proposalId)||!(/^[a-f0-9]{64}$/u).test(provenance.batchHash)||!part(provenance.folderId)||provenance.reviewRequired!==true||provenance.orderConfirmed!==(provenance.policyVersion==='bruff-catalog-proposal-v2')||provenance.paidConfirmed!==false)return null;
  }else if(!record(reference)||reference.verified!==true||!identifier(reference.id)||!(Number.isSafeInteger(version)&&version>0||identifier(version)&&version!=='0'))return null;
  if(content.categoryId!==undefined&&(typeof content.categoryId!=='string'||!/^\d{1,20}$/u.test(content.categoryId)))return null;
  if(content.folderName!==undefined&&(!provenance||!part(content.folderName)))return null;

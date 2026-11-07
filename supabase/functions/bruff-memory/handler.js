@@ -1,6 +1,8 @@
 import {createTursoMemoryStore} from './turso-store.js';
 import {extractScriptProgress} from './progress.js';
 import {createCatalogRecommendation} from './recommendation.js';
+import {createCommerceStore} from './commerce-store.js';
+import {extractPaidUnlockEvidence,reconcilePurchaseEvents,validatePlanInput,normalizeCommerceEvidence} from './commerce.js';
 
 const origins=['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site'];
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(x);
@@ -24,9 +26,10 @@ function page(value){
 
 // This gateway has no provider write credential, AI client or send operation.
 // Turso stores only server-read message/media metadata, never conversation text.
-export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatch,enabled=false,fetcher=fetch,store:injectedStore,timeoutMs=30000,now=()=>Date.now()}={}){
+export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatch,enabled=false,fetcher=fetch,store:injectedStore,commerceStore:injectedCommerce,timeoutMs=30000,now=()=>Date.now()}={}){
  let base;try{const u=new URL(url);if(u.protocol==='https:'&&!u.username&&!u.password&&!u.search&&!u.hash&&['','/'].includes(u.pathname))base=u.origin}catch{}
  let store=injectedStore;try{if(!store&&enabled)store=createTursoMemoryStore({url:tursoUrl,token:tursoToken,fetcher})}catch{/* Configuration errors stay generic and never expose a credential. */}
+ let commerceStore=injectedCommerce;try{if(!commerceStore&&enabled)commerceStore=createCommerceStore({url:tursoUrl,token:tursoToken,fetcher})}catch{/* Read-only rollout may expose a separately unavailable commerce section. */}
  const profileCache=new Map();
  return async request=>{
   const origin=request.headers.get('Origin'),headers={'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Vary':'Origin',...(origins.includes(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Expose-Headers':'Retry-After'}:{})};
@@ -49,8 +52,8 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
   };
   try{
    if(!/^application\/json(?:\s*;|$)/iu.test(request.headers.get('Content-Type')||''))throw error(415,'MEMORY_TYPE','Se requiere JSON.');
-   let input;try{input=await json(request,2048,signal)}catch(e){if(e.code==='MEMORY_SIZE')throw e;throw error(400,'MEMORY_INPUT','La consulta no contiene JSON válido.')}
-   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['operation','workspace_id','creator_id','conversation_id','scan','folder_id','media_id','proposal_id'].includes(k))||!['read','sync','recommend','verify_recommendation'].includes(input.operation)||![input.workspace_id,input.creator_id].every(uuid)||typeof input.conversation_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.conversation_id)||input.scan!==undefined&&(input.operation!=='sync'||!['recent','older'].includes(input.scan)))throw error(400,'MEMORY_INPUT','Revisa la modelo y el fan seleccionados.');
+   let input;try{input=await json(request,65536,signal)}catch(e){if(e.code==='MEMORY_SIZE')throw e;throw error(400,'MEMORY_INPUT','La consulta no contiene JSON válido.')}
+   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['operation','workspace_id','creator_id','conversation_id','scan','folder_id','media_id','proposal_id','plan'].includes(k))||!['read','sync','recommend','verify_recommendation','save_plan'].includes(input.operation)||![input.workspace_id,input.creator_id].every(uuid)||typeof input.conversation_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.conversation_id)||input.scan!==undefined&&(input.operation!=='sync'||!['recent','older'].includes(input.scan))||input.operation==='save_plan'&&(!input.plan||typeof input.plan!=='object'||Array.isArray(input.plan))||input.operation!=='save_plan'&&input.plan!==undefined)throw error(400,'MEMORY_INPUT','Revisa la modelo y el fan seleccionados.');
    const recommending=['recommend','verify_recommendation'].includes(input.operation);
    if(input.folder_id!==undefined&&(!recommending||typeof input.folder_id!=='string'||!input.folder_id||input.folder_id!==input.folder_id.trim()||input.folder_id.length>256||/[\u0000-\u001f\u007f]/u.test(input.folder_id))||input.media_id!==undefined&&(!recommending||input.folder_id===undefined||typeof input.media_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.media_id))||input.operation==='verify_recommendation'&&!hash(input.proposal_id)||input.proposal_id!==undefined&&input.operation!=='verify_recommendation')throw error(400,'MEMORY_INPUT','Revisa la selección del catálogo.');
    const user=await call('/auth/v1/user');
@@ -71,7 +74,20 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
     await check();profileCache.delete(profileKey);profileCache.set(profileKey,now());while(profileCache.size>32)profileCache.delete(profileCache.keys().next().value);
    }
    const scope={ownerId:catalog.ownerId,workspaceId,creatorId,binding,fanId,batchHash:catalogBatch,actorId};
+   const commerceUnavailable=()=>error(503,'MEMORY_COMMERCE','Compras y orden temporalmente no disponibles');
+   const ownerCheck=async()=>{
+    if(actorId!==catalog.ownerId)throw access();
+    const models=await call('/rest/v1/rpc/bruff_ai_models',{w:workspaceId});
+    if(models?.actorId!==actorId||!Array.isArray(models.workspaces)||!models.workspaces.some(item=>item?.id===workspaceId&&Array.isArray(item.models)&&item.models.some(model=>model?.id===creatorId)))throw access();
+   };
+   if(input.operation==='save_plan'){
+    const value=validatePlanInput(catalog,input.plan);if(!commerceStore)throw commerceUnavailable();
+    await check();await ownerCheck();await check();signal.throwIfAborted();
+    await commerceStore.savePlan(scope,input.plan.expectedVersion,value,signal);
+    await check();await ownerCheck();await check();
+   }
    let progress=await store.readProgress(scope,signal);
+   let commerceError;
    if(input.operation==='sync'||recommending){
     const older=input.scan==='older'&&progress.scan.version>0;
     if(!older||!progress.scan.historyComplete){
@@ -80,24 +96,55 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
      const data=page(await call('/functions/v1/bruff-live',{workspace_id:workspaceId,creator_id:creatorId,operation:'messages',conversation_id:fanId,background:true,...(cursor?{cursor}:{})},2*1024*1024));
      if(data.hasMore&&data.cursor===cursor)throw error(409,'MEMORY_CURSOR','La fuente ha repetido la página. El avance anterior se conserva.');
      const observations=extractScriptProgress({catalog,messages:data.messages});
+     const openedEvidence=extractPaidUnlockEvidence({catalog,messages:data.messages});
      await check();signal.throwIfAborted();
      // An atomic observation insert completes before its pagination checkpoint.
      // A failed/CAS-conflicting checkpoint can safely be retried: facts dedupe.
      await store.writeObservations(scope,observations,signal);
      await check();
+     // The opened contract needs the raw page's explicit non-tip flag. Persist
+     // it before consuming an older cursor, so an outage cannot lose that proof.
+     if(openedEvidence.length)try{
+      if(!commerceStore)throw commerceUnavailable();
+      await commerceStore.writeEvidence(scope,openedEvidence,signal);await check();
+     }catch(e){
+      if(signal.aborted||[401,403].includes(e.status))throw e;
+      if(recommending)throw commerceUnavailable();
+      commerceError='Compras y orden temporalmente no disponibles';
+     }
      const at=new Date(now()).toISOString(),prior=progress.scan,initial=prior.version===0;
      const next={cursor:older||initial?data.hasMore?data.cursor:null:prior.cursor,historyComplete:older||initial?!data.hasMore:prior.historyComplete,recentCheckedAt:older?prior.recentCheckedAt:at,historyCheckedAt:older||initial?at:prior.historyCheckedAt,pages:older?prior.pages+1:initial?1:prior.pages};
-     await store.saveScan(scope,prior.version,next,signal);
+     if(!commerceError)await store.saveScan(scope,prior.version,next,signal);
      progress=await store.readProgress(scope,signal);
     }
    }
+   let commerce;
+   try{
+    if(!commerceStore||commerceError)throw commerceUnavailable();
+    const plans=await commerceStore.readPlans(scope,signal);
+    if(input.operation==='sync'||recommending){
+     const events=await commerceStore.readEvents(scope,signal),records=reconcilePurchaseEvents({observations:progress.observations,events,fanId});
+     if(records.length){await check();signal.throwIfAborted();await commerceStore.writeEvidence(scope,records,signal);await check()}
+    }
+    const records=await commerceStore.readEvidence(scope,signal);
+    if(!Array.isArray(plans)||plans.length>100||!Array.isArray(records)||records.length>5000)throw commerceUnavailable();
+    commerce={plans:plans.map(plan=>{
+     if(!Number.isSafeInteger(plan?.version)||plan.version<1||!hash(plan.planHash)||typeof plan.approvedAt!=='string'||!Number.isFinite(Date.parse(plan.approvedAt))||plan.binding!==binding)throw commerceUnavailable();
+     const value=validatePlanInput(catalog,{folderId:plan.folderId,expectedVersion:plan.version-1,steps:plan.steps,confirmed:true});
+     return {folderId:value.folderId,version:plan.version,planHash:plan.planHash,approvedAt:plan.approvedAt,steps:value.steps};
+    }),evidence:records.map(row=>{if(!hash(row?.id)||typeof row.observedAt!=='string'||!Number.isFinite(Date.parse(row.observedAt)))throw commerceUnavailable();return{id:row.id,...normalizeCommerceEvidence(row),observedAt:row.observedAt}}),refundStatus:'unknown'};
+   }catch(e){
+    if(signal.aborted||[401,403].includes(e.status))throw e;
+    if(recommending||input.operation==='save_plan')throw commerceUnavailable();
+    commerceError='Compras y orden temporalmente no disponibles';
+   }
    let proposal;
    if(recommending){
-    proposal=await createCatalogRecommendation({catalog,observations:progress.observations,scope,folderId:input.folder_id,mediaId:input.media_id});
+    proposal=await createCatalogRecommendation({catalog,observations:progress.observations,commerce,scope,folderId:input.folder_id,mediaId:input.media_id});
     if(input.operation==='verify_recommendation'&&proposal?.id!==input.proposal_id)throw error(409,'MEMORY_PROPOSAL_CHANGED','La propuesta o el seguimiento han cambiado. Revisa una nueva propuesta antes de preparar el contenido.');
    }
    await check();signal.throwIfAborted();
-   return reply(200,{actorId,workspaceId,creatorId,fanId,catalog,progress,observedAt:new Date(now()).toISOString(),sendsEnabled:false,...(recommending?{proposal}:{})});
+   return reply(200,{actorId,workspaceId,creatorId,fanId,catalog,progress,observedAt:new Date(now()).toISOString(),sendsEnabled:false,...(commerce?{commerce}:{}),...(commerceError?{commerceError}:{}),...(recommending?{proposal}:{})});
   }catch(e){
    if(signal.aborted)return reply(request.signal.aborted?408:504,{code:'MEMORY_CANCELLED',error:'La consulta se canceló o superó el tiempo permitido. No se ha enviado nada.'});
    const status=e.code==='MEMORY_CONFLICT'?409:e.code==='MEMORY_CONFIG'?503:e.code==='MEMORY_STORE'?503:e.status||503;

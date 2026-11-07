@@ -72,10 +72,10 @@ test('Edge entry point uses only fixed HTTPS service-role ingestion with a bound
  try{
   for(const base of ['https://events-db.example','http://events-db.example','https://user@events-db.example']){
    const calls=[],reads=[];let handler;const values={SUPABASE_URL:base,SUPABASE_SERVICE_ROLE_KEY:'fictional-service-key',BRUFF_AI_AUTOPILOT_ENABLED:'true',OFMAPI_WEBHOOK_SECRET:current,OFMAPI_WEBHOOK_SECRET_PREVIOUS:previous};globalThis.Deno={env:{get:name=>{reads.push(name);return values[name]}},serve:value=>{handler=value}};globalThis.fetch=async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({accepted:true,queued:true,privateOpaque:'not-forwarded'}),{headers:{'Content-Type':'application/json'}})};
-   const code=source.replace("'./handler.js'",JSON.stringify(handlerUrl))+'\n// fixture '+base;
+   const code=source.replace("'./handler.js'",JSON.stringify(handlerUrl)).replace("'./payment-ingest.js'",JSON.stringify(new URL('../supabase/functions/bruff-ai-events/payment-ingest.js',import.meta.url).href))+'\n// fixture '+base;
    await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));const r=await handler(await request(event(),{time:Math.floor(Date.now()/1000)}));
    if(base.startsWith('https://events-db')){assert.equal(r.status,202);assert.equal(calls.length,1);assert.equal(calls[0].url,'https://events-db.example/rest/v1/rpc/bruff_ai_event_ingest');assert.equal(calls[0].options.redirect,'error');assert.equal(calls[0].options.headers.Authorization,'Bearer fictional-service-key');assert.equal(calls[0].options.headers.apikey,'fictional-service-key');const body=JSON.parse(calls[0].options.body);assert.deepEqual(Object.keys(body),['event']);assert.equal(body.event.direction,'received');assert.equal(body.event.actor,undefined);assert.ok(calls[0].options.signal instanceof AbortSignal);assert.deepEqual(await r.json(),{accepted:true,queued:true});let cancelled=0;globalThis.fetch=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode(' '.repeat(16385)))},cancel(){cancelled++}}));const oversized=await handler(await request(event(),{time:Math.floor(Date.now()/1000)}));assert.equal(oversized.status,503);assert.equal(cancelled,1);assert.equal((await oversized.json()).code,'EVENT_QUEUE')}else{assert.equal(r.status,503);assert.equal(calls.length,0)}
-   assert.deepEqual(reads,['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','BRUFF_AI_AUTOPILOT_ENABLED','OFMAPI_WEBHOOK_SECRET','OFMAPI_WEBHOOK_SECRET_PREVIOUS']);
+   assert.deepEqual(reads,['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','BRUFF_AI_AUTOPILOT_ENABLED','OFMAPI_WEBHOOK_SECRET','OFMAPI_WEBHOOK_SECRET_PREVIOUS','OFMAPI_PURCHASE_WEBHOOK_SECRET','BRUFF_MEMORY_ENABLED','BRUFF_MEMORY_ENABLED','BRUFF_MEMORY_TURSO_URL','BRUFF_MEMORY_TURSO_TOKEN']);
   }
  }finally{if(originalDeno===undefined)delete globalThis.Deno;else globalThis.Deno=originalDeno;globalThis.fetch=originalFetch}
 });
@@ -86,10 +86,47 @@ test('new queued jobs may wake only the fixed own runner through waitUntil witho
   const calls=[],background=[];let handler,finishWorker;globalThis.Deno={env:{get:name=>({SUPABASE_URL:'https://events-db.example',SUPABASE_SERVICE_ROLE_KEY:'fictional-service-key',BRUFF_AI_AUTOPILOT_ENABLED:scenario.enabled===false?'false':'true',OFMAPI_WEBHOOK_SECRET:current})[name]},serve:value=>{handler=value}};
   if(scenario.runtime===false)delete globalThis.EdgeRuntime;else globalThis.EdgeRuntime={waitUntil:work=>{background.push(work)}};
   globalThis.fetch=(url,options)=>{calls.push({url,options});if(url.endsWith('/rest/v1/rpc/bruff_ai_event_ingest'))return Promise.resolve(new Response(JSON.stringify(scenario.result)));return new Promise(resolve=>{finishWorker=()=>resolve(new Response('{"state":"sent","privateToken":"never expose"}'))})};
-  const code=source.replace("'./handler.js'",JSON.stringify(handlerUrl))+'\n// warm fixture '+i;await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
+  const code=source.replace("'./handler.js'",JSON.stringify(handlerUrl)).replace("'./payment-ingest.js'",JSON.stringify(new URL('../supabase/functions/bruff-ai-events/payment-ingest.js',import.meta.url).href))+'\n// warm fixture '+i;await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
   const response=await handler(await request(event(),{time:Math.floor(Date.now()/1000)}));assert.equal(response.status,scenario.enabled===false?503:scenario.result.accepted&&scenario.result.queued?202:200);const output=await response.json();assert.equal(output.jobId,undefined);assert.ok(!JSON.stringify(output).includes(job));assert.ok(!JSON.stringify(output).includes('fictional-service-key'));
   assert.equal(calls.length,scenario.enabled===false?0:scenario.warm?2:1);assert.equal(background.length,scenario.warm?1:0);
   if(scenario.warm){const wake=calls[1];assert.equal(wake.url,'https://events-db.example/functions/v1/bruff-ai-runner');assert.equal(wake.options.method,'POST');assert.equal(wake.options.redirect,'error');assert.equal(wake.options.headers.Authorization,'Bearer fictional-service-key');assert.deepEqual(JSON.parse(wake.options.body),{job_id:job});assert.ok(wake.options.signal instanceof AbortSignal);assert.equal(typeof finishWorker,'function');finishWorker();await Promise.all(background)}
   assert.ok(calls.every(x=>x.url.startsWith('https://events-db.example/')));
  }}finally{if(originalDeno===undefined)delete globalThis.Deno;else globalThis.Deno=originalDeno;if(originalRuntime===undefined)delete globalThis.EdgeRuntime;else globalThis.EdgeRuntime=originalRuntime;globalThis.fetch=originalFetch}
+});
+
+const purchaseEvent=(patch={})=>event({event:'messages.ppv.unlocked',payload:{fan:{id:123,name:'private fan'},chat_id:123,message_id:999,amount:12.99,text:'private notification'},...patch});
+test('signed PPV purchases record gross USD once and never enter the message queue or bot',async()=>{
+ const recorded=[],f=fixture({purchaseEnabled:true,enabled:false,recordPurchase:async value=>{recorded.push(value);return {accepted:true,queued:false}}});
+ const r=await f.handler(await request(purchaseEvent()));assert.equal(r.status,200);assert.deepEqual(await r.json(),{accepted:true,queued:false});assert.equal(f.queued.length,0);assert.equal(recorded.length,1);
+ assert.deepEqual(recorded[0],{event_id:id,account_id:'acct_fictional_model',occurred_at:'2026-11-06T11:59:59.000Z',ingested_at:'2026-11-06T12:00:00.000Z',source:'ws',kind:'ppv_purchase',fan_id:'123',message_id:'999',amount_cents:1299,contract:'ofmapi-webhooks-20261107-ppv-purchased'});assert.ok(!JSON.stringify(recorded).includes('private'));
+ const noPurchase=fixture();assert.deepEqual(await (await noPurchase.handler(await request(purchaseEvent()))).json(),{accepted:false,queued:false});assert.equal(noPurchase.queued.length,0);
+});
+test('PPV identity, precision and signature failures never record a purchase',async()=>{
+ for(const patch of [{chat_id:456},{fan:{id:0}},{message_id:0},{amount:0},{amount:'12.99'},{amount:12.999},{amount:-1},{amount:Infinity},{message_id:Number.MAX_SAFE_INTEGER+1}]){let writes=0;const f=fixture({purchaseEnabled:true,recordPurchase:async()=>{writes++}}),input=purchaseEvent();Object.assign(input.payload,patch);assert.equal((await f.handler(await request(input))).status,400);assert.equal(writes,0);assert.equal(f.queued.length,0)}
+ let writes=0;const f=fixture({purchaseEnabled:true,recordPurchase:async()=>{writes++}});assert.equal((await f.handler(await request(purchaseEvent(),{headers:{'X-OFMAPI-Signature':'bad'}}))).status,401);assert.equal(writes,0);
+});
+test('purchase storage uncertainty retries safely and cannot claim a queued bot job',async()=>{
+ for(const recordPurchase of [undefined,async()=>{throw Error('private database secret')},async()=>({accepted:true,queued:true}),async()=>null]){const f=fixture({purchaseEnabled:true,recordPurchase}),r=await f.handler(await request(purchaseEvent()));assert.equal(r.status,503);assert.equal(f.queued.length,0);assert.ok(!(await r.text()).includes('private'))}
+});
+
+test('dedicated purchase key verifies every configured HMAC, records PPV and cannot queue messages',async()=>{
+ const dedicated='fictional-dedicated-purchase-secret',recorded=[];let checks=0;
+ const real=crypto.subtle.verify;crypto.subtle.verify=function(...args){checks++;return real.apply(this,args)};
+ try{
+  const f=fixture({previousWebhookSecret:previous,purchaseWebhookSecret:dedicated,purchaseEnabled:true,recordPurchase:async value=>{recorded.push(value);return {accepted:true,queued:false}}});
+  const purchase=await f.handler(await request(purchaseEvent(),{key:dedicated}));assert.equal(purchase.status,200);assert.deepEqual(await purchase.json(),{accepted:true,queued:false});assert.equal(recorded.length,1);assert.equal(f.queued.length,0);assert.equal(checks,3);
+  for(const input of [event(),event({event:'messages.sent',payload:{id:999,conversation_id:123,from_user_id:456,message:{id:999}}}),event({event:'fans.subscribed'})]){const r=await f.handler(await request(input,{key:dedicated}));assert.equal(r.status,401);assert.equal(await code(r),'EVENT_SIGNATURE')}
+  assert.equal(checks,12);assert.equal(f.queued.length,0);assert.equal(recorded.length,1);
+  assert.equal((await f.handler(await request(event(),{key:current}))).status,202);assert.equal((await f.handler(await request(event(),{key:previous}))).status,202);assert.equal(f.queued.length,2);assert.equal(checks,18);
+ }finally{crypto.subtle.verify=real}
+});
+
+test('malformed dedicated purchase key fails configuration before storage or message queue',async()=>{
+ for(const purchaseWebhookSecret of ['', ' ', 'contains space', 'leading\nnewline', 'trailing ', 42, 'x'.repeat(4097)]){
+  let writes=0;const f=fixture({purchaseWebhookSecret,purchaseEnabled:true,recordPurchase:async()=>{writes++}}),r=await f.handler(await request(purchaseEvent()));assert.equal(r.status,503);assert.equal(await code(r),'EVENT_CONFIG');assert.equal(writes,0);assert.equal(f.queued.length,0);
+ }
+});
+
+test('reused purchase and general key bytes stay restricted to purchase events',async()=>{
+ const f=fixture({purchaseWebhookSecret:current,purchaseEnabled:true,recordPurchase:async()=>({accepted:true,queued:false})});assert.equal((await f.handler(await request(event()))).status,401);assert.equal(f.queued.length,0);assert.equal((await f.handler(await request(purchaseEvent()))).status,200);
 });
