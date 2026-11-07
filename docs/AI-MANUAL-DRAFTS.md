@@ -1,5 +1,7 @@
 # Conocimiento y borradores manuales de BRUFF IA
 
+La ampliación opcional de control, aprobación y delegación desde el chat se documenta en [AI-AUTOPILOT.md](AI-AUTOPILOT.md). El catálogo anterior de doce herramientas se conserva mientras el flag de acciones del propietario esté apagado; las descripciones siguientes de revisión exclusiva en el CRM corresponden a ese contrato anterior. La ampliación no habilita nada automáticamente al añadir su código.
+
 El conocimiento persistente es independiente del historial de ChatGPT. El conector permite guardar explícitamente reglas de estilo, datos de la modelo y límites como borradores con fuente y versión. El propietario los revisa y aprueba en BRUFF. Guardar una nota no importa automáticamente un chat, no aprueba ejemplos y no entrena los pesos de un modelo.
 
 ## Dos tipos de respuesta

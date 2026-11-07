@@ -209,7 +209,10 @@ test('authentication timeouts are safe and cannot fall back to owner or provider
 
 test('configuration cannot become a user-controlled URL or service-role transport',async()=>{
  const handler=createBruffControlHandler({url:'http://127.0.0.1',anonKey:'key',fetcher:()=>{throw Error('Must not fetch')}});assert.equal((await handler(request())).status,503);
- const source=await readFile(new URL('../supabase/functions/bruff-control/index.ts',import.meta.url),'utf8');assert.match(source,/SUPABASE_ANON_KEY/);assert.doesNotMatch(source,/SERVICE_ROLE|serviceKey|OFMAPI|ONLYX/i);
+ const source=await readFile(new URL('../supabase/functions/bruff-control/index.ts',import.meta.url),'utf8');assert.match(source,/SUPABASE_ANON_KEY/);assert.doesNotMatch(source,/OFMAPI|ONLYX/i);
+ // The opt-in worker wake-up now uses a service credential in its own fixed
+ // transport. User-authorized reads/RPCs must still never receive that key.
+ const handlerSource=await readFile(new URL('../supabase/functions/bruff-control/handler.js',import.meta.url),'utf8');assert.doesNotMatch(handlerSource,/SERVICE_ROLE|serviceKey|OFMAPI|ONLYX/i);assert.match(source,/createWorkerDispatch/);
 });
 
 test('knowledge and generation tools retain real owner preflight and cannot cross model scopes',async()=>{

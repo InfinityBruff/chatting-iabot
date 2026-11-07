@@ -1,8 +1,13 @@
 // Private MCP resource server. Every database call uses the real user's token.
-// No service role, provider API, arbitrary RPC, approval, generation or send path.
+// Advanced owner actions are opt-in; no arbitrary endpoint or direct fan write.
+import {OwnerSourceError,prepareSourceApproval,approveSource} from './admin-sources.js';
+import {ChatRelayError,runChatRelay} from './chat-relay.js';
+import {SelectedReplyError,queueSelectedReply} from './selected-reply.js';
+import {AutopilotControlError,autopilotSnapshot,validAutopilotSettings} from './autopilot-control.js';
 const MODERN='2026-07-28',LEGACY='2025-03-26',VERSIONS=[MODERN,LEGACY];
 const SERVER={name:'bruff-control',version:'1.0.0',title:'BRUFF · Control privado'};
 const INSTRUCTIONS='Control privado de preferencias, ejemplos documentales y conocimiento no explícito por modelo. Solo propietario. Guardar crea borradores; la aprobación humana y la activación del generador se realizan exclusivamente en BRUFF. Ninguna herramienta genera contenido, activa generadores o bots ni envía mensajes.';
+const OWNER_INSTRUCTIONS='Control privado con sesión real de propietario. Las aprobaciones requieren revisar la fuente exacta, su versión y su huella; guardar un borrador no lo aprueba. Leer chats y generar borradores exige modelo y fan seleccionados. Generar comparte contexto reciente y fuentes aprobadas con Cloudflare y consume el presupuesto existente. Una elección confirmada pone en cola únicamente el texto canónico mostrado; no afirmes enviado hasta ver sent y providerId. La delegación automática requiere consentimiento específico, alcance por modelo/fan y runtime preparado; puede pausarse con su versión actual. No actives todas las modelos por inferencia. La IA solo admite texto no explícito, sin archivos, scripts ni precios, y se detiene ante desconocidos, cambios de contexto, toma manual o envío incierto. Una pausa impide preparaciones futuras pero no retira una llamada de envío ya iniciada. El chat no se importa ni se aprende entero automáticamente. No hay endpoints arbitrarios ni control de campañas.';
 const UUID='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
 const IDENTIFIER='^[A-Za-z0-9][A-Za-z0-9_.:-]*$';
 const object=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
@@ -32,8 +37,25 @@ const TOOLS=[
  definition('bruff_update_generation_settings','Guardar ajustes de borradores IA desactivados','Guarda límites del generador manual exclusivamente con enabled:false y control de versión. Puede desactivar, pero nunca activar el generador; la activación y consentimiento se realizan en BRUFF.',object({...SCOPE,expected_version:integer(0),settings:DISABLED_GENERATION_SETTINGS}),false),
  definition('bruff_read_generation_quota','Consultar consumo y cupo de borradores IA','Lee las consultas de esta modelo y el presupuesto compartido de generación BRUFF por día UTC, separando consumo calculado y reservas estimadas. No mide el consumo global de Cloudflare ni garantiza disponibilidad. No ejecuta IA ni envíos.',object(SCOPE),true),
 ];
-const BY_NAME=new Map(TOOLS.map(tool=>[tool.name,tool]));
-const RPCS=new Set(['bruff_ai_models','bruff_ai_control','bruff_chat_direct_knowledge','bruff_model_knowledge','bruff_generation_control','bruff_generation_quota']);
+const SOURCE_REVIEW={kind:{type:'string',enum:['example','knowledge']},source_id:uuid,expected_version:integer(1,Number.MAX_SAFE_INTEGER-1)};
+const FAN={type:'string',minLength:1,maxLength:24,pattern:'^[0-9]{1,24}$'};
+const AUTOPILOT_SETTINGS=object({enabled:{type:'boolean'},mode:{type:'string',enum:['drafts','automatic']},fanScope:{type:'string',enum:['all','selected']},fanIds:{type:'array',maxItems:500,uniqueItems:true,items:{...FAN,pattern:'^[1-9][0-9]{0,23}$'}},delaySeconds:integer(10,120),maxRepliesPerFanDay:integer(1,20),contextSharingConfirmed:{type:'boolean'},automaticSendingConfirmed:{type:'boolean'}});
+const OWNER_TOOLS=[
+ definition('bruff_prepare_source_approval','Revisar una fuente antes de aprobar','Lee una fuente concreta y su versión, muestra su contenido y devuelve una huella de revisión. No aprueba ni cambia nada.',object({...SCOPE,...SOURCE_REVIEW}),true),
+ definition('bruff_approve_source','Aprobar una fuente revisada','Aprueba exactamente la fuente mostrada y revisada por el propietario con su versión y huella vigentes. No acepta contenido nuevo ni activa generación o envíos.',object({...SCOPE,...SOURCE_REVIEW,review_hash:{type:'string',pattern:'^[a-f0-9]{64}$'},reviewed:{type:'boolean',const:true}}),false),
+ definition('bruff_save_generation_preferences','Guardar preferencias de generación manual','Guarda la activación manual y límites con versión vigente. Habilitar requiere confirmar compartir con Cloudflare contexto reciente y fuentes aprobadas al consultar. No activa un bot ni envía mensajes.',object({...SCOPE,expected_version:integer(0,Number.MAX_SAFE_INTEGER-1),settings:GENERATION_SETTINGS,context_sharing_confirmed:{type:'boolean'}}),false),
+ definition('bruff_list_conversations','Consultar conversaciones de una modelo','Consulta una página de chats reales de una modelo autorizada, con búsqueda y cursor opcionales. Devuelve solo datos acotados, no archivos ni URLs de medios.',object({...SCOPE,query:text(150),cursor:text(2048)},['workspace_id','model_id']),true),
+ definition('bruff_read_conversation','Leer una conversación seleccionada','Lee una página de mensajes del fan seleccionado para esta modelo. El historial puede ser parcial. No descarga archivos ni ejecuta una IA.',object({...SCOPE,fan_id:FAN,cursor:text(2048)},['workspace_id','model_id','fan_id']),true),
+ {...definition('bruff_generate_replies','Generar hasta tres borradores','Solicita una consulta manual de hasta tres respuestas no explícitas en inglés y español. Comparte con Cloudflare hasta veinte mensajes recientes y fuentes aprobadas de esta modelo; aplica consumo y cuotas. No envía mensajes. force:true solo tras pedir expresamente Regenerar.',object({...SCOPE,fan_id:FAN,request_id:uuid,share_context:{type:'boolean',const:true},force:{type:'boolean'}},['workspace_id','model_id','fan_id','request_id','share_context']),false),annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true}},
+ definition('bruff_verify_reply_selection','Verificar una opción elegida','Revalida la identidad, contexto, fuentes y vigencia de un borrador seleccionado. Devuelve su texto canónico; no confirma exactitud factual, inserta texto ni envía mensajes.',object({...SCOPE,fan_id:FAN,generation_id:uuid,draft_id:{type:'string',enum:['1','2','3']}}),true),
+ definition('bruff_read_autopilot','Consultar delegación IA','Lee la configuración por modelo, su versión y si la ejecución en nube está preparada. No activa ni ejecuta una consulta.',object(SCOPE),true),
+ definition('bruff_save_autopilot','Guardar delegación IA por modelo','Guarda alcance, demora y límite diario por fan con versión vigente. enabled:true delega la generación; automatic añade elección y envío de texto no explícito sin confirmar cada mensaje, solo con ambos consentimientos y runtime listo. No envía al guardar ni inicia históricos. Solicita una activación concreta al propietario.',object({...SCOPE,expected_version:integer(0,Number.MAX_SAFE_INTEGER-1),settings:AUTOPILOT_SETTINGS}),false),
+ definition('bruff_pause_autopilot','Pausar delegación IA','Desactiva la delegación de esta modelo y bloquea sus preparaciones automáticas pendientes con versión vigente. No retira un envío ya iniciado. La pausa sigue disponible aunque el runtime esté apagado.',object({...SCOPE,expected_version:integer(0,Number.MAX_SAFE_INTEGER-1)}),false),
+ definition('bruff_read_autopilot_activity','Consultar actividad y borradores delegados','Muestra hasta cincuenta trabajos de esta modelo, borradores disponibles y recibos. queued no significa enviado; solo sent con providerId acredita confirmación. Una entrega uncertain exige revisión y no se reenvía automáticamente.',object(SCOPE),true),
+ definition('bruff_review_uncertain_reply','Registrar revisión de una entrega incierta','Solo después de revisar la entrega concreta, registra una nota del propietario con la versión del trabajo. Conserva el estado incierto y prohíbe reenviar ese trabajo. Deja la modelo pausada; una activación posterior explícita solo permite mensajes futuros. No acredita que se haya enviado ni que no se haya enviado.',object({...SCOPE,job_id:uuid,expected_job_version:integer(1,Number.MAX_SAFE_INTEGER-1),review_note:text(500)}),false),
+ {...definition('bruff_queue_selected_reply','Enviar la respuesta elegida y confirmada','Tras mostrar modelo, fan y texto inglés exacto y obtener la confirmación del propietario, revalida la opción canónica vigente y la pone en cola para envío real de texto. No permite archivos ni precios. Usa el mismo request_id ante estado incierto y consulta la actividad antes de repetir. El recibo queued no acredita entrega.',object({...SCOPE,fan_id:FAN,generation_id:uuid,draft_id:{type:'string',enum:['1','2','3']},request_id:uuid,expected_english:text(700,true),confirmed:{type:'boolean',const:true}}),false),annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:true}},
+];
+const RPCS=new Set(['bruff_ai_models','bruff_ai_control','bruff_chat_direct_knowledge','bruff_model_knowledge','bruff_generation_control','bruff_generation_quota','bruff_autopilot_control','bruff_queue_selected_reply']);
 // The Supabase relay can remove /functions/v1 before invoking Deno. A function
 // mounted at its own root may also receive /. These are exact aliases only.
 const ROUTES=new Set(['/functions/v1/bruff-control','/bruff-control','']);
@@ -43,6 +65,7 @@ const isUuid=value=>typeof value==='string'&&new RegExp(UUID,'u').test(value);
 const sameId=(a,b)=>isUuid(a)&&isUuid(b)&&a.toLowerCase()===b.toLowerCase();
 function valid(schema,value){
  if(schema.type==='object')return record(value)&&schema.required.every(key=>own(value,key))&&Object.keys(value).every(key=>own(schema.properties,key)&&valid(schema.properties[key],value[key]));
+ if(schema.type==='array')return Array.isArray(value)&&value.length<=(schema.maxItems??Number.MAX_SAFE_INTEGER)&&value.every(item=>valid(schema.items,item))&&(!schema.uniqueItems||new Set(value.map(item=>JSON.stringify(item))).size===value.length);
  if(schema.type==='string')return typeof value==='string'&&(!schema.minLength||value.trim().length>=schema.minLength)&&(!schema.maxLength||value.length<=schema.maxLength)&&(!schema.pattern||new RegExp(schema.pattern,'u').test(value))&&(!schema.enum||schema.enum.includes(value));
  if(schema.type==='boolean')return typeof value==='boolean'&&(!own(schema,'const')||value===schema.const);
  return typeof value==='number'&&Number.isFinite(value)&&(schema.type!=='integer'||Number.isSafeInteger(value))&&value>=schema.minimum&&value<=schema.maximum;
@@ -70,8 +93,8 @@ function settingsSnapshot(data,actor,w,c){
  if(!record(data)||!sameId(data.actorId,actor)||!sameId(data.workspaceId,w)||!sameId(data.creatorId,c)||!valid(SETTINGS,data.settings)||!Number.isSafeInteger(data.version)||data.version<0)throw unavailable();
  return {actorId:actor,workspaceId:w,modelId:c,settings:{mode:data.settings.mode,maxResults:data.settings.maxResults,minScore:data.settings.minScore,dailyLimit:data.settings.dailyLimit},version:data.version};
 }
-function generationSnapshot(data,actor,w,c,{expected,settings}={}){
- if(!record(data)||!sameId(data.actorId,actor)||!sameId(data.workspaceId,w)||!sameId(data.creatorId,c)||!valid(GENERATION_SETTINGS,data.settings)||!Number.isSafeInteger(data.version)||data.version<0||expected!==undefined&&(data.settings.enabled!==false||data.version!==expected+1||Object.keys(settings).some(key=>data.settings[key]!==settings[key])))throw unavailable();
+function generationSnapshot(data,actor,w,c,{expected,settings,allowEnabled=false}={}){
+ if(!record(data)||!sameId(data.actorId,actor)||!sameId(data.workspaceId,w)||!sameId(data.creatorId,c)||!valid(GENERATION_SETTINGS,data.settings)||!Number.isSafeInteger(data.version)||data.version<0||expected!==undefined&&(!allowEnabled&&data.settings.enabled!==false||data.version!==expected+1||Object.keys(settings).some(key=>data.settings[key]!==settings[key])))throw unavailable();
  return {actorId:actor,workspaceId:w,modelId:c,settings:{enabled:data.settings.enabled,dailyLimit:data.settings.dailyLimit,maxResults:data.settings.maxResults},version:data.version};
 }
 function quotaSnapshot(data,actor,w,c){
@@ -124,11 +147,14 @@ async function responseJson(response,signal,limit){
  try{signal.throwIfAborted();while(true){const {done,value}=await reader.read();signal.throwIfAborted();if(done)break;bytes+=value.byteLength;if(bytes>limit){abort();throw unavailable()}raw+=decoder.decode(value,{stream:true})}return JSON.parse(raw+decoder.decode())}catch{if(signal.aborted)abort();throw unavailable()}finally{signal.removeEventListener('abort',abort);reader.releaseLock()}
 }
 const defaultOrigins=['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site','https://chatgpt.com','https://chat.openai.com'];
-export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOrigins,fetcher=fetch,timeoutMs=10000}={}){
+export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOrigins,fetcher=fetch,timeoutMs=10000,ownerActionsEnabled=false,draftsTimeoutMs=35000,autopilotEnabled=false,autopilotSendEnabled=false,autopilotRuntimeReady=false,dispatchJob}={}){
  let base=null;try{const parsed=new URL(url);if(parsed.protocol==='https:'&&!parsed.username&&!parsed.password&&!parsed.search&&!parsed.hash&&['','/'].includes(parsed.pathname))base=parsed.origin}catch{}
  const resource=base&&base+'/functions/v1/bruff-control',metadata=resource+'/.well-known/oauth-protected-resource';
  const origins=new Set((Array.isArray(allowedOrigins)?allowedOrigins:[]).filter(value=>{try{const origin=new URL(value);return origin.protocol==='https:'&&origin.origin===value}catch{return false}}));
  const timeout=Number.isSafeInteger(timeoutMs)&&timeoutMs>0&&timeoutMs<=15000?timeoutMs:10000;
+ const draftsTimeout=Number.isSafeInteger(draftsTimeoutMs)&&draftsTimeoutMs>0&&draftsTimeoutMs<=45000?draftsTimeoutMs:35000;
+ const tools=ownerActionsEnabled===true?[...TOOLS,...OWNER_TOOLS]:TOOLS,byName=new Map(tools.map(tool=>[tool.name,tool])),instructions=ownerActionsEnabled===true?OWNER_INSTRUCTIONS:INSTRUCTIONS;
+ const runtime={workerEnabled:autopilotEnabled===true,automaticSendingEnabled:autopilotSendEnabled===true,backgroundReady:autopilotRuntimeReady===true};
  return async request=>{
   const origin=request.headers.get('origin'),headers={'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Vary':'Origin',...(origins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization, apikey, content-type, accept, mcp-protocol-version, mcp-method, mcp-name, mcp-session-id, x-client-info','Access-Control-Allow-Methods':'POST, GET, OPTIONS','Access-Control-Expose-Headers':'WWW-Authenticate, MCP-Protocol-Version'}:{})};
   let id,modern=false,applicationStage=false;
@@ -145,7 +171,7 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
   if(request.method!=='POST')return reply(405,{error:'Método no permitido.'},{Allow:'POST, OPTIONS'});
   if(!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type')||''))return fail(415,-32600,'Se requiere application/json.');
   const accept=request.headers.get('accept');if(accept&&!accept.split(',').some(value=>/^\s*(?:application\/json|\*\/\*)(?:\s*;|\s*$)/i.test(value)))return fail(406,-32600,'El cliente debe aceptar respuestas application/json.');
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout),signal=AbortSignal.any([controller.signal,request.signal]);
+  const controller=new AbortController(),signal=AbortSignal.any([controller.signal,request.signal]);let timer=setTimeout(()=>controller.abort(),timeout);
   try{
    const message=await readJson(request,signal);
    if(!record(message)||message.jsonrpc!=='2.0'||Object.keys(message).some(key=>!['jsonrpc','id','method','params'].includes(key))||typeof message.method!=='string'||message.method.length>100)throw new Failure(400,-32600,'Solicitud JSON-RPC no válida.');
@@ -167,14 +193,14 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
    if(message.method==='initialize'){
     requireObject(params,['protocolVersion','capabilities','clientInfo','_meta']);
     if(modern||typeof params.protocolVersion!=='string'||!record(params.capabilities)||!record(params.clientInfo)||typeof params.clientInfo.name!=='string'||typeof params.clientInfo.version!=='string')throw new Failure(400,-32602,'Inicialización no válida.');
-    return result({protocolVersion:LEGACY,capabilities:{tools:{listChanged:false}},serverInfo:SERVER,instructions:INSTRUCTIONS});
+    return result({protocolVersion:LEGACY,capabilities:{tools:{listChanged:false}},serverInfo:SERVER,instructions});
    }
-   if(message.method==='server/discover'){requireObject(params,['_meta']);return result({supportedVersions:VERSIONS,capabilities:{tools:{listChanged:false}},instructions:INSTRUCTIONS,cacheScope:'public',ttlMs:0})}
+   if(message.method==='server/discover'){requireObject(params,['_meta']);return result({supportedVersions:VERSIONS,capabilities:{tools:{listChanged:false}},instructions,cacheScope:'public',ttlMs:0})}
    if(!['tools/list','tools/call','ping'].includes(message.method))return fail(404,-32601,'Método no disponible.');
    if(message.method==='tools/call')requireObject(params,['name','arguments','_meta']);else requireObject(params,['_meta']);
    let tool,args={};
    if(message.method==='tools/call'){
-    tool=BY_NAME.get(params.name);args=params.arguments===undefined?{}:params.arguments;
+    tool=byName.get(params.name);args=params.arguments===undefined?{}:params.arguments;
     if(!tool||!valid(tool.inputSchema,args))throw new Failure(400,-32602,'Herramienta o argumentos no válidos.');
     if(tool.name==='bruff_save_example_draft'&&(args.example_id?args.expected_version<1:args.expected_version!==0))throw new Failure(400,-32602,'La versión debe ser cero al crear y positiva al editar.');
     if(tool.name==='bruff_save_example_draft'&&(args.entry.source_version==='0'||[args.entry.trigger,args.entry.english,args.entry.spanish].some(value=>value.includes('{{')||value.includes('}}'))))throw new Failure(400,-32602,'No se admiten variables ni una versión documental cero.');
@@ -183,7 +209,7 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
    const authorization=request.headers.get('authorization')||'';
    if(!/^Bearer [^\s,]+$/i.test(authorization))return fail(401,1001,'Se requiere una sesión de BRUFF.');
    const call=async(path,body)=>{
-    try{signal.throwIfAborted();const response=await fetcher(base+path,{method:body===undefined?'GET':'POST',headers:{apikey:anonKey,Authorization:authorization,'Content-Type':'application/json'},redirect:'error',signal,...(body===undefined?{}:{body:JSON.stringify(body)})});const data=await responseJson(response,signal,path==='/auth/v1/user'?65536:8*1024*1024);return {ok:response.ok,status:response.status,data}}
+    try{signal.throwIfAborted();const response=await fetcher(base+path,{method:body===undefined?'GET':'POST',headers:{apikey:anonKey,Authorization:authorization,'Content-Type':'application/json'},redirect:'error',signal,...(body===undefined?{}:{body:JSON.stringify(body)})});const data=await responseJson(response,signal,path==='/auth/v1/user'?65536:8*1024*1024);const retry=Number(response.headers.get('Retry-After'));return {ok:response.ok,status:response.status,data,...(Number.isSafeInteger(retry)&&retry>0&&retry<=86400?{retryAfter:retry}:{})}}
     catch{throw unavailable()}
    };
    const identity=await call('/auth/v1/user');
@@ -202,12 +228,34 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
    };
    const w=args.workspace_id?.toLowerCase()||null,c=args.model_id?.toLowerCase()||null;
    const models=modelsSnapshot(await rpc('bruff_ai_models',{w}),actor,w);
-   if(message.method==='tools/list')return result({tools:TOOLS});
+   if(message.method==='tools/list')return result({tools});
    if(message.method==='ping')return result({});
    if(tool.name==='bruff_list_models')return result({content:[{type:'text',text:JSON.stringify(models)}],structuredContent:models,isError:false});
    if(!models.workspaces.some(item=>sameId(item.id,w)&&item.models.some(model=>sameId(model.id,c))))throw forbidden();
+   const recheckOwner=async()=>{signal.throwIfAborted();const current=modelsSnapshot(await rpc('bruff_ai_models',{w}),actor,w);if(!current.workspaces.some(item=>sameId(item.id,w)&&item.models.some(model=>sameId(model.id,c))))throw forbidden();signal.throwIfAborted()};
    let output;
-   if(['bruff_read_ai_settings','bruff_update_ai_settings'].includes(tool.name)){
+   if(['bruff_prepare_source_approval','bruff_approve_source'].includes(tool.name)){
+    const list=async kind=>kind==='example'?examplesSnapshot(await rpc('bruff_chat_direct_knowledge',{w,c,op:'list',example_id:null,expected:null,value:null}),actor,w,c):knowledgeSnapshot(await rpc('bruff_model_knowledge',{w,c,op:'list',entry_id:null,expected:null,value:null}),actor,w,c);
+    const save=async(kind,id,expected,value)=>kind==='example'?examplesSnapshot(await rpc('bruff_chat_direct_knowledge',{w,c,op:'save',example_id:id,expected,value}),actor,w,c):knowledgeSnapshot(await rpc('bruff_model_knowledge',{w,c,op:'save',entry_id:id,expected,value}),actor,w,c);
+    const review={kind:args.kind,sourceId:args.source_id,expected:args.expected_version,actor,w,c,list};
+    output=tool.name==='bruff_prepare_source_approval'?await prepareSourceApproval(review):await approveSource({...review,reviewHash:args.review_hash,reviewed:args.reviewed,save});await recheckOwner();
+   }else if(tool.name==='bruff_save_generation_preferences'){
+    if(args.settings.enabled&&args.context_sharing_confirmed!==true)throw new Failure(400,-32602,'Confirma compartir el contexto reciente y las fuentes aprobadas con Cloudflare al solicitar una consulta.');
+    const current=generationSnapshot(await rpc('bruff_generation_control',{w,c,op:'read',expected:null,value:null}),actor,w,c);if(current.version!==args.expected_version)throw new Failure(409,1009,'La configuración cambió. Vuelve a leerla antes de guardar.');
+    output=generationSnapshot(await rpc('bruff_generation_control',{w,c,op:'save',expected:args.expected_version,value:args.settings}),actor,w,c,{expected:args.expected_version,settings:args.settings,allowEnabled:true});await recheckOwner();
+   }else if(['bruff_list_conversations','bruff_read_conversation','bruff_generate_replies','bruff_verify_reply_selection'].includes(tool.name)){
+    const operations={bruff_list_conversations:'list',bruff_read_conversation:'read',bruff_generate_replies:'generate',bruff_verify_reply_selection:'verify'},operation=operations[tool.name];
+    if(['generate','verify'].includes(operation)){clearTimeout(timer);timer=setTimeout(()=>controller.abort(),draftsTimeout)}
+    output=await runChatRelay({operation,args,actor,w,c,call,recheckOwner});
+   }else if(['bruff_read_autopilot','bruff_save_autopilot','bruff_pause_autopilot','bruff_read_autopilot_activity','bruff_review_uncertain_reply'].includes(tool.name)){
+    const op={bruff_read_autopilot:'read',bruff_save_autopilot:'save',bruff_pause_autopilot:'pause',bruff_read_autopilot_activity:'activity',bruff_review_uncertain_reply:'review_uncertain'}[tool.name];
+    if(op==='save'&&(!validAutopilotSettings(args.settings)||args.settings.enabled&&(!runtime.workerEnabled||!runtime.backgroundReady||args.settings.mode==='automatic'&&!runtime.automaticSendingEnabled)))throw new AutopilotControlError(409,'AUTOPILOT_NOT_READY','Revisa alcance y consentimientos. La ejecución debe estar configurada y comprobada antes de activar esta modelo.');
+    output=autopilotSnapshot(await rpc('bruff_autopilot_control',{w,c,op,expected:op==='review_uncertain'?args.expected_job_version:['save','pause'].includes(op)?args.expected_version:null,value:op==='review_uncertain'?{jobId:args.job_id,reviewNote:args.review_note}:op==='save'?args.settings:null}),actor,w,c,{operation:op,...(['save','pause'].includes(op)?{expected:args.expected_version}:{}),...(op==='save'?{settings:args.settings}:{}),...(op==='review_uncertain'?{review:{id:args.job_id,version:args.expected_job_version,note:args.review_note}}:{}),runtime});await recheckOwner();
+   }else if(tool.name==='bruff_queue_selected_reply'){
+    if(!runtime.workerEnabled||!runtime.automaticSendingEnabled||!runtime.backgroundReady)throw new AutopilotControlError(409,'AUTOPILOT_NOT_READY','El envío delegado todavía no está preparado. No se ha puesto ningún mensaje en cola.');
+    clearTimeout(timer);timer=setTimeout(()=>controller.abort(),draftsTimeout);
+    output=await queueSelectedReply({args,actor,w,c,call,recheckOwner,queue:value=>rpc('bruff_queue_selected_reply',value),...(typeof dispatchJob==='function'?{dispatch:dispatchJob}:{})});
+   }else if(['bruff_read_ai_settings','bruff_update_ai_settings'].includes(tool.name)){
     const saving=tool.name==='bruff_update_ai_settings';
     output=settingsSnapshot(await rpc('bruff_ai_control',{w,c,op:saving?'save':'read',expected:saving?args.expected_version:null,value:saving?args.settings:null}),actor,w,c);
    }else if(['bruff_read_generation_settings','bruff_update_generation_settings'].includes(tool.name)){
@@ -228,8 +276,9 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
    }
    return result({content:[{type:'text',text:JSON.stringify(output)}],structuredContent:output,isError:false});
   }catch(error){
-   const failure=error instanceof Failure?error:unavailable();
-   if(applicationStage&&![401,403].includes(failure.status))return result({content:[{type:'text',text:failure.message}],isError:true});
+   const advancedError=error instanceof OwnerSourceError||error instanceof ChatRelayError||error instanceof SelectedReplyError||error instanceof AutopilotControlError;
+   const failure=error instanceof Failure?error:advancedError?new Failure(error.status,error.status===401?1001:error.status===403?1003:error.status===409?1009:1005,error.message):unavailable();
+   if(applicationStage&&![401,403].includes(failure.status))return result({content:[{type:'text',text:failure.message}],isError:true,...(advancedError?{structuredContent:{errorCode:error.code,status:failure.status,...(error.retryAfter?{retryAfter:error.retryAfter}:{})}}:{})});
    return fail(failure.status,failure.code,failure.message);
   }finally{clearTimeout(timer)}
  };

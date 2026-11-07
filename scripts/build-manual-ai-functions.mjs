@@ -4,16 +4,16 @@ import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {resolve,join} from 'node:path';
-const output=process.argv[2];if(!output)throw Error('Usage: build-manual-ai-functions.mjs absolute-output-directory');
+const output=process.argv[2],autopilot=process.argv[3]==='--autopilot';if(!output||process.argv.length>4&&(!autopilot||process.argv.length>5))throw Error('Usage: build-manual-ai-functions.mjs absolute-output-directory [--autopilot]');
 const root=fileURLToPath(new URL('../',import.meta.url)),destination=resolve(output);
 if(!output.startsWith('/')||destination===root||destination.startsWith(root+'/'))throw Error('Choose a separate absolute artifact directory.');
 const require=createRequire(import.meta.url),{rolldown}=await import(pathToFileURL(createRequire(require.resolve('vite')).resolve('rolldown')).href);
 await mkdir(destination,{recursive:true});const functions=[];
-for(const name of ['bruff-drafts','bruff-control']){
+for(const name of ['bruff-drafts','bruff-control',...(autopilot?['bruff-ai-events','bruff-ai-runner']:[])]){
  const build=await rolldown({input:join(root,'supabase/functions',name,'index.ts')});
  try{const result=await build.generate({format:'esm'});if(result.output.length!==1||result.output[0].type!=='chunk')throw Error('Expected one self-contained function.');const code=result.output[0].code;if(!code.includes('Deno.serve('))throw Error('Missing entry point.');const path=join(destination,name+'.js');await writeFile(path,code);functions.push({name,path,sha256:createHash('sha256').update(code).digest('hex'),bytes:Buffer.byteLength(code)})}finally{await build.close()}
 }
 const migrations=[];
-for(const name of ['202611060042_ai_generation_knowledge.sql','202611060043_ai_generation_budget.sql']){const migration=await readFile(join(root,'supabase/migrations',name));migrations.push({name,sha256:createHash('sha256').update(migration).digest('hex')})}
+for(const name of ['202611060042_ai_generation_knowledge.sql','202611060043_ai_generation_budget.sql',...(autopilot?['202611060044_ai_autopilot.sql']:[])]){const migration=await readFile(join(root,'supabase/migrations',name));migrations.push({name,sha256:createHash('sha256').update(migration).digest('hex')})}
 await writeFile(join(destination,'manifest.json'),JSON.stringify({functions,migrations,remoteChanges:false,inferences:0,fanSends:0},null,2)+'\n');
 console.log(JSON.stringify({functions,remoteChanges:false}));
