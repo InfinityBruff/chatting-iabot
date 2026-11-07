@@ -228,3 +228,22 @@ test('empty drafts are truthful, no third option is invented, and translations r
 test('cancellation closes pending body readers and prevents late model or storage calls',async()=>{
  let cancelled=false;const f=fixture({historyResponse:()=>new Response(new ReadableStream({pull(){return new Promise(()=>{})},cancel(){cancelled=true}})),config:{timeoutMs:10}}),keep=setTimeout(()=>{},200);try{const r=await f.run();assert.equal(r.status,504);assert.equal(cancelled,true);assert.equal(providerCalls(f).length,0)}finally{clearTimeout(keep)}
 });
+
+test('contextual ranking gives priority to the current fan message over older context',()=>{
+ const p=pool();
+ p.examples=[
+  {...p.examples[0],id:'77777777-7777-4777-8777-777777777777',trigger:'How are your hobbies today?',english:'what about your hobbies?',spanish:'¿Y tus aficiones?',referenceId:'doc.hobbies'},
+  {...p.examples[0],id:'88888888-8888-4888-8888-888888888888',trigger:'Are you available tomorrow?',english:'what about tomorrow?',spanish:'¿Y mañana?',referenceId:'doc.tomorrow'},
+  {...p.examples[0],id:'99999999-9999-4999-8999-999999999999',trigger:'How are you today?',english:'im good too!!',spanish:'¡Yo también estoy bien!',referenceId:'doc.exact'}
+ ];
+ const history=[
+  {id:'10',text:'I have a few hobbies and like talking about hobbies',isFromMe:false,createdAt:'2026-11-06T10:00:00Z'},
+  {id:'11',text:'that is nice',isFromMe:true,createdAt:'2026-11-06T10:01:00Z'},
+  {id:'12',text:'How are you today?',isFromMe:false,createdAt:'2026-11-06T10:02:00Z'}
+ ];
+ const prompt=buildPrompt(p,historySnapshot({data:{messages:history}}));
+ const examples=JSON.parse(prompt.messages[1].content).data.approvedExamples;
+ assert.equal(examples[0].reply,'im good too!!');
+ assert.equal(prompt.exampleMap.get('E1').referenceId,'doc.exact');
+ assert.ok(examples.some(e=>e.reply==='what about your hobbies?'));
+});
