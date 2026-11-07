@@ -48,7 +48,9 @@ function messageProjection(message){
  for(const item of message.media||[]){
   const mediaId=record(item)?numericId(item.id):null;if(!mediaId)fail('message_media_id');
   const type=item.type==null?null:item.type;
-  if(type!==null&&!mediaTypes.has(type))fail('message_media_type');
+  // mediaView preserves provider type strings. Unknown types outside this
+  // catalog are irrelevant; a matching catalog ID is checked after eligibility.
+  if(type!==null&&(typeof type!=='string'||type.length>100))fail('message_media_type');
   if(media.has(mediaId)&&media.get(mediaId)!==type)fail('message_media_conflict');
   media.set(mediaId,type);
  }

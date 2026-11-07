@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {extractScriptProgress,summarizeScriptProgress,ProgressError} from '../supabase/functions/bruff-memory/progress.js';
+import {mediaView} from '../supabase/functions/bruff-live/actions.js';
 
 const catalog=()=>({batchHash:'fixture-batch',status:'draft',folders:[{id:'folder-a',name:'Script A',items:[{id:'101',type:'photo',label:'Fictional photo'},{id:'102',type:'video'}]},{id:'folder-b',name:'Script B',items:[{id:'103',type:'video'}]}]});
 const media=(id,type='photo',extra={})=>({id:String(id),type,...extra});
@@ -18,6 +19,21 @@ test('received, unknown direction, pending deliveries and tips never enter progr
  const rows=[message('1',{isFromMe:false}),message('2',{isFromMe:'true'}),message('3',{isTip:true,price:20}),...['checking','sending','uncertain','failed'].map((delivery,i)=>message(String(i+4),{delivery})),message('8',{pending:true}),message('9',{status:'queued'})];
  assert.deepEqual(extract(rows),[]);
  assert.deepEqual(extract([message('10',{media:[],mediaCount:3,price:12,isOpened:true})]),[]);
+});
+
+test('an incoming provider file cannot discard another message catalog observation',()=>{
+ const valid=message('1'),incoming=message('2',{isFromMe:false,media:[mediaView({id:'999',type:'file'},'fictional')]});
+ assert.deepEqual(extract([valid,incoming]),extract([valid]));
+});
+
+test('an outgoing unknown provider file outside the catalog cannot discard valid progress',()=>{
+ const valid=message('1'),unrelated=message('2',{price:15,media:[mediaView({id:'999',type:'file'},'fictional')]});
+ assert.deepEqual(extract([valid,unrelated]),extract([valid]));
+});
+
+test('an unknown provider file with a catalog media ID remains a fail-closed type mismatch',()=>{
+ const knownIdFile=message('2',{media:[mediaView({id:'101',type:'file'},'fictional')]});
+ assert.throws(()=>extract([message('1'),knownIdFile]),error=>error instanceof ProgressError&&error.code==='catalog_media_type_conflict');
 });
 
 test('known free, offered and unknown prices stay distinct; receipts/access do not establish paidConfirmed',()=>{
