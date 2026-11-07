@@ -1,0 +1,15 @@
+import test,{after} from 'node:test';
+import assert from 'node:assert/strict';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {createServer} from 'vite';
+import {fileURLToPath} from 'node:url';
+const vite=await createServer({root:fileURLToPath(new URL('../',import.meta.url)),server:{middlewareMode:true,ws:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom'});
+const {default:Catalog}=await vite.ssrLoadModule('/src/components/ChatDirectCatalog.jsx');
+after(()=>vite.close());
+const actor='11111111-1111-4111-8111-111111111111',workspace='22222222-2222-4222-8222-222222222222',account='33333333-3333-4333-8333-333333333333';
+const context={actor,workspace,account,fanId:'99',canRead:true,canInsert:false};
+let requests=0;const source={read(){requests++;throw Error('No read during rendering')},sync(){requests++;throw Error('No sync during rendering')}};
+const render=patch=>renderToStaticMarkup(React.createElement(Catalog,{actor,workspace,context:{...context,...patch},source}));
+test('catalog is available to a read-only conversation without a composer, media requests or preparation actions',()=>{const html=render();for(const label of ['Catálogo y seguimiento','SEGUIMIENTO PRIVADO · SIN ENVÍOS','Actualizar recientes','Ampliar historial · 1 página','no activan guiones ni modifican el chat'])assert.ok(html.includes(label),label);assert.ok(!html.includes('Confirmar'));assert.ok(!html.includes('<img'));assert.ok(!html.includes('<video'));assert.equal(requests,0)});
+test('missing read permissions or mismatched identity shows only an authorization gate, never a previous catalog',()=>{for(const patch of [{canRead:false},{actor:account},{workspace:account},{fanId:null}]){const html=render(patch);assert.ok(html.includes('Abre una conversación autorizada'));assert.ok(!html.includes('Actualizar recientes'));assert.ok(!html.includes('Carpeta'));assert.equal(requests,0)}});

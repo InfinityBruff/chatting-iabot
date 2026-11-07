@@ -11,3 +11,8 @@ verify_jwt = false
 # The isolated ranking endpoint validates the user's bearer token with Auth.
 [functions.bruff-ai]
 verify_jwt = false
+
+# Catalog/progress reads verify the session with Auth and current model access.
+# No fan send, generation or automation operation is exposed by this function.
+[functions.bruff-memory]
+verify_jwt = false
