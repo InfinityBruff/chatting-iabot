@@ -8,6 +8,8 @@ El servidor lee mensajes mediante `bruff-live`, nunca acepta mensajes o compras 
 
 El catálogo conserva su lote inmutable y sigue en borrador: etiquetas, referencias orientativas de precio y orden cronológico no son una secuencia comercial aprobada. Esta integración no añade ofertas automáticas ni contenido a las respuestas generadas, no cambia el compositor y no activa bots, campañas o envíos.
 
+La ampliación de [propuestas manuales de contenido](CATALOG-CONTENT-PROPOSALS.md) permite revisar un archivo y su precio de referencia junto a una opción de texto, como una propuesta separada del texto canónico. Requiere comprobación y confirmación antes de preparar el borrador; no activa una secuencia ni acredita un envío o una compra.
+
 La copia guardada se muestra al abrir la pestaña; después se comprueba una página reciente, con refresco cada 60 segundos solo mientras la pestaña está abierta y visible. «Ampliar historial» continúa una página anterior desde el cursor guardado en la nube. Llegar al final es el final reportado por esa lectura, con su fecha, no una auditoría de toda la actividad del fan. Los fans nuevos empiezan sin observaciones; no se inventa su progreso. Cerrar el gorila no inicia un rastreo de todas las cuentas.
 
 ## Configuración de servidor

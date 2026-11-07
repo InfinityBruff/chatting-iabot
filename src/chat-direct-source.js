@@ -1,3 +1,4 @@
+import {createChatDirectCatalogSource} from './chat-direct-catalog-source.js';
 import {scopeKey,validateSuggestions,validateChatDirectSuggestions} from './chat-direct.js';
 import {generationDiagnosticError,generationRequestError} from './chat-direct-diagnostics.js';
 
@@ -130,6 +131,15 @@ export function createChatDirectSource(client,{actor,workspace,engineEndpoint=fa
   const data=await read(client,'bruff_chat_direct_reference',{w:workspace,c:context.account,example_id:candidate.id,expected:candidate.source.version},request.signal);check(request);identity(data,context);
   if(data?.valid!==true)throw new Error('El ejemplo ha cambiado o fue retirado. Consulta de nuevo las referencias antes de preparar el mensaje.');
   return true;
+ };
+ source.suggestContent=async request=>{
+  const context=check(request),catalog=createChatDirectCatalogSource(client,{actor,workspace});
+  const data=await catalog.recommend(context,{signal:request.signal,folderId:request.folderId,mediaId:request.mediaId});check(request);return data;
+ };
+ source.verifyContent=async request=>{
+  const context=check(request),catalog=createChatDirectCatalogSource(client,{actor,workspace});
+  const data=await catalog.verifyRecommendation(context,{signal:request.signal,proposalId:request.proposalId,folderId:request.folderId,mediaId:request.mediaId});check(request);
+  if(!data.proposal||data.proposal.id!==request.proposalId)throw Object.assign(new Error('El catálogo o el seguimiento cambiaron. Actualiza la propuesta antes de preparar.'),{status:409});return data;
  };
  return source;
 }

@@ -58,3 +58,42 @@ test('missing configuration, unconfirmed identity and wrong methods stay closed'
  for(const user of [{id:actor,email_confirmed_at:null},{id:actor,email_confirmed_at:'today',is_anonymous:true}]){const f=fixture({user});assert.equal((await f.run()).status,401);assert.equal(f.writes.length,0)}
  assert.equal((await fixture().run({}, {},'GET')).status,405);
 });
+
+test('recommend synchronizes exactly one recent page, preserves partial coverage and returns scoped metadata only',async()=>{
+ const f=fixture(),r=await f.run({operation:'recommend',folder_id:'folder1',media_id:'77'}),d=await r.json();assert.equal(r.status,200);assert.equal(d.actorId,actor);assert.equal(d.workspaceId,w);assert.equal(d.creatorId,c);assert.equal(d.fanId,'55');assert.equal(d.sendsEnabled,false);assert.equal(d.progress.scan.historyComplete,false);assert.equal(d.progress.scan.cursor,'older-a');
+ assert.equal(f.calls.filter(x=>x.body?.operation==='messages').length,1);assert.equal(f.writes.length,1);assert.equal(f.states.length,1);assert.equal(d.proposal.observedCount,1);assert.equal(d.proposal.pendingOfferCount,1);assert.equal(d.proposal.priceCents,null);assert.equal(d.proposal.paidConfirmed,false);assert.equal(d.proposal.reviewRequired,true);assert.equal(d.proposal.orderConfirmed,false);assert.match(d.proposal.id,/^[a-f0-9]{64}$/);assert.match(d.proposal.reason,/sin pago confirmado/);assert.ok(Number.isFinite(Date.parse(d.observedAt)));
+ assert.equal(d.binding,undefined);assert.equal(d.proposal.binding,undefined);assert.ok(!f.calls.some(x=>/send|prepare|drafts|cloudflare|runner/iu.test(x.body?.operation||x.url||'')));
+});
+
+test('verify recommendation is stable across refreshed identical facts and accepts returned explicit selection',async()=>{
+ const f=fixture({messages:[]}),first=await(await f.run({operation:'recommend'})).json();assert.equal(first.proposal.mediaId,'77');
+ const r=await f.run({operation:'verify_recommendation',folder_id:first.proposal.folderId,media_id:first.proposal.mediaId,proposal_id:first.proposal.id}),verified=await r.json();assert.equal(r.status,200);assert.equal(verified.proposal.id,first.proposal.id);assert.equal(verified.progress.scan.version,2);assert.equal(f.calls.filter(x=>x.body?.operation==='messages').length,2);
+ const observed=fixture(),a=await(await observed.run({operation:'recommend',folder_id:'folder1',media_id:'77'})).json(),b=await observed.run({operation:'verify_recommendation',folder_id:'folder1',media_id:'77',proposal_id:a.proposal.id});assert.equal(b.status,200);
+});
+
+test('changed progress and changed fan reject old proposal after rechecking one current page',async()=>{
+ const options={messages:[{id:'88',isFromMe:true,createdAt:'2026-11-06T12:00:00Z',price:6,isOpened:false,media:[{id:'77',type:'video'}]}]},f=fixture(options);
+ const a=await(await f.run({operation:'recommend',folder_id:'folder1',media_id:'77'})).json();options.messages[0].price=10;
+ // Real store returns the latest observation per message/media; remove old fact in the mock.
+ const changed=fixture({messages:options.messages}),r=await changed.run({operation:'verify_recommendation',folder_id:'folder1',media_id:'77',proposal_id:a.proposal.id});assert.equal(r.status,409);assert.equal((await r.json()).code,'MEMORY_PROPOSAL_CHANGED');assert.equal(changed.calls.filter(x=>x.body?.operation==='messages').length,1);
+ const other=await fixture().run({operation:'verify_recommendation',conversation_id:'56',folder_id:'folder1',media_id:'77',proposal_id:a.proposal.id});assert.equal(other.status,409);
+});
+
+test('exhausted recommendation is null and cannot verify a nonexistent proposal',async()=>{
+ const f=fixture(),r=await f.run({operation:'recommend'});assert.equal(r.status,200);assert.equal((await r.json()).proposal,null);
+ const verify=await f.run({operation:'verify_recommendation',proposal_id:'b'.repeat(64)});assert.equal(verify.status,409);assert.equal((await verify.json()).code,'MEMORY_PROPOSAL_CHANGED');
+});
+
+test('recommendation selector and proof inputs are strict before authorization or network',async()=>{
+ for(const patch of [{operation:'verify_recommendation'},{operation:'verify_recommendation',proposal_id:'bad'},{operation:'recommend',proposal_id:'b'.repeat(64)},{operation:'recommend',media_id:'77'},{operation:'recommend',folder_id:[]},{operation:'recommend',folder_id:' folder1'},{operation:'recommend',folder_id:'folder1',media_id:'01'},{operation:'recommend',scan:'recent'},{operation:'read',folder_id:'folder1'}]){const f=fixture();assert.equal((await f.run(patch)).status,400);assert.equal(f.calls.length,0)}
+ const f=fixture(),r=await f.run({operation:'recommend',folder_id:'missing'});assert.equal(r.status,400);assert.equal((await r.json()).code,'MEMORY_SELECTION');
+});
+
+test('recommend and verification preserve revocation, throttle and checkpoint conflict behavior',async()=>{
+ for(const operation of ['recommend','verify_recommendation']){
+  const patch={operation,folder_id:'folder1',media_id:'77',...(operation==='verify_recommendation'?{proposal_id:'b'.repeat(64)}:{})};
+  const revoked=fixture({authorize:n=>n>=3?response({code:'42501'},403):response('acct_connection_a')});assert.equal((await revoked.run(patch)).status,403);assert.equal(revoked.writes.length,0);
+  const limited=fixture({messagesResponse:response({error:'quota'},429,{'Retry-After':'45'})}),r=await limited.run(patch);assert.equal(r.status,429);assert.equal(r.headers.get('Retry-After'),'45');assert.equal(limited.writes.length,0);
+  const conflict=fixture({conflict:true});assert.equal((await conflict.run(patch)).status,409);assert.equal(conflict.writes.length,1);
+ }
+});

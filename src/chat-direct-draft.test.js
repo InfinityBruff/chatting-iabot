@@ -11,6 +11,31 @@ const row=(id,patch={})=>({id,type:'photo',isReady:true,canView:true,hasError:fa
 const page=(media,hasMore=false,cursor=null)=>({data:{media,hasMore,cursor}});
 const insert=(patch={})=>{const current=patch.draft??draft();return applyChatDirectDraft({scope,currentScope:scope,token:'choice-1',consumed:new Set(),enabled:true,draft:current,text:'New text 🙂  ',mode:'replace',expectedSnapshot:draftSnapshot(current),...patch})};
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no});return {promise,resolve,reject}};
+const catalogContent=(patch={})=>({accountId:'model-A',currency:'USD',priceCents:600,mediaIds:['42'],reason:'Propuesta de catálogo para revisión',provenance:{kind:'catalog_proposal',proposalId:'a'.repeat(64),policyVersion:'bruff-catalog-proposal-v1',batchHash:'b'.repeat(64),folderId:'reviewed-folder',reviewRequired:true,orderConfirmed:false,paidConfirmed:false},...patch});
+
+test('catalog provenance resolves a single real vault item without pretending an approved text reference',async()=>{
+ const bundle=catalogContent(),calls=[];
+ assert.equal(bundle.reference,undefined);
+ const result=await resolveChatDirectMedia({content:bundle,request:async(op,args)=>{calls.push([op,args]);return page([row('42')])}});
+ assert.equal(result.status,'resolved');assert.deepEqual(calls,[['vault_media',{creator_id:'model-A',type:'all'}]]);
+ assert.equal(insert({mode:'replace-bundle',content:bundle,attachments:result.items}).price,'6');
+ assert.equal(insert({mode:'replace-bundle',content:catalogContent({priceCents:0}),attachments:result.items}).price,'0');
+ assert.equal(insert({mode:'replace-bundle',content:catalogContent({priceCents:null}),attachments:result.items}).status,'blocked');
+});
+
+test('catalog provenance cannot grant verified status, category routing, mixed bundles or paid confirmations',async()=>{
+ let calls=0;const request=async()=>{calls++;return page([row('42')])},base=catalogContent();
+ const invalid=[{reference:{id:'fake-approval',version:1,verified:true}},{categoryId:'8'},{mediaIds:['42','43']},...Object.entries({kind:'document',proposalId:'bad',batchHash:'bad',policyVersion:'unknown',folderId:'',reviewRequired:false,orderConfirmed:true,paidConfirmed:true,extra:true}).map(([key,value])=>({provenance:{...base.provenance,[key]:value}}))];
+ for(const patch of invalid){const bundle=catalogContent(patch);assert.equal((await resolveChatDirectMedia({content:bundle,request})).status,'unavailable');assert.equal(insert({mode:'replace-bundle',content:bundle,attachments:[vaultAttachment(row('42'))]}).status,'blocked')}
+ assert.equal(calls,0);
+});
+
+test('catalog folder names resolve to exact live categories without treating opaque keys as provider IDs',async()=>{
+ const calls=[],bundle=catalogContent({folderName:'Script QA'}),before=JSON.stringify(bundle);
+ const result=await resolveChatDirectMedia({content:bundle,request:async(op,args)=>{calls.push([op,args]);return op==='vault_categories'?{data:{categories:[{id:0,name:'Other'},{id:'8',name:'Script QA'}],hasMore:false}}:page([row('42')])}});
+ assert.equal(result.status,'resolved');assert.deepEqual(calls,[['vault_categories',{creator_id:'model-A'}],['vault_media',{creator_id:'model-A',type:'all',category:'8'}]]);assert.equal(JSON.stringify(bundle),before);
+ for(const categories of [[],[{id:'8',name:'Script QA'},{id:'9',name:'Script QA'}],[{id:'8',name:'script qa'}]]){let mediaReads=0;const result=await resolveChatDirectMedia({content:bundle,request:async(op)=>{if(op==='vault_media')mediaReads++;return {data:{categories,hasMore:false}}}});assert.equal(result.status,'unavailable');assert.equal(mediaReads,0)}
+});
 
 test('private draft snapshot detects raw price, attachment metadata/order/tokens and reply changes without object key-order noise',()=>{
  const original=draft(),before=draftSnapshot(original);

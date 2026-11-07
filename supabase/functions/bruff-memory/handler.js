@@ -1,5 +1,6 @@
 import {createTursoMemoryStore} from './turso-store.js';
 import {extractScriptProgress} from './progress.js';
+import {createCatalogRecommendation} from './recommendation.js';
 
 const origins=['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site'];
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(x);
@@ -49,7 +50,9 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
   try{
    if(!/^application\/json(?:\s*;|$)/iu.test(request.headers.get('Content-Type')||''))throw error(415,'MEMORY_TYPE','Se requiere JSON.');
    let input;try{input=await json(request,2048,signal)}catch(e){if(e.code==='MEMORY_SIZE')throw e;throw error(400,'MEMORY_INPUT','La consulta no contiene JSON válido.')}
-   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['operation','workspace_id','creator_id','conversation_id','scan'].includes(k))||!['read','sync'].includes(input.operation)||![input.workspace_id,input.creator_id].every(uuid)||typeof input.conversation_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.conversation_id)||input.scan!==undefined&&(input.operation!=='sync'||!['recent','older'].includes(input.scan)))throw error(400,'MEMORY_INPUT','Revisa la modelo y el fan seleccionados.');
+   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['operation','workspace_id','creator_id','conversation_id','scan','folder_id','media_id','proposal_id'].includes(k))||!['read','sync','recommend','verify_recommendation'].includes(input.operation)||![input.workspace_id,input.creator_id].every(uuid)||typeof input.conversation_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.conversation_id)||input.scan!==undefined&&(input.operation!=='sync'||!['recent','older'].includes(input.scan)))throw error(400,'MEMORY_INPUT','Revisa la modelo y el fan seleccionados.');
+   const recommending=['recommend','verify_recommendation'].includes(input.operation);
+   if(input.folder_id!==undefined&&(!recommending||typeof input.folder_id!=='string'||!input.folder_id||input.folder_id!==input.folder_id.trim()||input.folder_id.length>256||/[\u0000-\u001f\u007f]/u.test(input.folder_id))||input.media_id!==undefined&&(!recommending||input.folder_id===undefined||typeof input.media_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.media_id))||input.operation==='verify_recommendation'&&!hash(input.proposal_id)||input.proposal_id!==undefined&&input.operation!=='verify_recommendation')throw error(400,'MEMORY_INPUT','Revisa la selección del catálogo.');
    const user=await call('/auth/v1/user');
    if(!uuid(user?.id)||typeof user.email_confirmed_at!=='string'||!user.email_confirmed_at||user.is_anonymous===true)throw error(401,'MEMORY_AUTH','Se requiere una cuenta con correo confirmado.');
    const actorId=user.id.toLowerCase(),workspaceId=input.workspace_id.toLowerCase(),creatorId=input.creator_id.toLowerCase(),fanId=input.conversation_id;
@@ -69,7 +72,7 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
    }
    const scope={ownerId:catalog.ownerId,workspaceId,creatorId,binding,fanId,batchHash:catalogBatch,actorId};
    let progress=await store.readProgress(scope,signal);
-   if(input.operation==='sync'){
+   if(input.operation==='sync'||recommending){
     const older=input.scan==='older'&&progress.scan.version>0;
     if(!older||!progress.scan.historyComplete){
      const cursor=older?progress.scan.cursor:null;
@@ -88,8 +91,13 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
      progress=await store.readProgress(scope,signal);
     }
    }
+   let proposal;
+   if(recommending){
+    proposal=await createCatalogRecommendation({catalog,observations:progress.observations,scope,folderId:input.folder_id,mediaId:input.media_id});
+    if(input.operation==='verify_recommendation'&&proposal?.id!==input.proposal_id)throw error(409,'MEMORY_PROPOSAL_CHANGED','La propuesta o el seguimiento han cambiado. Revisa una nueva propuesta antes de preparar el contenido.');
+   }
    await check();signal.throwIfAborted();
-   return reply(200,{actorId,workspaceId,creatorId,fanId,catalog,progress,observedAt:new Date(now()).toISOString(),sendsEnabled:false});
+   return reply(200,{actorId,workspaceId,creatorId,fanId,catalog,progress,observedAt:new Date(now()).toISOString(),sendsEnabled:false,...(recommending?{proposal}:{})});
   }catch(e){
    if(signal.aborted)return reply(request.signal.aborted?408:504,{code:'MEMORY_CANCELLED',error:'La consulta se canceló o superó el tiempo permitido. No se ha enviado nada.'});
    const status=e.code==='MEMORY_CONFLICT'?409:e.code==='MEMORY_CONFIG'?503:e.code==='MEMORY_STORE'?503:e.status||503;

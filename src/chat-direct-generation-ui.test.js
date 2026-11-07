@@ -4,6 +4,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {createServer} from 'vite';
 import {fileURLToPath} from 'node:url';
+import {createCatalogProposal} from './chat-direct-catalog-proposal.js';
 
 // SSR cannot mount portals. Only the portal transport is replaced in this test;
 // the actual panel, validators, labels and disabled states remain unchanged.
@@ -17,8 +18,8 @@ after(async()=>{await vite.close();if(previousWindow===undefined)delete globalTh
 const actor='11111111-1111-4111-8111-111111111111',workspace='22222222-2222-4222-8222-222222222222',account='33333333-3333-4333-8333-333333333333',generation='44444444-4444-4444-8444-444444444444',example='55555555-5555-4555-8555-555555555555';
 const draft=patch=>({id:'gen.'+generation+'.1',english:'Good morning! How is your day?',spanish:'¡Buenos días! ¿Cómo va tu día?',variables:[],aiGenerated:true,aiVerified:false,generationId:generation,exampleIds:[example],knowledgeIds:[],expiresAt:new Date(Date.now()+600000).toISOString(),source:{kind:'generated',modelId:account,verified:false,label:'Borrador IA · Revisión humana',version:'a'.repeat(32)},...patch});
 const literal={id:example,english:'Hello! How is your morning?',spanish:'¡Hola! ¿Cómo va tu mañana?',variables:[],source:{kind:'document',modelId:account,verified:true,label:'Fuente documental de QA',referenceId:'qa-morning',version:'v1.r1'}};
-function render({candidates=[],selected=null,knowledge=null,quota=null,quotaAt=null,quotaBusy=false,quotaError='',canManage=true,input='',mode,diagnostic=null,error='',busy=false,sourceAvailable=true,messages=[{id:'1',text:'Good morning',isFromMe:false,createdAt:'2026-11-06T10:00:00Z'}]}={}){
- const context={scope:JSON.stringify([actor,workspace,account,'99']),revision:'context',actor,workspace,account,fanId:'99',modelName:'Modelo de QA',fanName:'Fan de QA',canRead:true,canInsert:true,canVault:false,messages,historyComplete:false},entry={mode,candidates,selectedId:selected,insertToken:'manual-choice',values:{},input,knowledge,quota,quotaAt,quotaBusy,quotaError,diagnostic,error,busy,inserted:false};
+function render({candidates=[],selected=null,knowledge=null,quota=null,quotaAt=null,quotaBusy=false,quotaError='',canManage=true,input='',mode,diagnostic=null,error='',busy=false,sourceAvailable=true,catalogEntry={},canVault=false,messages=[{id:'1',text:'Good morning',isFromMe:false,createdAt:'2026-11-06T10:00:00Z'}]}={}){
+ const context={scope:JSON.stringify([actor,workspace,account,'99']),revision:'context',actor,workspace,account,fanId:'99',modelName:'Modelo de QA',fanName:'Fan de QA',canRead:true,canInsert:true,canVault,messages,historyComplete:false},entry={mode,candidates,selectedId:selected,insertToken:'manual-choice',values:{},input,knowledge,quota,quotaAt,quotaBusy,quotaError,diagnostic,error,busy,inserted:false,...catalogEntry};
  return renderToStaticMarkup(React.createElement(Panel,{context,entry,canManage,actor,workspace,sourceAvailable,captureEnabled:false,focusRequest:0,onFrame(){},onClose(){},onInput(){},onValue(){},onSelect(){},onMode(){throw Error('Static render must not change mode')},onConsult(){throw Error('Static render must not consult')},onQuota(){throw Error('Static render must not refresh quota')},onInsert(){throw Error('Static render must not insert')},setCaptureEnabled(){}}));
 }
 
@@ -114,4 +115,26 @@ test('generation settings preserve server versions and accept the new bounded mo
  assert.deepEqual(validateGenerationSettingsSnapshot(data,scope),data);assert.equal(validateGenerationSettingsSnapshot({...data,settings:{...data.settings,dailyLimit:1000}},scope).settings.dailyLimit,1000);
  for(const dailyLimit of [0,1001,1.5])assert.throws(()=>validateGenerationSettingsSnapshot({...data,settings:{...data.settings,dailyLimit}},scope));
  assert.throws(()=>validateGenerationSettingsSnapshot({...data,actorId:example},scope));assert.throws(()=>validateGenerationSettingsSnapshot({...data,version:-1},scope));
+});
+
+function catalogFixture(candidate,patch={}){
+ const context={actor,workspace,account,fanId:'99',scope:JSON.stringify([actor,workspace,account,'99']),revision:'context'};
+ const data={actorId:actor,workspaceId:workspace,creatorId:account,fanId:'99',observedAt:new Date().toISOString(),sendsEnabled:false,catalog:{batchHash:'b'.repeat(64),folders:[{id:'qa-folder',name:'Script de prueba',orderConfirmed:false,items:[{id:'42',type:'photo',label:'F01',durationLabel:null,referencePriceCents:null,configuredPriceCents:null}]}]},progress:{observations:[],scan:{version:1,pages:1,cursor:'next',historyComplete:false,recentCheckedAt:new Date().toISOString(),historyCheckedAt:new Date().toISOString()}},proposal:{id:'c'.repeat(64),policyVersion:'bruff-catalog-proposal-v1',folderId:'qa-folder',mediaId:'42',priceCents:0,currency:'USD',reviewRequired:true,orderConfirmed:false,paidConfirmed:false,reason:'Sin coincidencias en las páginas comprobadas.',observedCount:0,pendingOfferCount:1}};
+ const proposal=createCatalogProposal(data,context,candidate.id);proposal.resolvedContent={status:'resolved',items:[{id:'42',token:'fictitious-only',media:{id:'42',type:'photo',canView:true,isReady:true,attachment:'fictitious-only'}}]};
+ return {catalogData:data,catalogProposal:proposal,catalogTargetId:candidate.id,catalogReviewed:false,catalogBusy:false,catalogError:'',...patch};
+}
+
+test('catalog joins one generated card without forging verified prose and requires human review before preparation',()=>{
+ const candidate=draft(),catalogEntry=catalogFixture(candidate);
+ const html=render({candidates:[candidate],selected:candidate.id,catalogEntry,canVault:true,mode:'generative'});
+ assert.match(html,/MENSAJE \+ CONTENIDO · REVISAR/);assert.match(html,/Gratis/);assert.match(html,/Script de prueba/);assert.match(html,/compras siguen sin confirmar/);assert.match(html,/He revisado el mensaje, el archivo, el precio y el historial/);assert.match(html,/<button[^>]*disabled=""[^>]*>Preparar en el chat<\/button>/);
+ assert.match(html,/Borrador IA · Revisar/);assert.equal(candidate.content,undefined);
+ const reviewed=render({candidates:[candidate],selected:candidate.id,catalogEntry:{...catalogEntry,catalogReviewed:true},canVault:true,mode:'generative'});
+ assert.match(reviewed,/<button[^>]*class="chat-direct-primary"[^>]*>Preparar en el chat<\/button>/);assert.doesNotMatch(reviewed,/<button[^>]*disabled=""[^>]*>Preparar en el chat<\/button>/);
+});
+
+test('expired, unready and denied catalog proposals cannot silently prepare just the canonical text',()=>{
+ const candidate=draft(),base=catalogFixture(candidate,{catalogReviewed:true});
+ const expired={...base,catalogProposal:{...base.catalogProposal,snapshot:{...base.catalogProposal.snapshot,receivedAt:Date.now()-120001}}};
+ for(const catalogEntry of [expired,{...base,catalogDenied:true},{...base,catalogBusy:true},{...base,catalogProposal:{...base.catalogProposal,resolvedContent:{status:'unavailable',items:[],message:'Contenido no disponible'}}}]){const html=render({candidates:[candidate],selected:candidate.id,catalogEntry,canVault:true,mode:'generative'});assert.match(html,/<button[^>]*disabled=""[^>]*>Preparar en el chat<\/button>/);assert.match(html,/Good morning! How is your day/)}
 });

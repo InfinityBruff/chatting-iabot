@@ -1,3 +1,4 @@
+import {catalogSelection,validateCatalogProposal} from './chat-direct-catalog-proposal.js';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const ID=/^[1-9][0-9]{0,23}$/u;
 const identifier=value=>typeof value==='string'&&ID.test(value);
@@ -41,14 +42,14 @@ export function catalogProgressStats(observations=[]){
 }
 export function createChatDirectCatalogSource(client,{actor,workspace}){
  const check=(context,signal)=>{if(signal?.aborted)throw aborted();if(!UUID.test(actor)||!UUID.test(workspace)||context?.actor!==actor||context.workspace!==workspace||!catalogScope(context)||context.canRead!==true)throw failure(403)};
- async function request(context,operation,{signal,scan}={}){
-  check(context,signal);if(operation==='sync'&&!['recent','older'].includes(scan))throw failure(400);
-  let response;try{response=await client.functions.invoke('bruff-memory',{body:{operation,workspace_id:workspace,creator_id:context.account,conversation_id:context.fanId,...(operation==='sync'?{scan}: {})},signal})}catch(error){if(signal?.aborted||error?.name==='AbortError')throw aborted();throw failure()}
+ async function request(context,operation,{signal,scan,folderId,mediaId,proposalId}={}){
+  check(context,signal);const selecting=['recommend','verify_recommendation'].includes(operation),selection=selecting?catalogSelection({...((folderId!==undefined)?{folderId}:{}),...((mediaId!==undefined)?{mediaId}:{})}):{};if(operation==='verify_recommendation'&&(typeof proposalId!=='string'||!/^[a-f0-9]{64}$/u.test(proposalId)))throw failure(400);if(operation==='sync'&&!['recent','older'].includes(scan))throw failure(400);
+  let response;try{response=await client.functions.invoke('bruff-memory',{body:{operation,workspace_id:workspace,creator_id:context.account,conversation_id:context.fanId,...(operation==='sync'?{scan}: {}),...(selection.folderId?{folder_id:selection.folderId}:{}),...(selection.mediaId?{media_id:selection.mediaId}:{}),...(operation==='verify_recommendation'?{proposal_id:proposalId}:{})},signal})}catch(error){if(signal?.aborted||error?.name==='AbortError')throw aborted();throw failure()}
   check(context,signal);
   if(response.error){const status=Number(response.error.context?.status||response.error.status)||503,raw=response.error.context?.headers?.get?.('Retry-After'),retryAfter=Number(raw);throw failure(status,status===429&&Number.isFinite(retryAfter)&&retryAfter>0?Math.min(86400,Math.ceil(retryAfter)):status===429?60:0)}
-  return validateCatalogSnapshot(response.data,context);
+  const data=validateCatalogSnapshot(response.data,context);return selecting?{...data,proposal:validateCatalogProposal(response.data.proposal,data.catalog)}:data;
  }
- return {read:(context,options)=>request(context,'read',options),sync:(context,options)=>request(context,'sync',options)};
+ return {read:(context,options)=>request(context,'read',options),sync:(context,options)=>request(context,'sync',options),recommend:(context,options)=>request(context,'recommend',options),verifyRecommendation:(context,options)=>request(context,'verify_recommendation',options)};
 }
 // One visible panel owns one serial reader. Hiding aborts its admission and drops
 // late results; no background history traversal or interval fan-out is created.
