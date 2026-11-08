@@ -14,15 +14,17 @@ const revision='a'.repeat(32);
 const messages=[{id:'10',text:'I went hiking this morning.',isFromMe:false,createdAt:'2026-11-08T09:00:00.000Z'}];
 const history=()=>historySnapshot({data:{messages}});
 const currentContext=()=>buildGenerationContext(history());
-// Reproduce the released v3 fingerprint rather than asking the new builder to
+// Reproduce released fingerprints rather than asking the current builder to
 // label an old result. The SQL engine version deliberately remains unchanged.
-const oldContextHash=()=>historyHash({protocol:'bruff-generation-context-v3',history:history(),memory:null});
+const previousProtocols=['bruff-generation-context-v3','bruff-generation-context-v4'];
+const oldContextHash=protocol=>historyHash({protocol,history:history(),memory:null});
 const pool=()=>({actorId:actor,workspaceId:workspace,creatorId:creator,revision,version:1,settings:{enabled:true,dailyLimit:100,maxResults:3},approvedCount:1,examples:[{id:example,version:1,trigger:'What did you do today?',english:'how was your morning?',spanish:'¿Cómo fue tu mañana?',referenceId:'fictional.neutral.example',label:'Fictional reviewed example',sourceVersion:'v1'}],knowledge:[]});
 
-async function fixture({legacy=false}={}){
+async function fixture({protocol=null}={}){
   const calls=[];
-  const hash=legacy?await oldContextHash():await generationContextHash(currentContext());
-  const record={generationId,actorId:actor,workspaceId:workspace,creatorId:creator,fanId:'123',revision,contextHash:hash,expiresAt:new Date(Date.now()+600000).toISOString(),drafts:[{id:'1',english:legacy?'i spent my morning hiking too.':'how was your hike?',spanish:legacy?'Yo también pasé la mañana haciendo senderismo.':'¿Cómo fue tu caminata?',exampleIds:[example],knowledgeIds:[]}],unknowns:[],aiGenerated:true,aiVerified:false,engineVersion:ENGINE_VERSION,usage:reservedUsage()};
+  const legacy=protocol!==null,oldBiography=protocol===previousProtocols[0];
+  const hash=legacy?await oldContextHash(protocol):await generationContextHash(currentContext());
+  const record={generationId,actorId:actor,workspaceId:workspace,creatorId:creator,fanId:'123',revision,contextHash:hash,expiresAt:new Date(Date.now()+600000).toISOString(),drafts:[{id:'1',english:oldBiography?'i spent my morning hiking too.':legacy?'just here chatting with you, how was your day?':'how was your hike?',spanish:oldBiography?'Yo también pasé la mañana haciendo senderismo.':legacy?'Aquí charlando contigo, ¿cómo fue tu día?':'¿Cómo fue tu caminata?',exampleIds:[example],knowledgeIds:[]}],unknowns:[],aiGenerated:true,aiVerified:false,engineVersion:ENGINE_VERSION,usage:reservedUsage()};
   const handler=createDraftsHandler({url:'https://fixture.test',anonKey:'fixture-public',serviceKey:'fixture-service',cloudflareAccountId:'b'.repeat(32),cloudflareToken:'fixture-provider-token',freeTierConfirmed:true,fetcher:async(url,init)=>{
     const body=init.body?JSON.parse(init.body):null;
     calls.push({url,body});
@@ -52,15 +54,16 @@ function assertNoInferenceOrWrites(calls){
   assert.ok(calls.every(call=>!/(?:bruff_generation_(?:usage|commit)|prepare_send|\/send|cloudflare)/u.test(call.url)));
 }
 
-test('the v4 policy changes a v3 fingerprint even with identical history, sources and engine',async()=>{
+test('the v5 policy changes v3 and v4 fingerprints even with identical history, sources and engine',async()=>{
   const context=currentContext();
-  assert.equal(context.protocol,'bruff-generation-context-v4');
+  assert.equal(context.protocol,'bruff-generation-context-v5');
   assert.equal(ENGINE_VERSION,'bruff-drafts-v3');
-  assert.notEqual(await generationContextHash(context),await oldContextHash());
+  for(const protocol of previousProtocols)assert.notEqual(await generationContextHash(context),await oldContextHash(protocol));
 });
 
-test('a stale v3 result is rejected even if the cache RPC mistakenly returns it for the v4 claim',async()=>{
-  const f=await fixture({legacy:true}),response=await f.run('generate'),body=await response.json();
+for(const protocol of previousProtocols){
+test(`a stale ${protocol} result is rejected even if the cache RPC returns it for a v5 claim`,async()=>{
+  const f=await fixture({protocol}),response=await f.run('generate'),body=await response.json();
   assert.equal(response.status,409);
   assert.equal(body.code,'AI_CONTEXT_CHANGED');
   assert.equal(body.drafts,undefined);
@@ -72,8 +75,8 @@ test('a stale v3 result is rejected even if the cache RPC mistakenly returns it 
   assertNoInferenceOrWrites(f.calls);
 });
 
-test('verification cannot certify an existing v3 draft under the v4 policy or trigger generation',async()=>{
-  const f=await fixture({legacy:true}),response=await f.run('verify'),body=await response.json();
+test(`verification cannot certify an existing ${protocol} draft under v5 or trigger generation`,async()=>{
+  const f=await fixture({protocol}),response=await f.run('verify'),body=await response.json();
   assert.equal(response.status,409);
   assert.equal(body.code,'AI_CONTEXT_CHANGED');
   assert.equal(body.drafts,undefined);
@@ -81,8 +84,9 @@ test('verification cannot certify an existing v3 draft under the v4 policy or tr
   assert.equal(f.calls.filter(call=>call.url.endsWith('/bruff_generation_claim_v2')).length,0);
   assertNoInferenceOrWrites(f.calls);
 });
+}
 
-test('a current v4 canonical cache entry still reuses and verifies without inference or accounting writes',async()=>{
+test('a current v5 canonical cache entry still reuses and verifies without inference or accounting writes',async()=>{
   const f=await fixture(),generated=await f.run('generate'),reused=await generated.json();
   assert.equal(generated.status,200);
   assert.equal(reused.generationId,generationId);

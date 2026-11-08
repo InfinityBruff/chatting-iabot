@@ -16,7 +16,35 @@ test('every alternative targets the latest fan and distinguishes style from acto
  assert.equal(data.replyTargetIndex,2);
  assert.deepEqual(data.conversation[data.replyTargetIndex],{speaker:'fan',text:rows[2].text});
  for(const instruction of ['FAN statements and FAN memory never describe the MODEL','Every alternative is a separate complete response','not successive turns','acknowledge it naturally','brevity, casual spelling, casing and punctuation','observable participation in this chat','avoid repeating a question already answered'])assert.ok(policy.includes(instruction),instruction);
- assert.equal(buildGenerationContext(historySnapshot({data:{messages:rows}})).protocol,'bruff-generation-context-v4');
+ assert.equal(buildGenerationContext(historySnapshot({data:{messages:rows}})).protocol,'bruff-generation-context-v5');
+});
+
+test('past-day and current-activity targets keep their intent without a stock chat-activity answer',()=>{
+ const p=pool();p.examples[0].english='hey!! thanks :)';
+ for(const target of ['How did your afternoon go?','What are you doing right now?']){
+  const prompt=promptFor([message(1,'I finished my errands.',false),message(2,'nice!!',true),message(3,target,false)],p),data=JSON.parse(prompt.messages[1].content).data;
+  assert.equal(data.conversation[data.replyTargetIndex].text,target);
+  assert.equal(data.approvedExamples[0].reply,'hey!! thanks :)');
+  const policy=prompt.messages[0].content;
+  assert.ok(policy.includes('Distinguish a question about a past day from a question about current activity'));
+  assert.ok(policy.includes('do not answer the former with a description of being in this chat'));
+  assert.ok(policy.includes('only when the FAN explicitly asks about current activity'));
+  assert.ok(policy.includes('not as a stock phrase repeated across options'));
+  assert.ok(policy.includes('a single compact clause or sentence can be enough'));
+ }
+});
+
+test('distinct conversational choices are optional and short approved style stays intact',()=>{
+ const p=pool();p.examples[0].english='aww thanks!!';p.examples[0].spanish='ay gracias!!';
+ const prompt=promptFor([message(1,'That was a kind reply, thank you.',false)],p),data=JSON.parse(prompt.messages[1].content).data;
+ assert.equal(data.approvedExamples[0].reply,p.examples[0].english);
+ assert.equal(data.approvedExamples[0].translation,p.examples[0].spanish);
+ assert.ok(prompt.messages[0].content.includes('Changing synonyms or wording around the same acknowledgement and follow-up is not a different choice'));
+ assert.ok(prompt.messages[0].content.includes('Return fewer options when distinct appropriate choices are unavailable; never pad to three'));
+ assert.ok(prompt.messages[0].content.includes('actual register and approximate length'));
+ const one=candidate(1,'aww thanks!!','ay gracias!!');
+ assert.equal(validate([one],p,prompt).drafts.length,1);
+ assert.deepEqual(validate([],p,prompt).drafts,[]);
 });
 
 test('twenty-message history retains the last fan after more than twenty later model messages',()=>{
