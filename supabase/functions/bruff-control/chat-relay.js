@@ -20,6 +20,7 @@ const bool=value=>typeof value==='boolean'?value:null;
 const pick=(value,names)=>Object.fromEntries(names.map(name=>[name,value[name]]));
 const USAGE=['status','promptTokens','completionTokens','calculatedNeurons','chargedNeurons'];
 const QUOTA=['usageDay','resetsAt','modelQueries','modelDailyLimit','sharedBudgetNeurons','calculatedNeurons','reservedNeurons','chargedNeurons','remainingNeurons','observedRequests','reservedRequests'];
+const MEMORY=['enabled','version','confirmedItems','usedConfirmedItems','messagesObserved','historyComplete','contextLimited'];
 
 export class ChatRelayError extends Error{
  constructor(status,code,message,retryAfter){super(message);this.name='ChatRelayError';this.status=status;this.code=code;if(Number.isSafeInteger(retryAfter)&&retryAfter>0&&retryAfter<=86400)this.retryAfter=retryAfter}
@@ -29,6 +30,12 @@ const unavailable=()=>new ChatRelayError(503,'CHAT_RELAY_UNAVAILABLE','No se pud
 const access=status=>new ChatRelayError(status,status===401?'CHAT_RELAY_AUTH':'CHAT_RELAY_ACCESS',status===401?'Vuelve a conectar tu sesión de propietario de BRUFF.':'Se requiere acceso vigente de propietario a esta agencia y modelo.');
 const cancelled=()=>new ChatRelayError(408,'AI_CANCELLED','La consulta se ha cancelado. No se ha enviado ningún mensaje.');
 const conflict=()=>new ChatRelayError(409,'AI_CONTEXT_CHANGED','El contexto o el borrador cambiaron o caducaron. Consulta de nuevo antes de elegir.');
+function memoryProjection(value){
+ if(!keys(value,MEMORY)||Object.keys(value).length!==MEMORY.length||typeof value.enabled!=='boolean'||typeof value.contextLimited!=='boolean')throw unavailable();
+ if(!value.enabled){if(MEMORY.filter(key=>!['enabled','contextLimited'].includes(key)).some(key=>value[key]!==null)||value.contextLimited!==true)throw unavailable()}
+ else if(integer(value.version)===null||integer(value.confirmedItems)===null||value.confirmedItems>100||integer(value.usedConfirmedItems)===null||value.usedConfirmedItems>12||value.usedConfirmedItems>value.confirmedItems||integer(value.messagesObserved)===null||value.messagesObserved>20000||typeof value.historyComplete!=='boolean')throw unavailable();
+ return pick(value,MEMORY);
+}
 const ERROR_MESSAGES={
  AI_DISABLED:[409,'La generación manual está desactivada para esta modelo.'],
  AI_SOURCES:[409,'Faltan ejemplos aprobados para esta modelo.'],
@@ -119,6 +126,9 @@ function canonicalProjection(operation,data,args,target,at){
   seen.add(d.id);return {id:d.id,english:d.english,spanish:d.spanish,exampleIds:d.exampleIds.slice(),knowledgeIds:d.knowledgeIds.slice()};
  });
  const output={actorId:target.actor,workspaceId:target.w,modelId:target.c,fanId:target.fan,generationId:data.generationId,requestId:data.requestId,expiresAt:data.expiresAt,engineVersion:data.engineVersion,engineInvoked:data.engineInvoked,reused:data.reused,aiGenerated:true,aiVerified:false,requiresHumanReview:true,approvedCount:data.approvedCount,usage:pick(data.usage,USAGE),quota:pick(data.quota,QUOTA)};
+ // Report only the server's bounded counts, never memory text or a fabricated
+ // zero for older results that did not expose this diagnostic.
+ if(Object.hasOwn(data,'memoryContext'))output.memoryContext=memoryProjection(data.memoryContext);
  if(operation==='generate')return {...output,drafts,unknowns:data.unknowns.slice()};
  const selectedDraft=drafts.find(d=>d.id===args.draft_id);if(!selectedDraft)throw conflict();
  return {...output,selectionValid:true,selectedDraft};

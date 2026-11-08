@@ -52,6 +52,15 @@ test('exact-context reuse is returned truthfully without requesting a forced reg
  await fail(()=>fixture({data}).run('generate',{fan_id:'123',request_id:request,share_context:true,force:true}),503);
 });
 
+test('memory diagnostics expose bounded server counts for generation and verification, not fan notes or invented legacy totals',async()=>{
+ const memoryContext={enabled:true,version:7,confirmedItems:3,usedConfirmedItems:2,messagesObserved:40,historyComplete:false,contextLimited:true};
+ for(const operation of ['generate','verify']){const data=generated({memoryContext,...(operation==='verify'?{engineInvoked:false}:{})}),args=operation==='generate'?{fan_id:'123',request_id:request,share_context:true}:{fan_id:'123',generation_id:request,draft_id:'1'},out=await fixture({data}).run(operation,args);assert.deepEqual(out.memoryContext,memoryContext);assert.ok(!JSON.stringify(out.memoryContext).includes('quote'))}
+ const off={enabled:false,version:null,confirmedItems:null,usedConfirmedItems:null,messagesObserved:null,historyComplete:null,contextLimited:true};assert.deepEqual((await fixture({data:generated({memoryContext:off})}).run('generate',{fan_id:'123',request_id:request,share_context:true})).memoryContext,off);
+ const legacy=await fixture().run('generate',{fan_id:'123',request_id:request,share_context:true});assert.equal(Object.hasOwn(legacy,'memoryContext'),false);
+ for(const patch of [{version:-1},{confirmedItems:101},{usedConfirmedItems:4},{usedConfirmedItems:13},{messagesObserved:20001},{historyComplete:null},{enabled:'true'},{contextLimited:0},{text:'private fan note'},{fanId:'456'},{binding:'acct_other'}])await fail(()=>fixture({data:generated({memoryContext:{...memoryContext,...patch}})}).run('generate',{fan_id:'123',request_id:request,share_context:true}),503);
+ await fail(()=>fixture({data:generated({memoryContext:{...off,confirmedItems:0}})}).run('generate',{fan_id:'123',request_id:request,share_context:true}),503);
+});
+
 test('generation output rejects cross-actor/model/fan, invented provenance, invalid accounting and expired drafts',async()=>{
  const changes=[{actorId:other},{workspaceId:other},{creatorId:other},{fanId:'456'},{requestId:other},{generationId:other},{aiVerified:true},{aiGenerated:false},{engineVersion:'untrusted'},{expiresAt:'bad'},{expiresAt:'2026-11-06T11:59:00Z'},{revision:'bad'},{contextHash:'bad'},{usage:{status:'observed',chargedNeurons:1}},{quota:{remainingNeurons:7500}},{drafts:[draft({id:'4'})]},{drafts:[draft(),draft()]},{drafts:[draft({exampleIds:[]})]},{drafts:[draft({exampleIds:['https://private.test']})]},{drafts:[draft({english:'https://signed.private/secret'})]},{drafts:[draft({spanish:'x'.repeat(1001)})]}];
  for(const patch of changes){const f=fixture({data:generated(patch)});await assert.rejects(()=>f.run('generate',{fan_id:'123',request_id:request,share_context:true}),error=>error instanceof ChatRelayError&&[403,503].includes(error.status));assert.equal(f.calls.length,1);assert.deepEqual(f.events,['relay','owner'])}

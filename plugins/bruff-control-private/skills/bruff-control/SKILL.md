@@ -53,6 +53,8 @@ bruff_generate_replies solicita hasta tres propuestas con modelo y fan seleccion
 
 El motor actual solo admite texto no explícito. No genera conversación erótica, scripts comerciales, adjuntos ni precios; no prometas esas funciones. La validación no demuestra que toda prosa sea factual. Contexto insuficiente, desconocidos o contenido no admitido requiere revisión.
 
+Cada alternativa responde al último mensaje recibido, sin convertir las vivencias del fan o los ejemplos de estilo en actividades personales de la modelo. Un borrador descartado puede reducir el número de opciones y dejar un aviso en unknowns; no lo reconstruyas para completar tres ni vuelvas a consultar automáticamente. Si aparece memoryContext, informa los recuerdos confirmados realmente utilizados y la cobertura/limitación que declara el servidor. Es un diagnóstico de contexto, no prueba de inteligencia o fidelidad completa. Su ausencia no equivale a cero; no presentes reglas en borrador como estilo aprobado. Una revisión del contexto puede invalidar propuestas anteriores aunque la conversación visible no cambie.
+
 bruff_read_generation_quota muestra cupo por modelo y presupuesto compartido con fecha/reinicio UTC, consumo calculado a partir de tokens y reservas sin liquidar. No sumes el presupuesto compartido de varias modelos ni lo presentes como factura o cuota global de Cloudflare. Alojamiento y proveedores tienen límites independientes. Nunca prometas funcionamiento gratuito ilimitado ni aumentes planes/credenciales para sortearlos.
 
 ## Elegir y enviar una respuesta concreta

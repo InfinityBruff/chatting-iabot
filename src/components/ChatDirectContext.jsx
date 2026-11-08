@@ -16,9 +16,9 @@ export function ChatDirectProvider({actor,workspace,source,canManage=false,child
 }
 function ScopedProvider({actor,workspace,source,canManage,children}){
  const [context,setActiveContext]=useState(null),[entry,setEntry]=useState(blank),[open,setOpen]=useState(false),[captureEnabled,setCapture]=useState(false),[origin,setOrigin]=useState(null),[frame,setFrame]=useState(null),[focusRequest,setFocusRequest]=useState(0);
- const contexts=useRef(null),entryRef=useRef(entry),memory=useRef(new Map()),quotaMemory=useRef(new Map()),quotaRequest=useRef(null),quotaSerial=useRef(0),composers=useRef(new Map()),ownerEpoch=useRef(pageCacheEpoch()),generation=useRef(0),request=useRef(null),lastDirect=useRef(null),mounted=useRef(false),originElement=useRef(null),sourceRef=useRef(source),priorSource=useRef(source),catalogRequest=useRef(null),catalogSerial=useRef(0),catalogWaits=useRef(new Map());sourceRef.current=source;
+ const contexts=useRef(null),entryRef=useRef(entry),memory=useRef(new Map()),quotaMemory=useRef(new Map()),quotaRequest=useRef(null),quotaSerial=useRef(0),composers=useRef(new Map()),ownerEpoch=useRef(pageCacheEpoch()),generation=useRef(0),request=useRef(null),lastDirect=useRef(null),pendingDirect=useRef(null),mounted=useRef(false),originElement=useRef(null),sourceRef=useRef(source),priorSource=useRef(source),catalogRequest=useRef(null),catalogSerial=useRef(0),catalogWaits=useRef(new Map());sourceRef.current=source;
  const openRef=useRef(false),captureRef=useRef(false);
- const abort=useCallback(()=>{catalogSerial.current++;catalogRequest.current?.abort();catalogRequest.current=null;generation.current++;request.current?.abort();request.current=null;quotaSerial.current++;quotaRequest.current?.abort();quotaRequest.current=null},[]);
+ const abort=useCallback(()=>{if(pendingDirect.current&&lastDirect.current===pendingDirect.current.key)lastDirect.current=null;pendingDirect.current=null;catalogSerial.current++;catalogRequest.current?.abort();catalogRequest.current=null;generation.current++;request.current?.abort();request.current=null;quotaSerial.current++;quotaRequest.current?.abort();quotaRequest.current=null},[]);
  const remember=useCallback((scope,value)=>{
   if(!scope)return;memory.current.delete(scope);memory.current.set(scope,value);
   let bytes=0;for(const item of memory.current.values())bytes+=JSON.stringify(item).length*2;
@@ -42,11 +42,13 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
   }
   const previous=contexts.current,changed=previous?.scope!==payload.scope||previous?.revision!==payload.revision;
   if(!changed&&previous?.canInsert===payload.canInsert&&previous?.canVault===payload.canVault&&previous?.modelName===payload.modelName&&previous?.fanName===payload.fanName&&previous?.historyComplete===payload.historyComplete)return;
-  if(changed||previous?.canInsert!==payload.canInsert||previous?.canVault!==payload.canVault)abort();
+  const interrupted=changed||previous?.canInsert!==payload.canInsert||previous?.canVault!==payload.canVault;
+  if(interrupted)abort();
   const value={...payload,messages:payload.messages.slice()};contexts.current=value;
   let saved=previous?.scope===payload.scope?entryRef.current:memory.current.get(payload.scope)||blank();
   if(saved.revision!==payload.revision)saved={...saved,...catalogBlank(),candidates:[],knowledge:null,diagnostic:null,selectedId:null,selectedMessageId:null,busy:false,error:'',notice:'',insertToken:null,inserted:false,revision:payload.revision};
   else if(previous?.scope!==payload.scope)saved={...saved,...catalogBlank(),busy:false};
+  if(interrupted&&saved.busy)saved={...saved,busy:false};
   if(payload.canInsert!==true||payload.canVault!==true)saved={...saved,...catalogBlank()};
   if(!quotaRequest.current&&saved.quotaBusy)saved={...saved,quotaBusy:false};
   if(payload.canInsert!==true){quotaMemory.current.delete(payload.account);saved={...saved,quota:null,quotaAt:null,quotaError:''}}
@@ -140,13 +142,14 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
   if(message&&!selected)return;
   const directKey=selected?JSON.stringify([current.scope,current.revision,String(selected.id)]):null;
   if(directKey&&!force&&lastDirect.current===directKey)return;
-  if(directKey)lastDirect.current=directKey;
   abort();const mode=entryRef.current.mode||'generative',serial=generation.current,epoch=ownerEpoch.current,controller=new AbortController();request.current=controller;
+  if(directKey){lastDirect.current=directKey;pendingDirect.current={key:directKey,controller}}
   const input=selected?.text??entryRef.current.input;
   commit(previous=>({...previous,...catalogBlank(),input:typeof input==='string'?input:'',selectedMessageId:selected?String(selected.id):previous.selectedMessageId,...(previous.revision===current.revision?{}:{candidates:[],knowledge:null}),diagnostic:null,selectedId:null,insertToken:null,inserted:false,busy:typeof sourceRef.current==='function',error:'',notice:''}));
   const live=()=>mounted.current&&!controller.signal.aborted&&serial===generation.current&&epoch===pageCacheEpoch()&&contexts.current?.scope===current.scope&&contexts.current?.revision===current.revision;
-  if(typeof sourceRef.current!=='function'){request.current=null;commit(previous=>({...previous,busy:false,error:'Fuente verificada sin conectar. Todavía no se pueden recuperar respuestas documentadas.'}));return}
+  let completed=false;
   try{
+   if(typeof sourceRef.current!=='function'){commit(previous=>({...previous,busy:false,error:'Fuente verificada sin conectar. Todavía no se pueden recuperar respuestas documentadas.'}));return}
    const payload=await sourceRef.current({scope:current.scope,revision:current.revision,mode,input,force:mode==='generative'&&force===true,context:{...current,selectedMessageId:selected?String(selected.id):entryRef.current.selectedMessageId},signal:controller.signal});
    if(!live())return;const verified=validateSuggestions(payload,{scope:current.scope,revision:current.revision,allowedSourceModels:[current.account]}),candidates=[];let contentError='';
    for(const candidate of verified){
@@ -172,13 +175,18 @@ function ScopedProvider({actor,workspace,source,canManage,children}){
    const knowledge=payload.knowledge&&['connected','empty'].includes(payload.knowledge.status)&&Number.isSafeInteger(payload.knowledge.approvedCount)&&payload.knowledge.approvedCount>=0?payload.knowledge:null;
    const quotaAt=payload.quota?Date.now():null;if(payload.quota)quotaMemory.current.set(current.account,{quota:payload.quota,at:quotaAt,error:''});
    commit(previous=>({...previous,candidates,knowledge,...(payload.quota?{quota:payload.quota,quotaAt,quotaError:''}:{}),diagnostic:null,busy:false,error:contentError,revision:current.revision,notice:candidates.length?knowledge?.engine==='generative'?knowledge.reused?'Borradores vigentes reutilizados. No se ha solicitado una nueva inferencia.':'Borradores generados. Revisa el texto y la traducción antes de insertarlos.':'Ejemplos revisados recibidos. Selecciona uno para comprobarlo.':knowledge?.status==='empty'?'Banco conectado. Añade y aprueba ejemplos para esta modelo.':knowledge?.engine==='generative'?'La IA no propuso un borrador con las fuentes disponibles. Revisa los datos pendientes.':'No hay respuestas documentadas comparables en la fuente consultada.'}));
+   completed=true;
    if(live()&&candidates.length&&!candidates.some(candidate=>candidate.content))void onCatalogRequest();
   }catch(error){if(live()&&!cancelled(error)){
    if(mode==='generative')quotaMemory.current.delete(current.account);
    commit(previous=>({...previous,busy:false,candidates:[],knowledge:null,...(mode==='generative'?{quota:null,quotaAt:null}:{}),diagnostic:mode==='generative'?safeGenerationDiagnostic(error?.diagnostic)||safeGenerationDiagnostic({engine:'generative',reason:'unavailable'}):null,selectedId:null,insertToken:null,error:error?.message||'No se pudieron verificar las referencias.'}));
    if(mode==='generative'&&live())void loadQuota({force:true});
   }}
-  finally{if(request.current===controller)request.current=null}
+  finally{
+   if(pendingDirect.current?.controller===controller){if(!completed&&lastDirect.current===pendingDirect.current.key)lastDirect.current=null;pendingDirect.current=null}
+   if(!completed&&live()){lastDirect.current=null;if(entryRef.current.busy)commit(previous=>({...previous,busy:false}))}
+   if(request.current===controller)request.current=null;
+  }
  },[abort,commit,syncEpoch,loadQuota,onCatalogRequest]);
  const selectMessage=useCallback(message=>{if(!mounted.current||!openRef.current||!captureRef.current||contexts.current?.canRead!==true)return;void consult({message})},[consult]);
  const setCaptureEnabled=useCallback(value=>{const enabled=value===true&&openRef.current&&contexts.current?.canRead===true;captureRef.current=enabled;setCapture(enabled);lastDirect.current=null;if(!enabled){abort();commit(previous=>({...previous,...catalogBlank(),selectedMessageId:null,busy:false}))}},[abort,commit]);

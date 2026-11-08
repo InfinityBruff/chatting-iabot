@@ -61,3 +61,54 @@ test('a quota cached for the previous UTC day is refreshed on demand without an 
  source.readQuota=async()=>{reads++;return reads===1?{...quota,usageDay:new Date(Date.parse(day+'T00:00:00Z')-86400000).toISOString().slice(0,10),resetsAt:day+'T00:00:00Z'}:quota};
  const h=await open(source);h.current.public.setContext(context({fanId:'100'}));h.view();await flush();assert.equal(h.view().panel.entry.quota.usageDay,day);assert.equal(reads,2);assert.equal(generated,0);h.unmount();
 });
+
+const incoming={id:'10',text:'Hello, how is your day?',isFromMe:false,createdAt:'2026-11-06T12:00:00Z'};
+const capture=h=>{h.view().panel.setCaptureEnabled(true);return h.view()};
+test('temporary composer or vault permission changes release busy immediately and a late old result cannot disturb the explicit retry',async()=>{
+ for(const permission of ['canInsert','canVault']){
+  const calls=[],releases=[],source=request=>{calls.push(request);return new Promise(resolve=>releases.push(()=>resolve(payload(request))))},ctx=context({canVault:true,messages:[incoming]}),h=await open(source,ctx);
+  const first=capture(h).panel.onConsult({message:incoming});assert.equal(h.view().panel.entry.busy,true);
+  h.current.public.setContext({...ctx,[permission]:false});assert.equal(h.view().panel.entry.busy,false);assert.equal(calls[0].signal.aborted,true);
+  h.current.public.setContext(ctx);h.view();await flush();assert.equal(calls.length,1);assert.equal(h.view().panel.entry.busy,false);
+  const retry=h.current.panel.onConsult({message:incoming});assert.equal(calls.length,2);assert.equal(h.view().panel.entry.busy,true);
+  releases[0]();await first;assert.equal(h.view().panel.entry.busy,true);assert.equal(h.current.panel.entry.candidates.length,0);
+  releases[1]();await retry;assert.equal(h.view().panel.entry.busy,false);assert.equal(h.current.panel.entry.candidates.length,1);
+  await h.current.panel.onConsult({message:incoming});assert.equal(calls.length,2);assert.deepEqual(calls.map(call=>call.force),[false,false]);h.unmount();
+ }
+});
+
+test('429 and503 release a failed direct selection only for an explicit retry, while a completed selection remains deduplicated',async()=>{
+ for(const status of [429,503]){
+  const calls=[],source=async request=>{calls.push(request);if(calls.length===1)throw Object.assign(Error('Temporary source failure'),{status,diagnostic:{engine:'generative',reason:status===429?'provider_limit':'unavailable',...(status===429?{retryAfter:1}:{})}});return payload(request)},h=await open(source,context({messages:[incoming]}));
+  await capture(h).panel.onConsult({message:incoming});let view=h.view();assert.equal(view.panel.entry.busy,false);assert.ok(view.panel.entry.error);await flush();assert.equal(calls.length,1);
+  await view.panel.onConsult({message:incoming});view=h.view();assert.equal(calls.length,2);assert.equal(view.panel.entry.error,'');assert.equal(view.panel.entry.candidates.length,1);
+  await view.panel.onConsult({message:incoming});assert.equal(calls.length,2);assert.ok(calls.every(call=>call.force===false));h.unmount();
+ }
+});
+
+test('a failed explicit regeneration cannot leave an older direct-selection latch blocking the same message after its cards were cleared',async()=>{
+ const calls=[],source=async request=>{calls.push(request);if(calls.length===2)throw Error('Regeneration unavailable');return payload(request)},h=await open(source,context({messages:[incoming]}));
+ await capture(h).panel.onConsult({message:incoming});h.view();await h.current.panel.onConsult({force:true});assert.equal(h.view().panel.entry.candidates.length,0);
+ await h.current.panel.onConsult({message:incoming});assert.equal(h.view().panel.entry.candidates.length,1);assert.deepEqual(calls.map(call=>call.force),[false,true,false]);h.unmount();
+});
+
+test('closing cancels a pending direct request, reopening needs explicit intent, and late cancellation cannot clear the newer selection',async()=>{
+ const calls=[],settlers=[],source=request=>{calls.push(request);return new Promise((resolve,reject)=>settlers.push({resolve:()=>resolve(payload(request)),reject}))},h=await open(source,context({messages:[incoming]}));
+ const first=capture(h).panel.onConsult({message:incoming});h.view().panel.onClose();h.view();assert.equal(calls[0].signal.aborted,true);
+ h.current.public.openFrom();capture(h);await flush();assert.equal(calls.length,1);assert.equal(h.view().panel.entry.busy,false);
+ const retry=h.current.panel.onConsult({message:incoming});assert.equal(calls.length,2);settlers[0].reject(Object.assign(Error('Cancelled'),{name:'AbortError'}));await first;assert.equal(h.view().panel.entry.busy,true);
+ settlers[1].resolve();await retry;assert.equal(h.view().panel.entry.candidates.length,1);
+ await h.current.panel.onConsult({message:incoming});assert.equal(calls.length,2);h.unmount();
+});
+
+test('a source-side cancellation clears current busy and permits a manual retry without creating an automatic inference',async()=>{
+ let calls=0;const source=async request=>{if(++calls===1)throw Object.assign(Error('Source cancelled'),{name:'AbortError'});return payload(request)},h=await open(source,context({messages:[incoming]}));
+ await capture(h).panel.onConsult({message:incoming});assert.equal(h.view().panel.entry.busy,false);await flush();assert.equal(calls,1);
+ await h.current.panel.onConsult({message:incoming});assert.equal(h.view().panel.entry.candidates.length,1);assert.equal(calls,2);h.unmount();
+});
+
+test('a late failure from another fan cannot clear the current fan successful direct-selection deduplication',async()=>{
+ const calls=[];let reject;const source=request=>{calls.push(request);return calls.length===1?new Promise((resolve,no)=>{reject=no}):Promise.resolve(payload(request))},h=await open(source,context({messages:[incoming]}));
+ const old=capture(h).panel.onConsult({message:incoming});h.current.public.setContext(context({fanId:'100',messages:[incoming]}));h.view();await h.current.panel.onConsult({message:incoming});assert.equal(h.view().panel.entry.candidates.length,1);
+ reject(Error('Old fan request failed'));await old;h.view();await h.current.panel.onConsult({message:incoming});assert.equal(calls.length,2);assert.equal(h.current.public.context.fanId,'100');assert.equal(h.current.panel.entry.candidates.length,1);h.unmount();
+});
