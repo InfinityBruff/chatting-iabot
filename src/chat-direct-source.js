@@ -6,6 +6,13 @@ const abort=signal=>{if(signal?.aborted)throw Object.assign(new Error('Consulta 
 const unavailable=()=>new Error('No se pudo consultar el banco de ejemplos. Comprueba la conexión y vuelve a intentarlo.');
 const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value);
 const natural=value=>Number.isSafeInteger(value)&&value>=0;
+export function validateGenerationMemory(value){
+ if(!value||typeof value.enabled!=='boolean'||typeof value.contextLimited!=='boolean')throw generationDiagnosticError('unavailable');
+ const fields=['version','confirmedItems','usedConfirmedItems','messagesObserved'];
+ if(value.enabled){if(!fields.every(key=>natural(value[key]))||value.usedConfirmedItems>value.confirmedItems||typeof value.historyComplete!=='boolean')throw generationDiagnosticError('unavailable')}
+ else if(fields.some(key=>value[key]!==null)||value.historyComplete!==null||value.contextLimited!==true)throw generationDiagnosticError('unavailable');
+ return {enabled:value.enabled,...Object.fromEntries(fields.map(key=>[key,value[key]])),historyComplete:value.historyComplete,contextLimited:value.contextLimited};
+}
 export function validateGenerationQuota(value){
  const fields=['modelQueries','modelDailyLimit','sharedBudgetNeurons','calculatedNeurons','reservedNeurons','chargedNeurons','remainingNeurons','observedRequests','reservedRequests'];
  if(!value||!fields.every(key=>natural(value[key]))||value.modelDailyLimit<1||value.modelDailyLimit>1000||value.sharedBudgetNeurons!==7500||value.reservedNeurons!==value.reservedRequests*600||value.chargedNeurons!==value.calculatedNeurons+value.reservedNeurons||value.remainingNeurons!==Math.max(0,value.sharedBudgetNeurons-value.chargedNeurons)||typeof value.usageDay!=='string'||!/^\d{4}-\d{2}-\d{2}$/u.test(value.usageDay)||typeof value.resetsAt!=='string')throw generationDiagnosticError('unavailable');
@@ -69,9 +76,9 @@ async function generatedRead(client,context,operation,requestId,signal,force=fal
  identity(data,context);
  if(data?.engine!=='generative'||data.valid!==true||data.aiGenerated!==true||data.aiVerified!==false||!uuid(data.generationId)||data.requestId!==requestId||data.fanId!==context.fanId||typeof data.revision!=='string'||!/^[a-f0-9]{32}$/u.test(data.revision)||typeof data.contextHash!=='string'||!/^[a-f0-9]{64}$/u.test(data.contextHash)||typeof data.expiresAt!=='string'||!Number.isFinite(Date.parse(data.expiresAt))||Date.parse(data.expiresAt)<=Date.now()||!Array.isArray(data.drafts)||data.drafts.length>3||!Array.isArray(data.unknowns)||data.unknowns.length>5||data.unknowns.some(x=>typeof x!=='string'||!x.trim()||x.length>160)||!Number.isSafeInteger(data.approvedCount)||data.approvedCount<1)throw unavailable();
  if(operation==='generate'){
-  if(data.engineVersion!=='bruff-drafts-v2'||typeof data.reused!=='boolean'||data.engineInvoked!==!data.reused||(!data.reused||force)&&data.generationId!==requestId||force&&data.reused)throw unavailable();
- }else if(!['bruff-drafts-v2','legacy-v1'].includes(data.engineVersion)||data.reused!==false||data.engineInvoked!==false||data.generationId!==requestId)throw unavailable();
- return {...data,usage:validateGenerationUsage(data.usage),quota:validateGenerationQuota(data.quota)};
+  if(!['bruff-drafts-v2','bruff-drafts-v3'].includes(data.engineVersion)||typeof data.reused!=='boolean'||data.engineInvoked!==!data.reused||(!data.reused||force)&&data.generationId!==requestId||force&&data.reused)throw unavailable();
+ }else if(!['bruff-drafts-v2','bruff-drafts-v3','legacy-v1'].includes(data.engineVersion)||data.reused!==false||data.engineInvoked!==false||data.generationId!==requestId)throw unavailable();
+ return {...data,usage:validateGenerationUsage(data.usage),quota:validateGenerationQuota(data.quota),memoryContext:data.memoryContext===undefined&&data.engineVersion!=='bruff-drafts-v3'?null:validateGenerationMemory(data.memoryContext)};
 }
 function generatedCandidate(draft,data,account){return {id:'gen.'+data.generationId+'.'+draft.id,english:draft.english,spanish:draft.spanish,variables:[],aiGenerated:true,aiVerified:false,generationId:data.generationId,expiresAt:data.expiresAt,exampleIds:draft.exampleIds,knowledgeIds:draft.knowledgeIds,source:{kind:'generated',modelId:account,verified:false,label:'Borrador IA · Revisión humana',version:data.revision}}}
 // Secrets and transcript reads stay on the server. The browser supplies only
@@ -98,7 +105,7 @@ export function createChatDirectSource(client,{actor,workspace,engineEndpoint=fa
     const data=await generatedRead(client,context,'generate',crypto.randomUUID(),request.signal,request.force===true);check(request);
     const payload={scope:request.scope,revision:request.revision,candidates:data.drafts.map(d=>generatedCandidate(d,data,context.account))};
     const candidates=validateChatDirectSuggestions(payload,{scope:request.scope,revision:request.revision,allowedSourceModels:[context.account]});
-    return {...payload,candidates,quota:data.quota,knowledge:{status:'connected',approvedCount:data.approvedCount,engine:'generative',engineInvoked:data.engineInvoked,reused:data.reused,engineVersion:data.engineVersion,generationId:data.generationId,expiresAt:data.expiresAt,usage:data.usage,unknowns:data.unknowns}};
+    return {...payload,candidates,quota:data.quota,knowledge:{status:'connected',approvedCount:data.approvedCount,engine:'generative',engineInvoked:data.engineInvoked,reused:data.reused,engineVersion:data.engineVersion,generationId:data.generationId,expiresAt:data.expiresAt,usage:data.usage,unknowns:data.unknowns,memoryContext:data.memoryContext}};
   }
   const fallback=(context.messages||[]).filter(m=>m?.isFromMe===false&&!m.delivery&&typeof m.text==='string'&&m.text.trim()).sort((a,b)=>(Date.parse(b.createdAt)||0)-(Date.parse(a.createdAt)||0)||String(b.id).localeCompare(String(a.id),undefined,{numeric:true}))[0]?.text;
   const input=typeof request.input==='string'&&!request.input.trim()&&generationEndpoint?fallback:request.input;

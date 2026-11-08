@@ -9,6 +9,7 @@ import {discoverAudience} from './audience-discovery.js';
 import {resolveMassAudience,AudienceError,AudiencePending} from './advanced-audience.js';
 import {runAutomationTick} from './automation-worker.js';
 import {communityNames,communityAction} from './community.js';
+import {readNotificationHeads} from './notification-heads.js';
 import {fanProfile,fanHistory,fanActivity} from './fan-profile.js';
 import {actionNames,liveAction,mediaView} from './actions.js';
 import {createTypingResponse} from './typing-stream.js';
@@ -99,7 +100,7 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
   const reply=(status,body)=>{
    if(status===503)try{onFailure({event:'bruff_live_failure',operation:diagnosticOperation,kind:failureKind,...(Number.isInteger(providerStatus)&&providerStatus>=400&&providerStatus<=599?{providerStatus}:{})})}catch{}
    if(status===429&&Number.isInteger(body?.retryAfter)&&body.retryAfter>0)headers['Retry-After']=String(body.retryAfter);
-   if(readQuota&&['inbox','messages','fan_spend_batch','presence','profile','fan_profile','fan_spend','fan_history','fan_activity','earnings','monthly','balances','transactions',...communityNames].includes(diagnosticOperation))body={...body,readQuota};
+   if(readQuota&&['inbox','messages','fan_spend_batch','presence','profile','fan_profile','fan_spend','fan_history','fan_activity','earnings','monthly','balances','transactions','notification_heads',...communityNames].includes(diagnosticOperation))body={...body,readQuota};
    return new Response(JSON.stringify(body),{status,headers});
   };
   if(origin&&!origins.has(origin))return reply(403,{error:'Origen no permitido'});
@@ -128,20 +129,22 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
    let bytes=0,raw='';const chunks=[];const decoder=new TextDecoder();
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>(multipart?11*1024*1024:150000)){await reader.cancel();return reply(413,{error:'Solicitud demasiado grande'})}if(multipart)chunks.push(value);else raw+=decoder.decode(value,{stream:true})}raw+=decoder.decode()}finally{reader.releaseLock()}
    let input;try{input=multipart?Object.fromEntries(await new Response(new Blob(chunks),{headers:{'Content-Type':request.headers.get('content-type')}}).formData()):JSON.parse(raw)}catch{return reply(400,{error:'Solicitud inválida'})}
-   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','typing_stream','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background','foreground','liked','action_id','replyTo'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(!input||!uuid.test(input.workspace_id)||!['automation_audience','automation_prepare','native_activate','native_queue','native_cancel','typing_stream','accounts','fan_profile','fan_history','fan_activity','fan_spend','fan_spend_batch','like_message','presence','profile','inbox','messages','transactions','earnings','monthly','balances','notification_heads',...communityNames,...actionNames].includes(input.operation)||Object.keys(input).some(k=>!['run_id','expected_revision','draft_id','expected_version','workspace_id','creator_id','operation','conversation_id','cursor','start','end','query','category','type','text','attachments','ticket','file','price','list_id','name','user_id','user_ids','fast','message_id','background','foreground','liked','action_id','replyTo'].includes(k)))return reply(400,{error:'Consulta no válida'});
+   if(input.operation==='notification_heads'&&Object.keys(input).some(k=>!['workspace_id','creator_id','operation'].includes(k)))return reply(400,{error:'Consulta no válida'});
    diagnosticOperation=input.operation;
    if(input.background!=null&&(!['inbox','messages'].includes(input.operation)||typeof input.background!=='boolean'))return reply(400,{error:'Consulta no válida'});
    if('foreground'in input&&(typeof input.foreground!=='boolean'||!['fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','presence'].includes(input.operation)||input.foreground===true&&input.operation==='fan_activity'&&input.cursor!=null))return reply(400,{error:'Consulta no válida'});
    if(input.operation==='earnings'&&input.category!=null&&!earningsKeys.includes(input.category))return reply(400,{error:'Categoría financiera no válida'});
    if((Object.hasOwn(input,'liked')||Object.hasOwn(input,'action_id'))&&input.operation!=='like_message'||Object.hasOwn(input,'replyTo')&&input.operation!=='prepare_send')return reply(400,{error:'Consulta no válida'});
-   cancelableRead=['messages','inbox','monthly','balances','transactions','fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','presence'].includes(input.operation)||input.operation==='earnings'&&input.category!=null;
-   const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(['accounts','inbox','messages','typing_stream'].includes(input.operation)&&![401,403].includes(r.status)?'read_database':'access');return r.json()};
+   cancelableRead=['messages','inbox','monthly','balances','transactions','fan_profile','fan_history','fan_spend','fan_spend_batch','fan_activity','presence','notification_heads'].includes(input.operation)||input.operation==='earnings'&&input.category!=null;
+   const notificationSignal=input.operation==='notification_heads'?AbortSignal.any([request.signal,AbortSignal.timeout(25000)]):null;
+   const rpc=async(name,body)=>{const r=await fetcher(url+'/rest/v1/rpc/'+name,{method:'POST',headers:authHeaders,body:JSON.stringify(body),signal:notificationSignal?AbortSignal.any([notificationSignal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)});if(!r.ok)throw Error(['accounts','inbox','messages','typing_stream'].includes(input.operation)&&![401,403].includes(r.status)?'read_database':'access');return r.json()};
    if(input.operation==='accounts'){const [accounts,chatSafety]=await Promise.all([rpc('bruff_live_accounts',{w:input.workspace_id}),rpc('bruff_chat_status',{w:input.workspace_id})]);return reply(200,{accounts,writeEnabled,chatSafety})}
    if(!uuid.test(input.creator_id))return reply(400,{error:'Modelo inválida'});
    const permission=['like_message','automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)?'send':['transactions','earnings','monthly','balances'].includes(input.operation)?'analytics':input.operation.startsWith('vault_')?'vault':actionNames.includes(input.operation)?'send':'read';
    const authorize=async()=>{
     let p=permission;
-    if(communityNames.includes(input.operation)||['automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')} 
+    if(input.operation==='notification_heads'||communityNames.includes(input.operation)||['automation_audience','automation_prepare','native_activate','native_queue','native_cancel'].includes(input.operation)){const memberships=await rpc('bruff_my_workspaces',{});if(!Array.isArray(memberships)||!memberships.some(w=>w.id===input.workspace_id&&['owner','admin'].includes(w.role)))throw Error('access')}
     if(input.operation==='profile'){const accounts=await rpc('bruff_live_accounts',{w:input.workspace_id});const a=accounts.find(a=>a.id===input.creator_id);if(!a)throw Error('access');p=a.chat?'read':a.analytics?'analytics':a.vault?'vault':null;if(!p)throw Error('access')}
     return rpc('bruff_live_authorize',{w:input.workspace_id,c:input.creator_id,p});
    };
@@ -224,6 +227,11 @@ export function createLiveHandler({url,anonKey,providerKey,serviceKey,readSlotEn
      if(!uuid.test(prepared?.id)||(native?prepared.state!=='prepared':prepared.state!=='paused'||prepared.prepared!==true))return reply(409,{error:'La campaña ya tiene una ejecución. Revisa su estado antes de continuar.'});
     }
     return reply(200,{data:{...audience,...(prepared?{execution:prepared}:{}),draftId:draft.id,draftVersion:draft.version,creatorId:input.creator_id,activated:false}});
+   }
+   if(input.operation==='notification_heads'){
+    const data=await readNotificationHeads({binding,providerKey,fetcher,signal:notificationSignal,budgetMs:20000});
+    if(await authorize()!==binding)throw Error('access');notificationSignal.throwIfAborted();
+    return reply(200,{data,observedAt:new Date().toISOString()});
    }
    if(communityNames.includes(input.operation))return reply(200,{data:await communityAction({input,binding,providerKey,fetcher,authorize,writeEnabled}),observedAt:new Date().toISOString()});
    if(input.operation==='like_message')return await likeFanMessage({input,identity,binding,providerKey,fetcher,authorize,writeEnabled,reply});

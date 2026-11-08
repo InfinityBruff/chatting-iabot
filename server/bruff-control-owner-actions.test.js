@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createBruffControlHandler} from '../supabase/functions/bruff-control/handler.js';
-import {reservedUsage} from '../supabase/functions/bruff-drafts/usage.js';
+import {ENGINE_VERSION,reservedUsage} from '../supabase/functions/bruff-drafts/usage.js';
 const actor='11111111-1111-4111-8111-111111111111',w='22222222-2222-4222-8222-222222222222',c='33333333-3333-4333-8333-333333333333',id='44444444-4444-4444-8444-444444444444',requestId='55555555-5555-4555-8555-555555555555';
 const base='https://unit.supabase.co',token='Bearer owner-test-session',scope={workspace_id:w,model_id:c};
 const json=(data,status=200,headers={})=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json',...headers}});
@@ -9,7 +9,7 @@ const source=()=>({id,version:1,state:'draft',trigger:'Good morning',english:'He
 const exampleList=row=>({schemaVersion:1,status:'connected',canEdit:true,items:[row],total:1,limit:200,complete:true,savedId:null});
 const quota=()=>{const day=new Date().toISOString().slice(0,10);return {usageDay:day,resetsAt:new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString(),modelQueries:1,modelDailyLimit:100,sharedBudgetNeurons:7500,calculatedNeurons:0,reservedNeurons:600,chargedNeurons:600,remainingNeurons:6900,observedRequests:0,reservedRequests:1}};
 const delegation=()=>({enabled:false,mode:'drafts',fanScope:'selected',fanIds:[],delaySeconds:20,maxRepliesPerFanDay:5,contextSharingConfirmed:false,automaticSendingConfirmed:false});
-const generated=operation=>({actorId:actor,workspaceId:w,creatorId:c,fanId:'123',requestId,generationId:requestId,revision:'a'.repeat(32),contextHash:'b'.repeat(64),expiresAt:new Date(Date.now()+600000).toISOString(),engine:'generative',engineVersion:'bruff-drafts-v2',engineInvoked:operation==='generate',reused:false,valid:true,aiGenerated:true,aiVerified:false,approvedCount:1,usage:reservedUsage(),quota:quota(),drafts:[{id:'1',english:'Hello! How is your morning?',spanish:'¡Hola! ¿Cómo va tu mañana?',exampleIds:[id],knowledgeIds:[]}],unknowns:[]});
+const generated=operation=>({actorId:actor,workspaceId:w,creatorId:c,fanId:'123',requestId,generationId:requestId,revision:'a'.repeat(32),contextHash:'b'.repeat(64),expiresAt:new Date(Date.now()+600000).toISOString(),engine:'generative',engineVersion:ENGINE_VERSION,engineInvoked:operation==='generate',reused:false,valid:true,aiGenerated:true,aiVerified:false,approvedCount:1,usage:reservedUsage(),quota:quota(),drafts:[{id:'1',english:'Hello! How is your morning?',spanish:'¡Hola! ¿Cómo va tu mañana?',exampleIds:[id],knowledgeIds:[]}],unknowns:[]});
 function fixture(options={}){
  const calls=[],state={revoked:false,row:source(),settings:{enabled:false,dailyLimit:100,maxResults:3},version:2,delegation:delegation(),delegationVersion:0,activity:[]};
  const handler=createBruffControlHandler({url:base,anonKey:'public-test-key',ownerActionsEnabled:options.enabled??true,autopilotEnabled:options.worker??false,autopilotSendEnabled:options.send??false,autopilotRuntimeReady:options.ready??false,dispatchJob:options.dispatch,timeoutMs:options.timeoutMs,draftsTimeoutMs:options.draftsTimeoutMs,fetcher:async(url,request)=>{
@@ -46,7 +46,7 @@ const result=async response=>(await response.json()).result;
 
 test('advanced owner tools are off by default and do not widen legacy discovery or accepted arguments',async()=>{
  for(const enabled of [false,'true',1]){const f=fixture({enabled}),tools=(await result(await f.list())).tools;assert.equal(tools.length,12);const before=f.calls.length;assert.equal((await f.run('bruff_approve_source',{kind:'example',source_id:id,expected_version:1,review_hash:'a'.repeat(64),reviewed:true})).status,400);assert.equal(f.calls.length,before)}
- const f=fixture();const tools=(await result(await f.list())).tools;assert.equal(tools.length,25);assert.ok(tools.some(x=>x.name==='bruff_generate_replies'));assert.ok(!tools.some(x=>/send_message|run_bot/u.test(x.name)));assert.equal(tools.find(x=>x.name==='bruff_generate_replies').annotations.openWorldHint,true);assert.equal(tools.find(x=>x.name==='bruff_queue_selected_reply').annotations.openWorldHint,true);
+ const f=fixture();const tools=(await result(await f.list())).tools;assert.equal(tools.length,31);assert.ok(tools.some(x=>x.name==='bruff_generate_replies'));assert.ok(!tools.some(x=>/send_message|run_bot/u.test(x.name)));assert.equal(tools.find(x=>x.name==='bruff_generate_replies').annotations.openWorldHint,true);assert.equal(tools.find(x=>x.name==='bruff_queue_selected_reply').annotations.openWorldHint,true);
 });
 
 test('review and approval use real owner scope and preserve the exact stored source with fresh CAS',async()=>{
@@ -84,7 +84,7 @@ test('revocation after a generated result hides the text and never creates a sen
  const f=fixture({respond:(path,_body,state)=>{if(path==='/functions/v1/bruff-drafts')state.revoked=true}}),response=await f.run('bruff_generate_replies',{fan_id:'123',request_id:requestId,share_context:true});assert.equal(response.status,403);assert.ok(!(await response.text()).includes(source().english));assert.equal(f.calls.filter(x=>x.path==='/functions/v1/bruff-drafts').length,1);
 });
 
-test('only generation and verification gain a longer operation deadline after confirmed owner preflight',async()=>{
+test('generation and verification gain their bounded operation deadline after confirmed owner preflight',async()=>{
  const f=fixture({timeoutMs:40,draftsTimeoutMs:500,respond:async(path)=>{if(path==='/functions/v1/bruff-drafts')await new Promise(resolve=>setTimeout(resolve,70))}}),response=await f.run('bruff_generate_replies',{fan_id:'123',request_id:requestId,share_context:true});assert.equal(response.status,200);assert.equal((await result(response)).isError,false);
  const limited=fixture({respond:path=>path==='/functions/v1/bruff-drafts'?json({code:'AI_PROVIDER_LIMIT',error:'private provider detail'},429,{'Retry-After':'17'}):undefined}),out=await result(await limited.run('bruff_generate_replies',{fan_id:'123',request_id:requestId,share_context:true}));assert.equal(out.isError,true);assert.equal(out.structuredContent.retryAfter,17);assert.equal(out.structuredContent.errorCode,'AI_PROVIDER_LIMIT');assert.ok(!JSON.stringify(out).includes('private provider detail'));
 });

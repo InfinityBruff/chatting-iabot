@@ -1,4 +1,4 @@
-import {GENERATION_MODEL,OUTPUT_TOKENS,OUTPUT_SCHEMA,GenerationFailure,validatedPool,historySnapshot,historyHash,buildPrompt,validateGeneratedOutput} from './generation.js';
+import {GENERATION_MODEL,OUTPUT_TOKENS,OUTPUT_SCHEMA,GenerationFailure,validatedPool,historySnapshot,buildGenerationContext,generationContextHash,generationMemoryMetadata,validatedFanMemory,buildPrompt,validateGeneratedOutput} from './generation.js';
 import {ENGINE_VERSION,providerUsage,reservedUsage,validUsage,validQuota} from './usage.js';
 const defaults=['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site'];
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(x);
@@ -15,13 +15,13 @@ async function json(response,limit,signal){
  catch(e){signal.throwIfAborted();if(e instanceof GenerationFailure)throw e;throw unavailable()}
  finally{signal.removeEventListener('abort',cancel);reader.releaseLock()}
 }
-function canonical(data,{actor,w,c,fan,requestId,revision,hash},{cached=false,legacy=false}={}){
- if(data?.aiGenerated!==true||data.aiVerified!==false||!uuid(data.generationId)||!cached&&data.generationId!==requestId||data.actorId!==actor||data.workspaceId!==w||data.creatorId!==c||data.fanId!==fan||data.revision!==revision||data.contextHash!==hash||![ENGINE_VERSION,...(legacy?['legacy-v1']:[])].includes(data.engineVersion)||!validUsage(data.usage)||typeof data.expiresAt!=='string'||!Number.isFinite(Date.parse(data.expiresAt))||Date.parse(data.expiresAt)<=Date.now()||!Array.isArray(data.drafts)||data.drafts.length>3||!Array.isArray(data.unknowns)||data.unknowns.length>5||data.unknowns.some(x=>typeof x!=='string'||!x.trim()||x.length>160))throw stale();
+function canonical(data,{actor,w,c,fan,requestId,revision,hash},{cached=false}={}){
+ if(data?.aiGenerated!==true||data.aiVerified!==false||!uuid(data.generationId)||!cached&&data.generationId!==requestId||data.actorId!==actor||data.workspaceId!==w||data.creatorId!==c||data.fanId!==fan||data.revision!==revision||data.contextHash!==hash||data.engineVersion!==ENGINE_VERSION||!validUsage(data.usage)||typeof data.expiresAt!=='string'||!Number.isFinite(Date.parse(data.expiresAt))||Date.parse(data.expiresAt)<=Date.now()||!Array.isArray(data.drafts)||data.drafts.length>3||!Array.isArray(data.unknowns)||data.unknowns.length>5||data.unknowns.some(x=>typeof x!=='string'||!x.trim()||x.length>160))throw stale();
  const ids=new Set();
  for(const d of data.drafts){if(!['1','2','3'].includes(d.id)||ids.has(d.id)||typeof d.english!=='string'||!d.english.trim()||d.english.length>700||typeof d.spanish!=='string'||!d.spanish.trim()||d.spanish.length>1000||!Array.isArray(d.exampleIds)||!d.exampleIds.length||d.exampleIds.some(x=>!uuid(x))||!Array.isArray(d.knowledgeIds)||d.knowledgeIds.some(x=>!uuid(x)))throw stale();ids.add(d.id)}
  return data;
 }
-export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,cloudflareToken,freeTierConfirmed=false,fetcher=fetch,origins=defaults,timeoutMs=30000,onConfigFailure=record=>console.error(JSON.stringify(record))}={}){
+export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,cloudflareToken,freeTierConfirmed=false,fanMemoryEnabled=false,fetcher=fetch,origins=defaults,timeoutMs=30000,onConfigFailure=record=>console.error(JSON.stringify(record))}={}){
  let base;try{const u=new URL(url);if(u.protocol==='https:'&&!u.username&&!u.password&&!u.search&&!u.hash&&['','/'].includes(u.pathname))base=u.origin}catch{}
  const usable=value=>typeof value==='string'&&!!value&&!/[\s,]/u.test(value),accountValid=value=>typeof value==='string'&&/^[a-f0-9]{32}$/u.test(value);
  const credentialStatus=value=>({rawPresent:value!==undefined&&value!==null,isString:typeof value==='string',usableRaw:usable(value),usableAfterTrim:typeof value==='string'&&usable(value.trim())});
@@ -82,20 +82,21 @@ export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,
    if(pool.settings.enabled!==true)throw fail(409,'AI_DISABLED','La generación manual está desactivada para esta modelo.');
    if(!pool.examples.length)throw fail(409,'AI_SOURCES','Aprueba al menos un ejemplo de esta modelo antes de consultar la IA.');
    if(input.operation==='generate'&&!configured){try{onConfigFailure?.({event:'bruff_drafts_configuration',stage:'authenticated_generate',requirements:configuration})}catch{/* Diagnostics must never change authentication or the response. */}throw fail(503,'AI_CONFIG','Falta configurar el motor y confirmar el plan gratuito.')}
-   const load=async()=>historySnapshot(await call('/functions/v1/bruff-live',{workspace_id:w,creator_id:c,operation:'messages',conversation_id:fan,background:true}));
-   const history=await load(),hash=await historyHash(history),identity={actor,w,c,fan,requestId,revision:pool.revision,hash};
-   const recheck=async()=>{const fresh=validatedPool(await rpc('bruff_generation_pool',{w,c}),scope);if(fresh.revision!==pool.revision||await historyHash(await load())!==hash)throw stale()};
+   const load=async()=>{const history=historySnapshot(await call('/functions/v1/bruff-live',{workspace_id:w,creator_id:c,operation:'messages',conversation_id:fan,background:true})),memory=fanMemoryEnabled?validatedFanMemory(await call('/functions/v1/bruff-memory',{operation:'fan_memory_read',workspace_id:w,creator_id:c,conversation_id:fan}),{actor,w,c,fan}):null;return buildGenerationContext(history,memory)};
+   const context=await load(),hash=await generationContextHash(context),identity={actor,w,c,fan,requestId,revision:pool.revision,hash};
+   const prompt=buildPrompt(pool,context);
+   const recheck=async()=>{const fresh=validatedPool(await rpc('bruff_generation_pool',{w,c}),scope);if(fresh.revision!==pool.revision||await generationContextHash(await load())!==hash)throw stale()};
    if(input.operation==='verify'){
-    const result=canonical(await rpc('bruff_generation_result',{w,c,request_id:requestId,fan}),identity,{legacy:true});
+    const result=canonical(await rpc('bruff_generation_result',{w,c,request_id:requestId,fan}),identity);
     await recheck();
-    return reply(200,{...result,requestId,engine:'generative',engineInvoked:false,reused:false,approvedCount:pool.approvedCount,valid:true,quota:await readQuota()});
+    return reply(200,{...result,requestId,engine:'generative',engineInvoked:false,reused:false,approvedCount:pool.approvedCount,valid:true,memoryContext:generationMemoryMetadata(context,prompt),quota:await readQuota()});
    }
-   const prompt=buildPrompt(pool,history),claim=await rpc('bruff_generation_claim_v2',{w,c,request_id:requestId,fan,revision:pool.revision,context_hash:hash,engine_version:ENGINE_VERSION,force:input.force===true});
+   const claim=await rpc('bruff_generation_claim_v2',{w,c,request_id:requestId,fan,revision:pool.revision,context_hash:hash,engine_version:ENGINE_VERSION,force:input.force===true});
    if(claim?.actorId!==actor||claim.workspaceId!==w||claim.creatorId!==c||typeof claim.allowed!=='boolean'||typeof claim.reason!=='string')throw stale();
    if(!claim.allowed&&claim.reason==='cached'){
     const result=canonical(claim.cached,identity,{cached:true});
     await recheck();
-    return reply(200,{...result,requestId,engine:'generative',engineInvoked:false,reused:true,approvedCount:pool.approvedCount,valid:true,quota:await readQuota()});
+    return reply(200,{...result,requestId,engine:'generative',engineInvoked:false,reused:true,approvedCount:pool.approvedCount,valid:true,memoryContext:generationMemoryMetadata(context,prompt),quota:await readQuota()});
    }
    if(!claim.allowed&&claim.reason==='pending'){const error=fail(409,'AI_PENDING','Ya hay una consulta en curso para este contexto. Espera antes de volver a consultarlo.');error.retryAfter=Number.isSafeInteger(claim.retryAfter)&&claim.retryAfter>0&&claim.retryAfter<=86400?claim.retryAfter:2;throw error}
    if(!claim.allowed){if(['model_daily_limit','global_daily_limit','actor_minute_limit'].includes(claim.reason)){const e=fail(429,'AI_LOCAL_LIMIT','Se alcanzó el límite gratuito reservado para los borradores.');e.retryAfter=claim.retryAfter||60;throw e}throw stale()}
@@ -125,7 +126,7 @@ export function createDraftsHandler({url,anonKey,serviceKey,cloudflareAccountId,
    // Fixed service routes only attest accounting and a validated result for an
    // existing user reservation. Neither can read sources/history or send.
    const saved=canonical(await call('/rest/v1/rpc/bruff_generation_commit',{w,c,request_id:requestId,actor,payload},true),identity);
-   return reply(200,{...saved,requestId,engine:'generative',engineInvoked:true,reused:false,approvedCount:pool.approvedCount,valid:true,quota:await readQuota()});
+   return reply(200,{...saved,requestId,engine:'generative',engineInvoked:true,reused:false,approvedCount:pool.approvedCount,valid:true,memoryContext:generationMemoryMetadata(context,prompt),quota:await readQuota()});
   }catch(error){
    if(reservation&&!settlementAttempted)try{await settle(reservedUsage(),true)}catch{/* Unknown consumption remains conservatively reserved in SQL. */}
    if(signal.aborted)return reply(request.signal.aborted?408:504,{code:'AI_CANCELLED',error:'La consulta se canceló o superó el tiempo permitido. No se ha enviado nada.'});

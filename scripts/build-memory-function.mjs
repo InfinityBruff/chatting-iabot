@@ -15,5 +15,7 @@ try{
  const code=result.output[0].code,path=join(output,'bruff-memory.js'),schema=await readFile(join(root,'supabase/migrations/turso/202611070001_fan_script_progress.sql'));
  await writeFile(path,code);
  const manifest={function:{name:'bruff-memory',path,bytes:Buffer.byteLength(code),sha256:createHash('sha256').update(code).digest('hex')},schema:{name:'202611070001_fan_script_progress.sql',bytes:schema.byteLength,sha256:createHash('sha256').update(schema).digest('hex')},remoteChanges:false,fanSends:0};
+ manifest.schemas=[];
+ for(const name of ['202611070001_fan_script_progress.sql','202611070002_script_commerce.sql','202611080003_fan_context.sql']){const data=await readFile(join(root,'supabase/migrations/turso',name));manifest.schemas.push({name,bytes:data.byteLength,sha256:createHash('sha256').update(data).digest('hex')})}
  await writeFile(join(output,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');console.log(JSON.stringify(manifest));
 }finally{await build.close()}

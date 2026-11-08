@@ -4,8 +4,9 @@ import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
-import {createAiRunnerHandler} from '../supabase/functions/bruff-ai-runner/handler.js';
-import {historyHash,historySnapshot,GENERATION_MODEL} from '../supabase/functions/bruff-drafts/generation.js';
+import {createAiRunnerHandler,AUTOPILOT_ENGINE_VERSION} from '../supabase/functions/bruff-ai-runner/handler.js';
+import {ENGINE_VERSION} from '../supabase/functions/bruff-drafts/usage.js';
+import {historyHash,historySnapshot,GENERATION_MODEL,buildGenerationContext,generationContextHash,validatedFanMemory} from '../supabase/functions/bruff-drafts/generation.js';
 
 if(!process.argv[2])throw Error('Pass an installed PGlite module path. This test never installs or contacts a provider.');
 const {PGlite}=await import(pathToFileURL(process.argv[2]).href),db=new PGlite();
@@ -29,7 +30,8 @@ const activate=async()=>{const current=await control();return control('save',cur
 const pause=async()=>{const current=await control();return control('pause',current.version)};
 const jobState=id=>q('select state as value from bruff_private.ai_autopilot_jobs where id=$1',[id]);
 const countReservations=()=>q('select count(*)::integer as value from bruff_private.generation_reservations');
-const ageReservations=()=>db.exec("update bruff_private.generation_reservations set created_at=created_at-interval '61 seconds',expires_at=expires_at-interval '61 seconds'");
+// Keep the real accounting invariant when the fictional age crosses UTC midnight.
+const ageReservations=()=>db.exec("update bruff_private.generation_reservations set usage_day=((created_at-interval '61 seconds') at time zone 'UTC')::date,created_at=created_at-interval '61 seconds',expires_at=expires_at-interval '61 seconds'");
 const queueEvent=async(fan,message)=>{
  const stamp=await q("select to_char((clock_timestamp()+interval '1 second') at time zone 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as value"),event={event_id:randomUUID(),account_id:binding,fan_id:fan,message_id:message,direction:'received',occurred_at:stamp,ingested_at:stamp,source:'ws'};
  const result=await service(()=>q('select public.bruff_ai_event_ingest($1) as value',[event]));eq(result.accepted,true);eq(result.queued,true);ok(result.jobId);
@@ -62,12 +64,13 @@ const fetcher=async(url,input={})=>{
  }
  throw Error('Unknown offline route. There is no real fetch fallback.');
 };
-const runner=extra=>createAiRunnerHandler({url:base,serviceKey,providerKey,cloudflareAccountId:'a'.repeat(32),cloudflareToken:'fictional-cloudflare',freeTierConfirmed:true,enabled:true,sendEnabled:true,fetcher,...extra});
+const memoryFor=fan=>({actorId:owner,workspaceId:w,creatorId:c,fanId:fan,binding,version:1,contextRevision:'c'.repeat(64),items:[],coverage:{historyComplete:false,cursor:null,pages:0,recentCheckedAt:null,historyCheckedAt:null,messagesObserved:0,contextLimited:false}});
+const runner=extra=>createAiRunnerHandler({url:base,serviceKey,providerKey,cloudflareAccountId:'a'.repeat(32),cloudflareToken:'fictional-cloudflare',freeTierConfirmed:true,enabled:true,sendEnabled:true,fanMemoryEnabled:true,fanMemoryReader:async scope=>{eq(scope.ownerId,owner);eq(scope.binding,binding);return memoryFor(scope.fanId)},fetcher,...extra});
 const run=async(jobId,handler=runner())=>{const result=await handler(new Request('https://fictional-runner.example.test',{method:'POST',headers:{Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify(jobId?{job_id:jobId}:{})}));eq(result.status,200);return result.json()};
 
 try{
  await db.exec("create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.uid()returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated,service_role;");
- for(const name of ['202610300001_private_foundation','202610310003_team','202610310004_role_scopes','202610310005_team_names','202610310008_chat_safety','202610310009_bot_scope','202611010011_message_authorship','202611020033_provider_read_cooldown','202611020034_provider_read_slots','202611030035_provider_read_capacity','202611030036_provider_read_waiters','202611060040_chat_direct_knowledge','202611060041_ai_control','202611060042_ai_generation_knowledge','202611060043_ai_generation_budget','202611060044_ai_autopilot'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
+ for(const name of ['202610300001_private_foundation','202610310003_team','202610310004_role_scopes','202610310005_team_names','202610310008_chat_safety','202610310009_bot_scope','202611010011_message_authorship','202611020033_provider_read_cooldown','202611020034_provider_read_slots','202611030035_provider_read_capacity','202611030036_provider_read_waiters','202611060040_chat_direct_knowledge','202611060041_ai_control','202611060042_ai_generation_knowledge','202611060043_ai_generation_budget','202611060044_ai_autopilot','202611080047_fan_memory_engines'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
  await db.query('insert into auth.users values($1,$2,now())',[owner,'fictional-owner@example.test']);await db.query('insert into bruff_private.workspaces(id,name)values($1,$2)',[w,'Fictional offline runtime']);
  await db.query("insert into bruff_private.memberships(workspace_id,user_id,role,status,display_name)values($1,$2,'owner','active','Fictional owner')",[w,owner]);
  await db.query("insert into bruff_private.creator_accounts(workspace_id,id,display_name,provider,external_id,connection_status)values($1,$2,'Fictional model','ofmapi',$3,'connected')",[w,c,binding]);
@@ -79,15 +82,23 @@ try{
  await activate();setHistory('123');const automatic=await queueEvent('123','10');
  eq((await service(()=>q('select public.bruff_ai_event_ingest($1) as value',[automatic.event]))).queued,false);
  const first=await run(automatic.jobId);eq(first.status,'sent');eq(first.jobId,automatic.jobId);eq(first.providerId,'9001');eq(await jobState(automatic.jobId),'sent');eq(inferences,1);eq(posts,1);eq(await countReservations(),1);
- const accounting=await q('select jsonb_build_object(\'actual\',actual_neurons,\'engine\',engine_version,\'committed\',payload is not null) as value from bruff_private.generation_reservations where request_id=$1',[automatic.jobId]);eq(accounting,{actual:37,engine:'bruff-autopilot-v1',committed:true});
+ const accounting=await q('select jsonb_build_object(\'actual\',actual_neurons,\'engine\',engine_version,\'committed\',payload is not null) as value from bruff_private.generation_reservations where request_id=$1',[automatic.jobId]);eq(accounting,{actual:37,engine:AUTOPILOT_ENGINE_VERSION,committed:true});
+ // Exercise the exact midnight boundary independent of the wall clock. The
+ // production constraints stay enabled and all time changes are rolled back.
+ await db.exec('begin');
+ try{
+  await db.query("update bruff_private.generation_reservations set created_at='2026-01-02T00:00:30Z'::timestamptz,expires_at='2026-01-02T00:10:30Z'::timestamptz,usage_day='2026-01-02'::date where request_id=$1",[automatic.jobId]);
+  await ageReservations();
+  eq(await q("select jsonb_build_object('day',usage_day::text,'expiryValid',expires_at=created_at+interval '10 minutes','createdAt',to_char(created_at at time zone 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS')) as value from bruff_private.generation_reservations where request_id=$1",[automatic.jobId]),{day:'2026-01-01',expiryValid:true,createdAt:'2026-01-01T23:59:29'});
+ }finally{await db.exec('rollback')}
  const authors=await auth(()=>q('select public.bruff_message_authors($1,$2,$3,$4) as value',[w,c,'123',['9001']]));ok(authors['9001'].startsWith('BRUFF IA'));
  eq((await run(automatic.jobId)).status,'idle');eq(posts,1);eq(inferences,1);
 
- // A paused automatic engine does not invalidate a separately confirmed v2
+ // A paused automatic engine does not invalidate a separately confirmed v3
  // choice. The manual worker never calls CF or creates another reservation.
  await pause();await ageReservations();setHistory('456','20','How is your day?',true);
- const pool=await auth(()=>q('select public.bruff_generation_pool($1,$2) as value',[w,c])),hash=await historyHash(historySnapshot({data:histories.get('456')})),generation=randomUUID(),manualId=randomUUID();
- eq((await auth(()=>q('select public.bruff_generation_claim_v2($1,$2,$3,$4,$5,$6,$7,$8) as value',[w,c,generation,'456',pool.revision,hash,'bruff-drafts-v2',false]))).allowed,true);
+ const pool=await auth(()=>q('select public.bruff_generation_pool($1,$2) as value',[w,c])),hash=await generationContextHash(buildGenerationContext(historySnapshot({data:histories.get('456')}),validatedFanMemory(memoryFor('456'),{actor:owner,w,c,fan:'456',binding}))),generation=randomUUID(),manualId=randomUUID();
+ eq((await auth(()=>q('select public.bruff_generation_claim_v2($1,$2,$3,$4,$5,$6,$7,$8) as value',[w,c,generation,'456',pool.revision,hash,ENGINE_VERSION,false]))).allowed,true);
  await service(()=>q('select public.bruff_generation_usage($1,$2,$3,$4,$5,$6) as value',[w,c,generation,owner,1000,100]));const chosenOutput=output();chosenOutput.drafts=chosenOutput.drafts.map(d=>({...d,exampleIds:[exampleId]}));
  await service(()=>q('select public.bruff_generation_commit($1,$2,$3,$4,$5) as value',[w,c,generation,owner,chosenOutput]));
  const queueManual=req=>auth(()=>q('select public.bruff_queue_selected_reply($1,$2,$3,$4,$5,$6,$7,$8) as value',[w,c,'456',req,generation,'2',chosenOutput.drafts[1].english,true]));

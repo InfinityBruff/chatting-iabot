@@ -1,11 +1,41 @@
 import {combineNotifications} from './notification-state.js';
 
+const headTypes=['','purchases','tip'];
+const cancelled=()=>Object.assign(Error('Consulta cancelada'),{name:'AbortError'});
+function notificationHeads(value){
+ const rows=value?.data?.heads;if(!Array.isArray(rows)||rows.length!==3)throw Error('Respuesta agrupada de notificaciones no válida.');
+ const result=new Map();let denial;
+ for(const row of rows){
+  if(!row||typeof row!=='object'||!headTypes.includes(row.type)||result.has(row.type)||!!row.data===!!row.error)throw Error('Respuesta agrupada de notificaciones no válida.');
+  if(row.data){const page=row.data;if(!Array.isArray(page.notifications)||typeof page.hasMore!=='boolean'||page.cursor!==null&&(typeof page.cursor!=='string'||!page.cursor||page.cursor.length>2048)||page.hasMore&&!page.cursor)throw Error('Respuesta agrupada de notificaciones no válida.');result.set(row.type,{data:page,observedAt:value.observedAt})}
+  else{
+   const e=row.error;if(![401,403,429,502,503,504].includes(e.status)||e.retryAfter!==undefined&&(!Number.isSafeInteger(e.retryAfter)||e.retryAfter<1||e.retryAfter>2147483647)||e.providerStatus!==undefined&&(!Number.isInteger(e.providerStatus)||e.providerStatus<400||e.providerStatus>599))throw Error('Respuesta agrupada de notificaciones no válida.');
+   const error=Object.assign(Error(e.status===429?'El proveedor limita esta categoría. Espera antes de actualizar.':'No se pudo comprobar esta categoría. Se conserva lo ya cargado.'),{status:e.status,...(e.retryAfter?{retryAfter:e.retryAfter}:{}),...(e.providerStatus?{providerStatus:e.providerStatus}:{})});result.set(row.type,{error});if([401,403].includes(error.status))denial=error;
+  }
+ }
+ if(denial)throw denial;return result;
+}
+
+// A single collector cycle shares one fixed three-head request. Cursor pages
+// remain independent legacy reads; a failed batch never fans out into 3 calls.
+export function createNotificationHeadRequest({request,requestHeads,active=()=>true}){
+ let pending;
+ return async(params={},options={})=>{
+  const current=()=>active()&&options.active?.()!==false;if(!current())throw cancelled();
+  if(params.cursor!=null)return request(params,options);
+  const type=params.type||'';if(!headTypes.includes(type))throw Error('Categoría no válida.');
+  pending??=Promise.resolve().then(()=>{if(!active())throw cancelled();return requestHeads({active})}).then(notificationHeads);
+  const heads=await pending;if(!current())throw cancelled();const branch=heads.get(type);if(branch.error)throw branch.error;return branch;
+ };
+}
+
 // Separate category reads cover financial events omitted from the general feed.
 // IDs remain provider IDs, so one payment cannot produce three alerts.
-export async function collectNotificationUpdates({request,known,baseline,active=()=>true,onPage}){
+export async function collectNotificationUpdates({request,requestHeads,known,baseline,active=()=>true,onPage}){
  const previous=new Set(known);let invalidated=false,rejectFatal;
  const fatal=new Promise((_,reject)=>{rejectFatal=reject});
  const collectorActive=()=>!invalidated&&active();
+ const read=typeof requestHeads==='function'?createNotificationHeadRequest({request,requestHeads,active:collectorActive}):request;
  // A denial must reach the caller immediately so it can clear pages already
  // shown, while queued or late sibling branches lose their right to publish.
  const invalidate=error=>{if(!invalidated){invalidated=true;rejectFatal(error)}};
@@ -13,7 +43,7 @@ export async function collectNotificationUpdates({request,known,baseline,active=
   let cursor=null,head,rows=[],seen=new Set();
   do{
    if(!collectorActive())return {rows:[]};
-   let response;try{response=await request({...type?{type}:{},...cursor?{cursor}:{}},{active:collectorActive})}catch(error){if([401,403].includes(error?.status))invalidate(error);throw error}
+   let response;try{response=await read({...type?{type}:{},...cursor?{cursor}:{}},{active:collectorActive})}catch(error){if([401,403].includes(error?.status))invalidate(error);throw error}
    if(!collectorActive())return {rows:[]};
    const page=response.data;
    if(!Array.isArray(page?.notifications))throw Error('Respuesta de notificaciones no válida.');

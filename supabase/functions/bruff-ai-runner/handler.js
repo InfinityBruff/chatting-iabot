@@ -1,10 +1,12 @@
-import {GENERATION_MODEL,PROMPT_BYTES,OUTPUT_TOKENS,OUTPUT_SCHEMA,validatedPool,historySnapshot,historyHash,buildPrompt,validateGeneratedOutput} from '../bruff-drafts/generation.js';
-import {providerUsage,reservedUsage,validUsage} from '../bruff-drafts/usage.js';
+import {createFanMemoryStore} from '../bruff-memory/fan-memory-store.js';
+import {fanMemoryContext} from '../bruff-memory/fan-context.js';
+import {GENERATION_MODEL,PROMPT_BYTES,OUTPUT_TOKENS,OUTPUT_SCHEMA,validatedPool,historySnapshot,buildGenerationContext,generationContextHash,validatedFanMemory,FAN_MEMORY_POLICY,buildPrompt,validateGeneratedOutput} from '../bruff-drafts/generation.js';
+import {ENGINE_VERSION,providerUsage,reservedUsage,validUsage} from '../bruff-drafts/usage.js';
 import {protectProviderReads,retrySeconds} from '../bruff-live/provider-read-guard.js';
 import {coordinateProviderReads} from '../bruff-live/provider-read-coordinator.js';
 
 // Bump for any model, prompt, schema or validation contract change.
-export const AUTOPILOT_ENGINE_VERSION='bruff-autopilot-v1';
+export const AUTOPILOT_ENGINE_VERSION='bruff-autopilot-v2';
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(x);
 const fanId=x=>typeof x==='string'&&/^[1-9][0-9]{0,23}$/u.test(x);
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -34,7 +36,7 @@ function policySnapshot(pool,job){
  return p;
 }
 function canonical(value,{job,pool,hash,actor,time}){
- if(!object(value)||value.actorId!==actor||value.workspaceId!==job.scope.workspace||value.creatorId!==job.scope.creator||value.fanId!==job.scope.fan||value.generationId!==(job.kind==='manual'?job.generationId:job.id)||value.engineVersion!==(job.kind==='manual'?'bruff-drafts-v2':AUTOPILOT_ENGINE_VERSION)||value.aiGenerated!==true||value.aiVerified!==false||value.revision!==pool.revision||value.contextHash!==hash||!iso(value.expiresAt)||Date.parse(value.expiresAt)<=time||!validUsage(value.usage)||!Array.isArray(value.drafts)||value.drafts.length>3||!Array.isArray(value.unknowns)||value.unknowns.length>5)throw failure('invalid_result');
+ if(!object(value)||value.actorId!==actor||value.workspaceId!==job.scope.workspace||value.creatorId!==job.scope.creator||value.fanId!==job.scope.fan||value.generationId!==(job.kind==='manual'?job.generationId:job.id)||value.engineVersion!==(job.kind==='manual'?ENGINE_VERSION:AUTOPILOT_ENGINE_VERSION)||value.aiGenerated!==true||value.aiVerified!==false||value.revision!==pool.revision||value.contextHash!==hash||!iso(value.expiresAt)||Date.parse(value.expiresAt)<=time||!validUsage(value.usage)||!Array.isArray(value.drafts)||value.drafts.length>3||!Array.isArray(value.unknowns)||value.unknowns.length>5)throw failure('invalid_result');
  return value;
 }
 function verifiedDrafts(saved,prompt,pool,expected){
@@ -52,8 +54,9 @@ function authCheck(secret){
  // WebCrypto verifies a keyed MAC instead of comparing secret characters in JS.
  return (async()=>{const key=await crypto.subtle.importKey('raw',crypto.getRandomValues(new Uint8Array(32)),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']),encoder=new TextEncoder(),signature=await crypto.subtle.sign('HMAC',key,encoder.encode(secret));return value=>crypto.subtle.verify('HMAC',key,signature,encoder.encode(value))})();
 }
-export function createAiRunnerHandler({url,serviceKey,providerKey,cloudflareAccountId,cloudflareToken,freeTierConfirmed=false,enabled=false,sendEnabled=false,fetcher=fetch,now=()=>Date.now(),timeoutMs=45000,sleep}={}){
+export function createAiRunnerHandler({url,serviceKey,providerKey,cloudflareAccountId,cloudflareToken,freeTierConfirmed=false,enabled=false,sendEnabled=false,fanMemoryEnabled=false,tursoUrl,tursoToken,fanMemoryStore:injectedMemory,fanMemoryReader,fetcher=fetch,now=()=>Date.now(),timeoutMs=45000,sleep}={}){
  let base;try{const parsed=new URL(url);if(parsed.protocol==='https:'&&!parsed.username&&!parsed.password&&!parsed.search&&!parsed.hash&&['','/'].includes(parsed.pathname))base=parsed.origin}catch{}
+ let memoryStore=injectedMemory;if(fanMemoryEnabled&&!memoryStore&&!fanMemoryReader)try{memoryStore=createFanMemoryStore({url:tursoUrl,token:tursoToken,fetcher})}catch{/* Configured memory must fail closed when unavailable. */}
  const authenticate=authCheck(serviceKey),token=typeof cloudflareToken==='string'?cloudflareToken.trim():cloudflareToken;
  const configured=!!base&&usable(serviceKey)&&usable(providerKey),aiConfigured=typeof cloudflareAccountId==='string'&&/^[a-f0-9]{32}$/u.test(cloudflareAccountId)&&usable(token)&&freeTierConfirmed===true;
  return async request=>{
@@ -108,8 +111,18 @@ export function createAiRunnerHandler({url,serviceKey,providerKey,cloudflareAcco
     const rows=historySnapshot({data:await json(response,512*1024,signal)});await check();
     if(job.kind==='automatic'&&rows.at(-1)?.isFromMe!==false)throw failure('human_takeover');if(job.kind==='automatic'&&rows.at(-1)?.id!==job.anchorMessageId)throw failure('context_changed');latestHistory=rows;return rows;
    };
-   const initial=await history();hash=await historyHash(initial);
-   const prompt=buildPrompt(pool,initial);if(job.kind==='automatic')prompt.messages=prompt.messages.map((message,index)=>index===0?{...message,content:autoPolicy}:message);
+   const loadContext=async()=>{
+    const rows=await history();let memory=null;
+    if(fanMemoryEnabled){
+     if(!memoryStore&&typeof fanMemoryReader!=='function')throw failure('memory_unavailable');
+     await check();const memoryScope={ownerId:actor,actorId:actor,workspaceId:job.scope.workspace,creatorId:job.scope.creator,binding:job.binding,fanId:job.scope.fan};
+     let raw;try{raw=typeof fanMemoryReader==='function'?await fanMemoryReader(memoryScope,{signal}):await fanMemoryContext(memoryStore,memoryScope,{actorId:actor,signal})}catch(error){signal.throwIfAborted();throw failure([401,403].includes(error?.status)?'revoked':'memory_unavailable')}
+     await check();memory=validatedFanMemory(raw,{actor,w:job.scope.workspace,c:job.scope.creator,fan:job.scope.fan,binding:job.binding});
+    }
+    return buildGenerationContext(rows,memory);
+   };
+   const initial=await loadContext();hash=await generationContextHash(initial);
+   const prompt=buildPrompt(pool,initial);if(job.kind==='automatic')prompt.messages=prompt.messages.map((message,index)=>index===0?{...message,content:autoPolicy+' '+FAN_MEMORY_POLICY}:message);
    if(new TextEncoder().encode(JSON.stringify(prompt.messages)).length>PROMPT_BYTES)throw failure('invalid_result');
    let saved;
    if(job.kind==='manual'){
@@ -129,7 +142,7 @@ export function createAiRunnerHandler({url,serviceKey,providerKey,cloudflareAcco
     if(answer?.success!==true)throw failure('invalid_result');
     let raw=answer.result?.response;if(typeof raw==='string')try{raw=JSON.parse(raw)}catch{throw failure('invalid_result')}
     const payload=validateGeneratedOutput(raw,prompt,pool);
-    const fresh=await loadPool();if(fresh.revision!==pool.revision||await historyHash(await history())!==hash)throw failure('context_changed');
+    const fresh=await loadPool();if(fresh.revision!==pool.revision||await generationContextHash(await loadContext())!==hash)throw failure('context_changed');
     saved=verifiedDrafts(canonical(await rpc('result',{payload}),{job,pool,hash,actor,time:now()}),prompt,pool,payload);
    }
    }
@@ -141,7 +154,7 @@ export function createAiRunnerHandler({url,serviceKey,providerKey,cloudflareAcco
    }
    const fresh=await loadPool();if(fresh.revision!==pool.revision)throw failure('context_changed');
    // Every result sees a fresh provider head after the result/storage latency.
-   if(await historyHash(await history())!==hash)throw failure('context_changed');
+   if(await generationContextHash(await loadContext())!==hash)throw failure('context_changed');
    await check();const chosen=job.kind==='manual'?saved.drafts.find(d=>d.id===job.draftId):saved.drafts[0];if(!chosen)throw failure('invalid_result');
    const send=await rpc('begin',{generationId:saved.generationId,draftId:chosen.id,context_hash:hash,latest_message_id:latestHistory.at(-1).id,latest_is_from_me:latestHistory.at(-1).isFromMe});
    if(send?.allowed!==true)throw failure('revoked');begun=true;

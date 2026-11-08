@@ -2,7 +2,7 @@ import {soundCategories,soundTones,normalizeSoundSettings,readSoundSettings,soun
 import {collectNotificationUpdates,startModelPolling} from '../notification-poll.js';
 import {createNotificationReads} from '../notification-reads.js';
 import {authClient} from '../auth.js';
-import {startReviewSync} from '../notification-sync.js';
+import {startReviewSync,createReviewSyncTransport} from '../notification-sync.js';
 import {notificationCategory,notificationAmountLabel} from '../notification-presentation.js';
 import {useNotificationCategory} from './useNotificationCategory.js';
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
@@ -33,7 +33,7 @@ export function useNotifications(user,workspace,accounts,role){
     const m=models[id],version=m.version,initialized=m.initialized,baselineVersion=m.baselineVersion;let retryAfter;const active=()=>!disposed&&m.version===version;
     m.busy=!m.checked;publish();
     try{
-     const result=await collectNotificationUpdates({request:(params,options={})=>notificationReads.request(workspace,'notifications',{creator_id:id,...params},{active:()=>active()&&options.active?.()!==false,priority:priority(id,params.type)}),known:known[id],baseline:m.state.baseline,active,onPage:({rows,head,type})=>{if(active())mergeVerified(id,rows,head,type)}});
+     const result=await collectNotificationUpdates({requestHeads:(options={})=>liveRequest(workspace,'notification_heads',{creator_id:id},{active:()=>active()&&options.active?.()!==false,priority:'background'}),request:(params,options={})=>notificationReads.request(workspace,'notifications',{creator_id:id,...params},{active:()=>active()&&options.active?.()!==false,priority:priority(id,params.type)}),known:known[id],baseline:m.state.baseline,active,onPage:({rows,head,type})=>{if(active())mergeVerified(id,rows,head,type)}});
      if(!active())return;const {incoming,head,error}=result;retryAfter=result.retryAfter;
      const fresh=initialized&&baselineVersion===m.baselineVersion?freshNotifications(incoming,m.state.baseline,known[id]):[];
      if(baselineVersion===m.baselineVersion)incoming.forEach(n=>known[id].add(n.id));m.rows=combineNotifications(m.rows,incoming);m.checked=Date.now();m.error=error;m.busy=false;m.denied=false;if(baselineVersion===m.baselineVersion)m.initialized=true;if(head&&!m.historyLoaded){m.cursor=head.cursor;m.hasMore=head.hasMore}persist(id);
@@ -46,7 +46,8 @@ export function useNotifications(user,workspace,accounts,role){
   if(selected.current)focusRead.current(selected.current.model,selected.current.type);
   refresh.current=async(id,cursor)=>{if(!id){polling.refresh();return}const m=models[id];if(!m||m.loading)return;const version=m.version,active=()=>!disposed&&m.version===version;m.loading=true;publish();try{const r=await notificationReads.request(workspace,'notifications',{creator_id:id,...(cursor?{cursor}:{})},{active,priority:'selected',fresh:true});if(!active())return;m.rows=combineNotifications(m.rows,r.data.notifications);m.cursor=r.data.cursor;m.hasMore=r.data.hasMore;if(cursor)m.historyLoaded=true;m.error='';m.denied=false;m.checked=Date.now()}catch(e){if(!active())return;m.error=e.message;if(e.status===401||e.status===403)notificationReads.invalidate(workspace,id,e)}finally{if(active()){m.loading=false;publish()}}};
   const reviewed=e=>{for(const id of ids)if(!e||e.key===notificationKey(user,workspace,id))models[id].state=readNotificationState(notificationKey(user,workspace,id));publish()};
-  const cloud=startReviewSync({ids,visible:()=>document.visibilityState==='visible',read:id=>readNotificationState(notificationKey(user,workspace,id)),sync:async(id,baseline,sections)=>{const {data,error}=await authClient.rpc('bruff_notification_sync',{w:workspace,c:id,initial_baseline:baseline,review_sections:sections});if(error)throw error;return data},write:(id,state)=>{if(state.baseline<models[id].state.baseline){known[id].clear();models[id].checked=null;models[id].initialized=false;models[id].baselineVersion++}models[id].state=state;models[id].synced=true;persist(id);publish()},status:(id,error,failure)=>{models[id].syncError=error;if(failure?.code==='42501')notificationReads.invalidate(workspace,id,Object.assign(Error(error||'No se pudo verificar el acceso a esta modelo.'),{status:403}));publish()}});
+  const reviewTransport=createReviewSyncTransport(authClient,{actor:user,workspace});
+  const cloud=startReviewSync({ids,syncBatch:reviewTransport.batch,visible:()=>document.visibilityState==='visible',read:id=>readNotificationState(notificationKey(user,workspace,id)),sync:reviewTransport.legacy,write:(id,state)=>{if(state.baseline<models[id].state.baseline){known[id].clear();models[id].checked=null;models[id].initialized=false;models[id].baselineVersion++}models[id].state=state;models[id].synced=true;persist(id);publish()},status:(id,error,failure)=>{if(!error&&models[id].syncError===error)return;models[id].syncError=error;if(failure?.code==='42501')notificationReads.invalidate(workspace,id,Object.assign(Error(error||'No se pudo verificar el acceso a esta modelo.'),{status:403}));publish()}});
   syncReviews.current=()=>cloud.refresh();
   const visible=()=>{if(document.visibilityState==='visible'){polling.refresh();cloud.refresh()}};
   setSnapshot({scope,models,toasts:[]});window.addEventListener('storage',reviewed);document.addEventListener('visibilitychange',visible);

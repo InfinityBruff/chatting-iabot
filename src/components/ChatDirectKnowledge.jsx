@@ -1,6 +1,8 @@
 import React,{useCallback,useEffect,useId,useMemo,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
 import ChatDirectModelKnowledge from './ChatDirectModelKnowledge.jsx';
+import ChatTeachingPermission from './ChatTeachingPermission.jsx';
+import './chat-direct-fan-memory.css';
 import './ChatDirectKnowledge.css';
 
 const blank=()=>({id:null,version:0,trigger:'',english:'',spanish:'',referenceId:'',label:'',sourceVersion:'',state:'draft'});
@@ -28,14 +30,14 @@ function readError(error){
 
 export default function ChatDirectKnowledge({workspace,account,actor,onChanged,initialSection='examples'}){
  const w=typeof workspace==='string'?workspace:workspace?.id,c=typeof account==='string'?account:account?.id;
- const section=['examples','knowledge','generation'].includes(initialSection)?initialSection:'examples',scope=JSON.stringify([actor,w,c,section]);
+ const section=['examples','knowledge','generation','teaching'].includes(initialSection)?initialSection:'examples',scope=JSON.stringify([actor,w,c,section]);
  return <KnowledgeHub key={scope} workspace={w} account={c} actor={actor} onChanged={onChanged} initialSection={section}/>;
 }
 
 function KnowledgeHub(props){
- const [section,setSection]=useState(props.initialSection||'examples'),tabs=[['examples','Ejemplos'],['knowledge','Modelo'],['generation','Generación']];
+ const [section,setSection]=useState(props.initialSection||'examples'),tabs=[['examples','Ejemplos y FAQ'],['knowledge','Modelo'],['generation','Generación'],['teaching','Control desde chat']];
  const navigate=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const index=tabs.findIndex(([key])=>key===section),next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;setSection(tabs[next][0]);event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus()};
- return <div className="chat-direct-knowledge-hub"><div className="chat-direct-knowledge-subtabs" role="tablist" aria-label="Administrar conocimiento de esta modelo" onKeyDown={navigate}>{tabs.map(([key,label])=><button type="button" role="tab" key={key} aria-selected={section===key} tabIndex={section===key?0:-1} onClick={()=>setSection(key)}>{label}</button>)}</div>{section==='examples'?<KnowledgeEditor {...props}/>:<ChatDirectModelKnowledge {...props} mode={section}/>}</div>;
+ return <div className="chat-direct-knowledge-hub"><div className="chat-direct-knowledge-subtabs" role="tablist" aria-label="Administrar conocimiento de esta modelo" onKeyDown={navigate}>{tabs.map(([key,label])=><button type="button" role="tab" key={key} aria-selected={section===key} tabIndex={section===key?0:-1} onClick={()=>setSection(key)}>{label}</button>)}</div>{section==='examples'?<KnowledgeEditor {...props}/>:section==='teaching'?<ChatTeachingPermission {...props}/>:<ChatDirectModelKnowledge {...props} mode={section}/>}</div>;
 }
 
 function KnowledgeEditor({workspace,account,actor,onChanged}){

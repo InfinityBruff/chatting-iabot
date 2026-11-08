@@ -49,9 +49,9 @@ test('latest incoming preview follows real dates and numeric IDs, keeps manual i
  assert.match(html,/aria-label="Último mensaje recibido"[^>]*><small>Último mensaje recibido<\/small><p>Latest by numeric ID<\/p>/u);assert.ok(!html.includes('<p>Older at end of array</p>'));assert.match(html,/<textarea[^>]*><\/textarea>/u);assert.equal(requests,0);
 });
 
-test('owner curation is absent from the worker panel, and the knowledge hub keeps the three owner sections separate',()=>{
+test('owner curation is absent from the worker panel, and the knowledge hub keeps owner sections and chat teaching separate',()=>{
  assert.ok(render().includes('>Base de ejemplos</button>'));assert.ok(!render({canManage:false}).includes('>Base de ejemplos</button>'));
- const html=renderToStaticMarkup(React.createElement(Knowledge,{actor,workspace,account}));for(const label of ['>Ejemplos</button>','>Modelo</button>','>Generación</button>'])assert.ok(html.includes(label));assert.ok(!html.includes('<form'));
+ const html=renderToStaticMarkup(React.createElement(Knowledge,{actor,workspace,account}));for(const label of ['>Ejemplos y FAQ</button>','>Modelo</button>','>Generación</button>','>Control desde chat</button>'])assert.ok(html.includes(label));assert.ok(!html.includes('<form'));
 });
 
 test('initial model knowledge has no fabricated personal data and generation has no assumed server state',()=>{

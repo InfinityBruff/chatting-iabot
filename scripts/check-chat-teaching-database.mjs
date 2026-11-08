@@ -1,0 +1,48 @@
+// Fictional local PostgreSQL only; pass an installed PGlite module path.
+import {readFile} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+import {randomUUID} from 'node:crypto';
+import assert from 'node:assert/strict';
+if(!process.argv[2])throw Error('Pass the local PGlite module path.');
+const {PGlite}=await import(pathToFileURL(process.argv[2]).href),db=new PGlite();let checks=0;
+const eq=(a,b)=>{assert.deepEqual(a,b);checks++},reject=async(fn,code)=>{await assert.rejects(fn,e=>e.code===code);checks++};
+const q=async(sql,args=[])=>(await db.query(sql,args)).rows[0]?.v;
+const w=randomUUID(),w2=randomUUID(),c=randomUUID(),c2=randomUUID(),foreign=randomUUID(),owner=randomUUID(),admin=randomUUID(),other=randomUUID(),unconfirmed=randomUUID();
+const login=async actor=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);await db.exec('set role authenticated')};
+const permission=(op='read',expected=null,value=null,model=c,workspace=w)=>q('select public.bruff_teaching_permission($1,$2,$3,$4,$5) as v',[workspace,model,op,expected,value]);
+const readSource=(id,kind='style_rule')=>q('select bruff_private.chat_teaching_source($1,$2,$3,$4) as v',[w,c,kind,id]);
+const teach=(kind,value,{id=null,expected=0,grant=1,request=randomUUID(),reviewed=true,model=c,workspace=w}={})=>q('select public.bruff_save_reviewed_teaching($1,$2,$3,$4,$5,$6,$7,$8,$9) as v',[workspace,model,kind,id,expected,grant,request,reviewed,value]);
+const rule=(patch={})=>({text:'Use short, friendly sentences.',referenceId:'owner.lesson.1',label:'Owner instruction',sourceVersion:'v1',...patch});
+const example=(patch={})=>({trigger:'hello',english:'Hello! How is your day?',spanish:'¡Hola! ¿Cómo va tu día?',referenceId:'owner.example.1',label:'Owner example',sourceVersion:'v1',...patch});
+const all={enabled:true,allowedKinds:['example','style_rule','model_fact','boundary']};
+try{
+ await db.exec("create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.uid()returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated,service_role;");
+ for(const name of ['202610300001_private_foundation','202610310003_team','202610310004_role_scopes','202611060040_chat_direct_knowledge','202611060041_ai_control','202611060042_ai_generation_knowledge','202611080046_chat_teaching'])await db.exec(await readFile(new URL('../supabase/migrations/'+name+'.sql',import.meta.url),'utf8'));
+ for(const id of [owner,admin,other,unconfirmed])await db.query('insert into auth.users values($1,$2,case when $3 then null else now() end)',[id,'fixture@example.test',id===unconfirmed]);
+ await db.query("insert into bruff_private.workspaces(id,name) values($1,'Fictional A'),($2,'Fictional B')",[w,w2]);
+ await db.query("insert into bruff_private.memberships(workspace_id,user_id,role,status) values($1,$2,'owner','active'),($1,$3,'admin','active'),($4,$2,'owner','active'),($4,$5,'owner','active')",[w,owner,admin,w2,unconfirmed]);
+ await db.query("insert into bruff_private.creator_accounts(workspace_id,id,display_name,provider,external_id,connection_status) values($1,$2,'A','ofmapi','acct_fixture_a','connected'),($1,$3,'B','ofmapi','acct_fixture_b','connected'),($4,$5,'C','ofmapi','acct_fixture_c','connected')",[w,c,c2,w2,foreign]);
+ await login(owner);const initial=await permission();eq(initial.permission,{enabled:false,allowedKinds:[]});eq(initial.version,0);eq(initial.actorId,owner);
+ await reject(()=>teach('style_rule',rule()),'42501');await reject(()=>permission('save',1,all),'40001');
+ for(const value of [null,{}, {enabled:true,allowedKinds:[]},{enabled:true,allowedKinds:['FAQ']},{enabled:true,allowedKinds:['example','example']},{enabled:'true',allowedKinds:['example']},{...all,actorId:other}])await reject(()=>permission('save',0,value),'22023');
+ const allowed=await permission('save',0,all);eq(allowed.version,1);eq(allowed.permission,{enabled:true,allowedKinds:['boundary','example','model_fact','style_rule']});eq((await permission('read',null,null,c2)).version,0);
+ const request=randomUUID(),saved=await teach('style_rule',rule(),{request});eq(saved.source.state,'verified');eq(saved.source.version,1);eq(saved.source.text,rule().text);eq(saved.reused,false);eq(saved.kind,'style_rule');eq(saved.actorId,owner);eq(saved.permissionVersion,1);
+ const replay=await teach('style_rule',rule(),{request});eq(replay.reused,true);eq(replay.source,saved.source);
+ await reject(()=>teach('style_rule',rule({text:'Another body'}),{request}),'40001');await reject(()=>teach('style_rule',rule(),{grant:2}),'40001');await reject(()=>teach('style_rule',rule(),{reviewed:false}),'22023');
+ for(const patch of [{state:'verified'},{key:'age'},{text:''},{text:'Hello {{NAME}}'},{referenceId:'https://wrong.test'},{sourceVersion:'0'},{label:' leading space'}])await reject(()=>teach('style_rule',rule(patch)),'22023');
+ const edited=await teach('style_rule',rule({text:'Keep replies brief.'}),{id:saved.source.id,expected:1});eq(edited.source.version,2);eq(edited.source.text,'Keep replies brief.');await reject(()=>teach('style_rule',rule(),{id:saved.source.id,expected:1}),'40001');await reject(()=>teach('style_rule',rule(),{request}),'40001');
+ const ex=await teach('example',example());eq(ex.source.english,example().english);eq(ex.source.spanish,example().spanish);eq(ex.source.version,1);
+ const fact=await teach('model_fact',rule({key:'public_name',text:'Fictional Nora'}));eq(fact.source.key,'public_name');await reject(()=>teach('model_fact',rule({key:'public_name',text:'Fictional Other'})),'23505');await reject(()=>teach('model_fact',rule({key:'language'}),{id:fact.source.id,expected:1}),'22023');
+ const allBefore=await q("select public.bruff_model_knowledge($1,$2,'list',null,null,null) as v",[w,c]);await reject(()=>teach('style_rule',rule({text:'x'.repeat(1201)})),'22023');const allAfter=await q("select public.bruff_model_knowledge($1,$2,'list',null,null,null) as v",[w,c]);eq(allAfter,allBefore);
+ const revoked=await permission('save',1,{enabled:false,allowedKinds:all.allowedKinds});eq(revoked.version,2);await reject(()=>teach('example',example()),'42501');await reject(()=>teach('example',example(),{id:ex.source.id,expected:1}),'42501');
+ const limited=await permission('save',2,{enabled:true,allowedKinds:['boundary']});eq(limited.version,3);await reject(()=>teach('example',example(),{grant:3}),'42501');eq((await teach('boundary',rule(),{grant:3})).source.state,'verified');
+ await reject(()=>permission('save',1,all),'40001');await reject(()=>permission('read',null,null,foreign,w),'42501');
+ await login(admin);await reject(()=>permission(),'42501');await reject(()=>teach('boundary',rule(),{grant:3}),'42501');await login(other);await reject(()=>permission(),'42501');await login(unconfirmed);await reject(()=>permission('read',null,null,foreign,w2),'42501');
+ await login(owner);const scoped=await q('select public.bruff_fan_memory_scope($1,$2) as v',[w,c]);eq(scoped,{actorId:owner,ownerId:owner,workspaceId:w,creatorId:c,binding:'acct_fixture_a'});
+ await login(admin);eq((await q('select public.bruff_fan_memory_scope($1,$2) as v',[w,c])).actorId,admin);await reject(()=>q('select public.bruff_fan_memory_scope($1,$2) as v',[w,foreign]),'42501');
+ await db.exec('reset role');await db.query("update bruff_private.creator_accounts set external_id='acct_fixture_a' where workspace_id=$1 and id=$2",[w2,foreign]);await login(owner);await reject(()=>q('select public.bruff_fan_memory_scope($1,$2) as v',[w,c]),'42501');
+ await db.exec('reset role');await db.query("update bruff_private.creator_accounts set external_id='acct_fixture_c' where workspace_id=$1 and id=$2",[w2,foreign]);await db.query("update bruff_private.memberships set status='disabled' where workspace_id=$1 and user_id=$2",[w,owner]);await login(owner);await reject(()=>permission(),'42501');await reject(()=>teach('boundary',rule(),{grant:3}),'42501');await reject(()=>q('select public.bruff_fan_memory_scope($1,$2) as v',[w,c]),'42501');
+ for(const table of ['chat_teaching_permissions','chat_teaching_receipts'])await reject(()=>db.query('select * from bruff_private.'+table),'42501');await reject(()=>readSource(saved.source.id),'42501');
+ await db.exec("reset role;set role service_role");await reject(()=>permission(),'42501');await reject(()=>q('select public.bruff_fan_memory_scope($1,$2) as v',[w,c]),'42501');
+ console.log('Chat teaching SQL: '+checks+' fictional local checks passed.');
+}finally{await db.close()}

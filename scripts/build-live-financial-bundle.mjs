@@ -15,7 +15,7 @@ if(start<0||handlerStart<start||serve<handlerStart)throw Error('Unexpected basel
 const dir=await mkdtemp(join(tmpdir(),'bruff-financial-bundle-'));
 try{
  let bundle='';
- for(const [name,files]of Object.entries({BRUFFLikes:['supabase/functions/bruff-live/message-like.js'],BRUFFReadGuard:['supabase/functions/bruff-live/provider-read-guard.js','supabase/functions/bruff-live/provider-read-coordinator.js'],BRUFFQueue:['server/native-queue.js'],BRUFFNative:['server/native-mass.js'],BRUFFAdvanced:['server/advanced-worker.js'],BRUFFPrep:['server/advanced-preparation.js'],BRUFFAudience:['supabase/functions/bruff-live/advanced-audience.js','supabase/functions/bruff-live/audience-discovery.js']})){
+ for(const [name,files]of Object.entries({BRUFFLikes:['supabase/functions/bruff-live/message-like.js'],BRUFFReadGuard:['supabase/functions/bruff-live/provider-read-guard.js','supabase/functions/bruff-live/provider-read-coordinator.js'],BRUFFNotificationHeads:['supabase/functions/bruff-live/notification-heads.js'],BRUFFQueue:['server/native-queue.js'],BRUFFNative:['server/native-mass.js'],BRUFFAdvanced:['server/advanced-worker.js'],BRUFFPrep:['server/advanced-preparation.js'],BRUFFAudience:['supabase/functions/bruff-live/advanced-audience.js','supabase/functions/bruff-live/audience-discovery.js']})){
   const entry=join(dir,name+'.mjs');await writeFile(entry,files.map(p=>`export * from ${JSON.stringify(join(root,p))};`).join('\n'));
   const build=await rolldown({input:entry});
   try{const result=await build.generate({format:'iife',name});bundle+=result.output[0].code+'\n'}finally{await build.close()}
@@ -45,7 +45,7 @@ try{
  const legacy=handler.indexOf("  if(request.headers.has('x-bruff-automation-secret')){"),auth=handler.indexOf('  const authorization=',legacy);
  if(legacy<0||auth<legacy)throw Error('Unexpected legacy worker boundary');
  handler=handler.slice(0,legacy)+"  if(request.headers.has('x-bruff-automation-secret'))return reply(403,{error:'Ejecutor anterior deshabilitado'});\n"+handler.slice(auth);
- for(const [symbol,namespace]of Object.entries({likeFanMessage:'BRUFFLikes',manageNativeQueue:'BRUFFQueue',submitNativeMass:'BRUFFNative',runAdvancedTick:'BRUFFAdvanced',preparationPlan:'BRUFFPrep'}))handler=handler.replaceAll(symbol+'(',namespace+'.'+symbol+'(');
+ for(const [symbol,namespace]of Object.entries({likeFanMessage:'BRUFFLikes',readNotificationHeads:'BRUFFNotificationHeads',manageNativeQueue:'BRUFFQueue',submitNativeMass:'BRUFFNative',runAdvancedTick:'BRUFFAdvanced',preparationPlan:'BRUFFPrep'}))handler=handler.replaceAll(symbol+'(',namespace+'.'+symbol+'(');
  const serveSource=prior.slice(serve);
  bundle+=handler+'\n'+(serveSource.includes('readSlotEnabled:')?serveSource:serveSource.replace('createLiveHandler({','createLiveHandler({readSlotEnabled:true,'));
  await writeFile(output,bundle);

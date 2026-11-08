@@ -3,7 +3,7 @@
 // https://developers.cloudflare.com/workers-ai/platform/pricing/ (2026-11-06)
 // Bump whenever model, prompt policy, output schema, or validation changes:
 // cache entries attest the complete inference contract, not only the text.
-export const ENGINE_VERSION='bruff-drafts-v2';
+export const ENGINE_VERSION='bruff-drafts-v3';
 export const RESERVED_NEURONS=600;
 export const SHARED_BUDGET_NEURONS=7500;
 const record=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);

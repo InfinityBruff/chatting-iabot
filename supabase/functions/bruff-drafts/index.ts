@@ -5,4 +5,5 @@ Deno.serve(createDraftsHandler({
  cloudflareAccountId:Deno.env.get('CLOUDFLARE_ACCOUNT_ID'),
  cloudflareToken:Deno.env.get('CLOUDFLARE_WORKERS_AI_TOKEN'),
  freeTierConfirmed:Deno.env.get('BRUFF_AI_FREE_TIER_CONFIRMED')==='true',
+ fanMemoryEnabled:Deno.env.get('BRUFF_FAN_MEMORY_ENABLED')==='true',
 }));
