@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import {isNeutralMemoryQuote,validateCitedCandidates,prepareCitedCandidates,citedCandidateKey} from '../supabase/functions/bruff-memory/cited-candidates.js';
-import {emptyFanContext,importCitedFanCandidates,editFanContext,createFanContext,syncFanContext} from '../supabase/functions/bruff-memory/fan-context.js';
+import {emptyFanContext,importCitedFanCandidates,editFanContext,createFanContext,syncFanContext,FAN_MEMORY_EXTRACTOR_VERSION} from '../supabase/functions/bruff-memory/fan-context.js';
 import {createFanMemoryStore} from '../supabase/functions/bruff-memory/fan-memory-store.js';
 import {createMemoryHandler} from '../supabase/functions/bruff-memory/handler.js';
 const owner='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222',w='33333333-3333-4333-8333-333333333333',c='44444444-4444-4444-8444-444444444444';
@@ -139,7 +139,7 @@ test('normal sync rejects contradictory identity echoes before writing the real 
 
 test('sync reopens legacy completed history at the real head once and preserves reviewed memories',async()=>{
  const first=await syncFanContext(scope,emptyFanContext(scope),{messages:[message('Call me Alex.')],hasMore:false,cursor:null}),reviewed=editFanContext(scope,first,{key:'preferred_name',action:'confirm',expected_version:first.memory.version});delete reviewed.scan.extractorVersion;
- const f=fixture({state:reviewed}),response=await f.run({operation:'fan_memory_sync',scan:'older',expected_version:undefined,candidates:undefined});assert.equal(response.status,200);const value=await response.json();assert.equal(f.writes.length,1);assert.equal(f.calls.find(x=>x.url.endsWith('/bruff-live')).body.cursor,undefined);assert.equal(value.version,reviewed.memory.version+1);assert.equal(value.coverage.pages,1);assert.equal(value.coverage.historyComplete,false);assert.equal(f.state.scan.extractorVersion,2);assert.deepEqual(value.items.find(i=>i.key==='preferred_name'),(await createFanContext(scope,reviewed)).items[0]);assert.equal(value.items.find(i=>i.category==='personal_context').status,'pending');
+ const f=fixture({state:reviewed}),response=await f.run({operation:'fan_memory_sync',scan:'older',expected_version:undefined,candidates:undefined});assert.equal(response.status,200);const value=await response.json();assert.equal(f.writes.length,1);assert.equal(f.calls.find(x=>x.url.endsWith('/bruff-live')).body.cursor,undefined);assert.equal(value.version,reviewed.memory.version+1);assert.equal(value.coverage.pages,1);assert.equal(value.coverage.historyComplete,false);assert.equal(f.state.scan.extractorVersion,FAN_MEMORY_EXTRACTOR_VERSION);assert.deepEqual(value.items.find(i=>i.key==='preferred_name'),(await createFanContext(scope,reviewed)).items[0]);assert.equal(value.items.find(i=>i.category==='personal_context').status,'pending');
  const bad=fixture({state:reviewed,providerStatus:503});assert.equal((await bad.run({operation:'fan_memory_sync',scan:'older',expected_version:undefined,candidates:undefined})).status,503);assert.equal(bad.writes.length,0);assert.deepEqual(bad.state,reviewed);
 });
 

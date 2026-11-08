@@ -1,6 +1,7 @@
 // Owner scope is authenticated by the caller and checked again by every RPC.
 // This module never receives a service credential, arbitrary URL or fan send.
 import {validateCitedCandidates} from '../bruff-memory/cited-candidates.js';
+import {validateMemoryQuestion} from '../../../server/fan-memory.js';
 export class TeachingError extends Error{constructor(status,code,message){super(message);this.name='TeachingError';this.status=status;this.code=code}}
 const error=(status=503,code='TEACHING_UNAVAILABLE')=>new TeachingError(status,code,status===400?'Revisa la enseñanza, el ámbito y la confirmación explícita.':status===409?'La versión cambió. Vuelve a leer antes de guardar.':'No se pudo confirmar la operación de conocimiento.');
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
@@ -40,7 +41,9 @@ export async function runTeachingAction({name,args,actor,w,c,rpc,recheckOwner}){
 export function fanMemorySnapshot(data,actor,w,c,fan){
  const scoped=identity(data,actor,w,c);if(data.fanId!==fan||typeof data.binding!=='string'||!/^acct_[A-Za-z0-9_-]{1,123}$/u.test(data.binding)||!natural(data.version)||typeof data.contextRevision!=='string'||!/^[a-f0-9]{64}$/u.test(data.contextRevision)||!Array.isArray(data.items)||data.items.length>100||!object(data.coverage))throw error();
  const keys=new Set(),items=data.items.map(item=>{
-  if(!exact(item,['key','category','value','status','pinned','origin','source'])||typeof item.key!=='string'||!/^[a-z0-9_-]{1,80}$/u.test(item.key)||keys.has(item.key)||!categories.includes(item.category)||!text(item.value,1000,true)||!['pending','confirmed'].includes(item.status)||typeof item.pinned!=='boolean'||!['analysis','manual'].includes(item.origin)||!exact(item.source,['messageId','quote','at','author'])||typeof item.source.messageId!=='string'||!/^[1-9][0-9]{0,23}$/u.test(item.source.messageId)||!text(item.source.quote,1000,true)||item.source.quote.trim().length<3||!timestamp(item.source.at)||!['fan','model'].includes(item.source.author))throw error();keys.add(item.key);return {...item,source:{...item.source}};
+  if(!exact(item,['key','category','value','status','pinned','origin','source'])||typeof item.key!=='string'||!/^[a-z0-9_-]{1,80}$/u.test(item.key)||keys.has(item.key)||!categories.includes(item.category)||!text(item.value,1000,true)||!['pending','confirmed'].includes(item.status)||typeof item.pinned!=='boolean'||!['analysis','manual'].includes(item.origin)||!exact(item.source,['messageId','quote','at','author',...(Object.hasOwn(item.source||{},'question')?['question']:[])])||typeof item.source.messageId!=='string'||!/^[1-9][0-9]{0,23}$/u.test(item.source.messageId)||!text(item.source.quote,1000,true)||item.source.quote.trim().length<(Object.hasOwn(item.source,'question')?2:3)||!timestamp(item.source.at)||!['fan','model'].includes(item.source.author))throw error();
+  let question;try{question=validateMemoryQuestion(item.source,item.category)}catch{throw error()}
+  if(question&&item.origin==='analysis'&&item.value!==item.source.quote)throw error();keys.add(item.key);return {...item,source:{...item.source,...(question?{question}:{})}};
  });
  const v=data.coverage;if(!exact(v,['historyComplete','cursor','pages','recentCheckedAt','historyCheckedAt','messagesObserved','contextLimited'])||typeof v.historyComplete!=='boolean'||typeof v.contextLimited!=='boolean'||!natural(v.pages)||v.pages>1000000||!natural(v.messagesObserved)||(v.cursor!==null&&(!text(v.cursor,2048)))||![v.recentCheckedAt,v.historyCheckedAt].every(t=>t===null||timestamp(t))||v.historyComplete&&v.cursor!==null)throw error();
  return {...scoped,fanId:fan,binding:data.binding,version:data.version,contextRevision:data.contextRevision,items,coverage:{...v}};

@@ -266,8 +266,8 @@ export function createBruffControlHandler({url,anonKey,allowedOrigins=defaultOri
     output=generationSnapshot(await rpc('bruff_generation_control',{w,c,op:'save',expected:args.expected_version,value:args.settings}),actor,w,c,{expected:args.expected_version,settings:args.settings,allowEnabled:true});await recheckOwner();
    }else if(['bruff_list_conversations','bruff_read_conversation','bruff_generate_replies','bruff_verify_reply_selection'].includes(tool.name)){
     const operations={bruff_list_conversations:'list',bruff_read_conversation:'read',bruff_generate_replies:'generate',bruff_verify_reply_selection:'verify'},operation=operations[tool.name];
-    // Provider reads can wait behind the chat queue for up to thirty seconds.
-    // Extend only after the authenticated owner/model preflight above.
+    // Provider reads can queue and outlive the general ten-second deadline.
+    // Extend only after authenticated owner/model preflight.
     clearTimeout(timer);timer=setTimeout(()=>controller.abort(),draftsTimeout);
     output=await runChatRelay({operation,args,actor,w,c,call,recheckOwner});
    }else if(['bruff_read_autopilot','bruff_save_autopilot','bruff_pause_autopilot','bruff_read_autopilot_activity','bruff_review_uncertain_reply'].includes(tool.name)){

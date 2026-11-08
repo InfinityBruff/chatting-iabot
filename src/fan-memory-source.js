@@ -1,4 +1,5 @@
 // Fixed BRUFF endpoint only. Private memory is scoped and projected before UI use.
+import {validateMemoryQuestion} from '../server/fan-memory.js';
 const id=x=>typeof x==='string'&&/^[1-9][0-9]{0,23}$/u.test(x);
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(x);
 const natural=x=>Number.isSafeInteger(x)&&x>=0;
@@ -10,7 +11,9 @@ export function validateFanMemory(value,scope){
  if(!natural(value.version)||!(/^[a-f0-9]{64}$/u).test(value.contextRevision||'')||!Array.isArray(value.items)||value.items.length>1000)throw failure();
  const keys=new Set(),items=value.items.map(item=>{
   if(!item||!text(item.key,80)||keys.has(item.key)||!['preferred_name','language','interests','availability','pending_question','commitment','personal_context'].includes(item.category)||!text(item.value,1000)||!['pending','confirmed'].includes(item.status)||!['analysis','manual'].includes(item.origin)||typeof item.pinned!=='boolean'||!id(item.source?.messageId)||!text(item.source.quote,1000)||!date(item.source.at)||!['fan','model'].includes(item.source.author))throw failure();
-  keys.add(item.key);return {key:item.key,category:item.category,value:item.value,status:item.status,origin:item.origin,pinned:item.pinned,source:{messageId:item.source.messageId,quote:item.source.quote,at:item.source.at,author:item.source.author}};
+  let question;try{question=validateMemoryQuestion(item.source,item.category)}catch{throw failure()}
+  if(question&&item.origin==='analysis'&&item.value!==item.source.quote)throw failure();
+  keys.add(item.key);return {key:item.key,category:item.category,value:item.value,status:item.status,origin:item.origin,pinned:item.pinned,source:{messageId:item.source.messageId,quote:item.source.quote,at:item.source.at,author:item.source.author,...(question?{question}:{})}};
  });
  const c=value.coverage;
  if(!c||typeof c.historyComplete!=='boolean'||!(c.cursor===null||text(c.cursor,2048))||!natural(c.pages)||!natural(c.messagesObserved)||typeof c.contextLimited!=='boolean'||!(c.recentCheckedAt===null||date(c.recentCheckedAt))||!(c.historyCheckedAt===null||date(c.historyCheckedAt))||c.historyComplete&&c.cursor!==null)throw failure();

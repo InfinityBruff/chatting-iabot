@@ -11,8 +11,8 @@ const sensitive=/\b(?:race|racial|ethnic\w*|religio\w*|christian|muslim|jewish|h
 const credential=/\b(?:bearer|password|passwd|passcode|pin|contrasena|clave|credencial\w*|secret|secreto|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|session[ _-]?(?:key|token)|jwt|oauth|ssn|passport|pasaporte|dni|iban|credit card|tarjeta|bank account|cuenta bancaria)\b/u;
 const validScope=scope=>object(scope)&&['ownerId','workspaceId','creatorId'].every(k=>uuid(scope[k]))&&id(scope.fanId)&&typeof scope.binding==='string'&&/^acct_[A-Za-z0-9_-]{1,123}$/u.test(scope.binding);
 const validAt=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,19)===value.slice(0,19);
-function safeQuote(quote){
- if(typeof quote!=='string'||quote!==quote.trim()||quote.length<3||quote.length>240||/[\u0000-\u001f\u007f]/u.test(quote))return false;
+function safeQuote(quote,min=3,max=240){
+ if(typeof quote!=='string'||quote!==quote.trim()||quote.length<min||quote.length>max||/[\u0000-\u001f\u007f]/u.test(quote))return false;
  const value=fold(quote);
  if(/(?:[a-z][a-z0-9+.-]*:\/\/|https?:|www\.|\b(?:data|blob|javascript):|[\p{L}\d._%+-]+@[\p{L}\d.-]+\.[\p{L}]{2,}|@[\p{L}\d_]|\b[\p{L}\d-]+(?:\.[\p{L}\d-]+)*\.[a-z]{2,24}\b)/iu.test(quote))return false;
  if(/(?:\+?\d[\d ().-]{5,}\d|\d{4,}|\b[a-z0-9_-]{32,}\b|[$€£¥]|\b(?:street|road|avenue|postcode|postal|zip|calle|avenida|direccion exacta|numero de telefono|phone number|whatsapp|telegram|snapchat|instagram)\b)/iu.test(value))return false;
@@ -28,6 +28,10 @@ const hobbies=set('reading|books|music|football|basketball|cooking|hiking|photog
 const places=set('madrid|barcelona|valencia|sevilla|seville|bilbao|malaga|zaragoza|london|manchester|birmingham|edinburgh|dublin|paris|berlin|hamburg|munich|rome|roma|milan|milano|lisbon|lisboa|porto|amsterdam|brussels|vienna|zurich|prague|warsaw|athens|budapest|oslo|stockholm|helsinki|copenhagen|new york|boston|chicago|seattle|austin|denver|miami|los angeles|san francisco|san diego|houston|dallas|atlanta|toronto|montreal|vancouver|ottawa|mexico city|ciudad de mexico|bogota|medellin|buenos aires|santiago|lima|montevideo|caracas|quito|guayaquil|san jose|panama|sao paulo|rio de janeiro|sydney|melbourne|brisbane|perth|auckland|wellington|tokyo|osaka|seoul|singapore|bangkok|taipei|hong kong|dubai|abu dhabi|cape town|johannesburg|spain|espana|england|inglaterra|scotland|escocia|ireland|irlanda|france|francia|germany|alemania|italy|italia|portugal|netherlands|paises bajos|belgium|belgica|austria|switzerland|suiza|poland|polonia|greece|grecia|norway|noruega|sweden|suecia|finland|finlandia|denmark|dinamarca|canada|mexico|colombia|argentina|chile|peru|uruguay|ecuador|brazil|brasil|australia|new zealand|nueva zelanda|japan|japon|south korea|corea del sur|uk|the uk|united kingdom|the united kingdom|reino unido|usa|the usa|united states|the united states|estados unidos|california|texas|florida|new jersey|washington|colorado|ontario|quebec');
 const jobs=set('carpenter|electrician|plumber|mechanic|designer|graphic designer|web designer|software developer|software engineer|engineer|teacher|chef|cook|waiter|bartender|driver|photographer|writer|technician|accountant|consultant|artist|office worker|retail worker|construction worker|manager|carpintero|carpintera|electricista|fontanero|mecanico|mecanica|disenador|disenadora|desarrollador|desarrolladora|ingeniero|ingeniera|profesor|profesora|cocinero|cocinera|camarero|camarera|conductor|conductora|fotografo|fotografa|escritor|escritora|tecnico|tecnica|contable|artista');
 const sectors=set('design|software|engineering|retail|logistics|hospitality|construction|marketing|sales|an office|a restaurant|a shop|a hotel|a factory|diseno|programacion|ingenieria|logistica|hosteleria|construccion|ventas|una oficina|un restaurante|una tienda|un hotel|una fabrica');
+for(const place of 'alabama|alaska|arizona|arkansas|connecticut|delaware|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|utah|vermont|virginia|west virginia|wisconsin|wyoming'.split('|'))places.add(place);
+// A closed place vocabulary supports neutral, literal question/answer evidence.
+// It never geocodes an address or infers current or permanent residence.
+export const isAllowedCoarsePlace=value=>typeof value==='string'&&value===value.trim()&&value.length<=80&&places.has(fold(value));
 const nonNameTokens=set('and|or|but|because|with|without|my|your|his|her|their|our|i|you|he|she|we|they|me|have|has|had|am|is|are|was|were|be|been|being|need|feel|live|work|want|buy|can|will|would|should|must|do|does|not|no|yes|to|from|at|in|on|of|for|the|a|an|y|o|pero|porque|con|sin|mi|mis|tu|tus|su|sus|yo|el|ella|nosotros|ellos|tengo|tiene|tenia|soy|es|eres|somos|estoy|esta|vivo|trabajo|quiero|necesito|puedo|puede|debo|para|por|de|del|en|un|una|la|las|los|years|year|anos|ano|old|edad|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|doce|trece|catorce|quince|dieciseis|diecisiete|dieciocho|diecinueve|lupus');
 const listIn=(value,allowed)=>{const parts=value.split(/\s*(?:,|\band\b|\by\b|&)\s*/u);return parts.length>=1&&parts.length<=5&&parts.every(part=>allowed.has(part));};
 function positiveCategory(quote,category){
@@ -50,6 +54,16 @@ function positiveCategory(quote,category){
  return false;
 }
 export function isNeutralMemoryQuote(quote,category){return safeQuote(quote)&&(category===undefined?citedMemoryCategories.some(key=>positiveCategory(quote,key)):citedMemoryCategories.includes(category)&&positiveCategory(quote,category));}
+export function isNeutralMemoryFragment(quote){return safeQuote(quote,2,120);}
+export function isAllowedContextualReply(kind,quote){
+ if(!isNeutralMemoryFragment(quote))return false;
+ if(kind==='where_from'||kind==='where_based'){
+  const value=fold(quote);if(places.has(value))return true;
+  const part=/^(?:in|from|near|around|en|de|cerca de)\s+(?:(?:the\s+|las\s+|los\s+|el\s+)?(?:mountains|mountain region|countryside|state|area|montanas|estado|zona)\s+(?:of|de)\s+)?(.+)$/u.exec(value);return !!part&&places.has(part[1]);
+ }
+ const category=kind==='preferred_name'?'preferred_name':kind==='language'?'language':kind==='interests'?'interests':null,prefix=kind==='preferred_name'?'Call me ':kind==='language'?'I speak ':kind==='interests'?'I like ':null;
+ return !!category&&(isNeutralMemoryQuote(prefix+quote,category)||isNeutralMemoryQuote(quote,category));
+}
 export function validateCitedCandidates(candidates){
  if(!Array.isArray(candidates)||candidates.length>20)throw fail();
  return candidates.map(candidate=>{
