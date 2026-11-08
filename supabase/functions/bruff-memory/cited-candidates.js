@@ -57,6 +57,26 @@ export function validateCitedCandidates(candidates){
   return {category:candidate.category,message_id:candidate.message_id,quote:candidate.quote};
  });
 }
+// Ordinary declarations only: historical questions and promises are not an
+// automatic to-do list. This walks literal sentence spans, never paraphrases.
+export function extractCitedCandidateInputs(messages){
+ if(!Array.isArray(messages)||messages.length>200)throw fail(503);
+ const categories=['preferred_name','language','interests','personal_context','availability'],result=[];
+ for(const message of messages){
+  if(!object(message)||message.isFromMe!==false||message.pending||message.delivery||typeof message.text!=='string'||message.text.length>10000||!id(message.id)||!validAt(message.createdAt))continue;
+  const found=new Set();let spans=0;
+  for(const match of message.text.matchAll(/[^.!?;\r\n]+[.!?]?/gu)){
+   if(++spans>64)break;const quote=match[0].trim();if(!quote||quote.endsWith('?'))continue;
+   for(const category of categories){
+    if(found.has(category)||!isNeutralMemoryQuote(quote,category))continue;
+    // Time-relative availability from old pages must not become current state.
+    if(category==='availability'&&!/\b(?:on weekends|on weekdays|in the evenings|in the mornings|los fines de semana|entre semana|por las tardes|por las mananas)\b/u.test(fold(quote)))continue;
+    found.add(category);result.push({category,message_id:message.id,quote});
+   }
+  }
+ }
+ return result;
+}
 export async function citedCandidateKey(scope,candidate){
  const keys=['ownerId','workspaceId','creatorId','binding','fanId'];
  if(!validScope(scope))throw fail(503);

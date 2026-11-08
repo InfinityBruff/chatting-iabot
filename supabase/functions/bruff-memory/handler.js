@@ -4,7 +4,7 @@ import {createCatalogRecommendation} from './recommendation.js';
 import {createCommerceStore} from './commerce-store.js';
 import {extractPaidUnlockEvidence,reconcilePurchaseEvents,validatePlanInput,normalizeCommerceEvidence} from './commerce.js';
 import {createFanMemoryStore} from './fan-memory-store.js';
-import {createFanContext,syncFanContext,editFanContext,importCitedFanCandidates} from './fan-context.js';
+import {createFanContext,syncFanContext,editFanContext,importCitedFanCandidates,fanMemoryScanPlan} from './fan-context.js';
 import {validateCitedCandidates} from './cited-candidates.js';
 
 const origins=['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site'];
@@ -92,11 +92,12 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
     }else if(input.operation==='fan_memory_edit'){
      const next=editFanContext(scope,record,input.edit);await check();await ownerCheck();await check();record=await fanMemoryStore.write(scope,record.memory.version,next,signal);await check();await ownerCheck();
     }else if(input.operation==='fan_memory_sync'){
-     const older=input.scan==='older'&&record.scan.pages>0;
-     if(!older||!record.scan.historyComplete&&!record.scan.contextLimited){
-      const cursor=older?record.scan.cursor:null;if(older&&!cursor)throw error(409,'MEMORY_SCAN','Actualiza los mensajes recientes antes de ampliar la memoria.');
-      const data=page(await call('/functions/v1/bruff-live',{workspace_id:workspaceId,creator_id:creatorId,operation:'messages',conversation_id:fanId,background:true,...(cursor?{cursor}:{})},2*1024*1024));
-      const next=await syncFanContext(scope,record,data,{scan:older?'older':'recent',now:now()});await check();record=await fanMemoryStore.write(scope,record.memory.version,next,signal);
+     const plan=fanMemoryScanPlan(record,input.scan==='older'?'older':'recent');
+     if(!plan.skip){
+      const cursor=plan.cursor;
+      const envelope=await call('/functions/v1/bruff-live',{workspace_id:workspaceId,creator_id:creatorId,operation:'messages',conversation_id:fanId,background:true,...(cursor?{cursor}:{})},2*1024*1024),data=page(envelope);
+      for(const value of [envelope,data])for(const [key,expected]of [['actorId',actorId],['workspaceId',workspaceId],['creatorId',creatorId],['modelId',creatorId],['fanId',fanId],['binding',binding]])if(Object.hasOwn(value,key)&&value[key]!==expected)throw access();
+      const next=await syncFanContext(scope,record,data,{scan:plan.scan,now:now()});await check();record=await fanMemoryStore.write(scope,record.memory.version,next,signal);
      }
     }
     await check();const value=await createFanContext(scope,record,{actorId});signal.throwIfAborted();return reply(200,{...value,...(importResult?{importResult}:{})});

@@ -129,6 +129,20 @@ test('rate limits and unavailable sources preserve state and never retry the pro
  for(const status of [429,503]){const f=fixture({providerStatus:status}),response=await f.run();assert.equal(response.status,status);assert.equal(f.writes.length,0);assert.equal(f.calls.filter(x=>x.url.endsWith('/bruff-live')).length,1);const data=await response.json();assert.ok(!JSON.stringify(data).includes('private provider detail'));if(status===429)assert.equal(response.headers.get('Retry-After'),'17');}
 });
 
+test('normal sync rejects contradictory identity echoes before writing the real history page',async()=>{
+ const run=f=>f.run({operation:'fan_memory_sync',scan:'recent',expected_version:undefined,candidates:undefined});
+ for(const [key,value]of [['actorId',other],['workspaceId',other],['creatorId',other],['modelId',other],['fanId','56'],['binding','acct_other']]){
+  for(const envelope of [{[key]:value,data:page()},{data:{...page(),[key]:value}}]){const f=fixture({envelope});assert.equal((await run(f)).status,403,key);assert.equal(f.writes.length,0);}
+ }
+ const good=fixture({envelope:{actorId:owner,workspaceId:w,creatorId:c,fanId:'55',data:page()}});assert.equal((await run(good)).status,200);assert.equal(good.writes.length,1);assert.equal(good.state.memory.items[0].status,'pending');assert.equal(good.state.scan.pages,1);
+});
+
+test('sync reopens legacy completed history at the real head once and preserves reviewed memories',async()=>{
+ const first=await syncFanContext(scope,emptyFanContext(scope),{messages:[message('Call me Alex.')],hasMore:false,cursor:null}),reviewed=editFanContext(scope,first,{key:'preferred_name',action:'confirm',expected_version:first.memory.version});delete reviewed.scan.extractorVersion;
+ const f=fixture({state:reviewed}),response=await f.run({operation:'fan_memory_sync',scan:'older',expected_version:undefined,candidates:undefined});assert.equal(response.status,200);const value=await response.json();assert.equal(f.writes.length,1);assert.equal(f.calls.find(x=>x.url.endsWith('/bruff-live')).body.cursor,undefined);assert.equal(value.version,reviewed.memory.version+1);assert.equal(value.coverage.pages,1);assert.equal(value.coverage.historyComplete,false);assert.equal(f.state.scan.extractorVersion,2);assert.deepEqual(value.items.find(i=>i.key==='preferred_name'),(await createFanContext(scope,reviewed)).items[0]);assert.equal(value.items.find(i=>i.category==='personal_context').status,'pending');
+ const bad=fixture({state:reviewed,providerStatus:503});assert.equal((await bad.run({operation:'fan_memory_sync',scan:'older',expected_version:undefined,candidates:undefined})).status,503);assert.equal(bad.writes.length,0);assert.deepEqual(bad.state,reviewed);
+});
+
 test('real SQLite current-row adapter persists cited state, preserves coverage and rejects stale cross-scope CAS',async()=>{
  const db=new DatabaseSync(':memory:');db.exec(await readFile(new URL('../supabase/migrations/turso/202611080003_fan_context.sql',import.meta.url),'utf8'));
  const typed=value=>typeof value==='number'?{type:'integer',value:String(value)}:{type:'text',value};
