@@ -56,7 +56,7 @@ function assertNoInferenceOrWrites(calls){
 
 test('the v7 policy changes v3 through v6 fingerprints even with identical history, sources and engine',async()=>{
   const context=currentContext();
-  assert.equal(context.protocol,'bruff-generation-context-v7');
+  assert.equal(context.protocol,'bruff-generation-context-v8');
   assert.equal(ENGINE_VERSION,'bruff-drafts-v3');
   for(const protocol of previousProtocols)assert.notEqual(await generationContextHash(context),await oldContextHash(protocol));
 });

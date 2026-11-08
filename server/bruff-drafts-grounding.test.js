@@ -16,7 +16,7 @@ test('every alternative targets the latest fan and distinguishes style from acto
  assert.equal(data.replyTargetIndex,2);
  assert.deepEqual(data.conversation[data.replyTargetIndex],{speaker:'fan',text:rows[2].text});
  for(const instruction of ['FAN statements and FAN memory never describe the MODEL','Every alternative is a separate complete response','not successive turns','acknowledge it naturally','brevity, casual spelling, casing and punctuation','observable participation in this chat','avoid repeating a question already answered'])assert.ok(policy.includes(instruction),instruction);
- assert.equal(buildGenerationContext(historySnapshot({data:{messages:rows}})).protocol,'bruff-generation-context-v7');
+ assert.equal(buildGenerationContext(historySnapshot({data:{messages:rows}})).protocol,'bruff-generation-context-v8');
 });
 
 test('past-day and current-activity targets keep their intent without a stock chat-activity answer',()=>{

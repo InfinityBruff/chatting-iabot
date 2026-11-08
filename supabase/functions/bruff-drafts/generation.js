@@ -44,7 +44,7 @@ export function validatedFanMemory(value,{actor,w,c,fan,binding}={}){
 // faulty revision cannot make changed memory reuse an older generated result.
 export function buildGenerationContext(history,fanMemory=null){
  if(!Array.isArray(history))throw memoryError();
- return {protocol:'bruff-generation-context-v7',history,fanMemory};
+ return {protocol:'bruff-generation-context-v8',history,fanMemory};
 }
 function memoryFacts(memory){
  if(!memory)return{confirmed:[],usable:[],conflicts:[]};
@@ -112,7 +112,17 @@ export function buildPrompt(pool,input){
  // Provider never receives real source IDs, model/fan identifiers, authors,
  // media URLs, prices, cookies or the CRM authentication token.
  const examples=ranked.map((e,i)=>({id:'E'+(i+1),incoming:e.trigger.slice(0,600),reply:e.english.slice(0,1000),translation:e.spanish.slice(0,1000)}));
- const selectedKnowledge=[...pool.knowledge.filter(k=>k.kind==='model_fact'),...pool.knowledge.filter(k=>k.kind!=='model_fact')].slice(0,12);
+ const contextLimit=()=>new GenerationFailure('AI_CONTEXT_LIMIT','El contexto supera el límite de esta consulta. Reduce las fuentes aprobadas o revisa el historial.',413);
+ const byId=(a,b)=>a.id.localeCompare(b.id),boundaries=pool.knowledge.filter(k=>k.kind==='boundary').sort(byId);
+ // Every approved boundary is mandatory. A count cap must never silently
+ // remove one, including when optional facts or tone rules precede it.
+ if(boundaries.length>12)throw contextLimit();
+ const styles=pool.knowledge.filter(k=>k.kind==='style_rule').sort(byId);
+ // Reserve the smallest encoded tone rule so an arbitrary long UUID-first
+ // rule cannot exclude every style when a shorter approved one would fit.
+ const styleSize=k=>bytes(JSON.stringify({kind:k.kind,key:k.key||null,text:k.text}));
+ const tone=boundaries.length<12?[...styles].sort((a,b)=>styleSize(a)-styleSize(b)||byId(a,b))[0]:null;
+ const selectedKnowledge=[...boundaries,...(tone?[tone]:[]),...pool.knowledge.filter(k=>k.kind==='model_fact').sort(byId),...styles.filter(k=>k!==tone)].slice(0,12);
  const knowledge=selectedKnowledge.map((k,i)=>({id:'K'+(i+1),kind:k.kind,key:k.key||null,text:k.text}));
  const redact=s=>s.replace(/https?:\/\/[^\s<>]+/giu,'[link omitted]').replace(/@[\p{L}\p{N}_.-]+/gu,'[handle omitted]');
  const conversation=history.map(m=>({speaker:m.isFromMe?'model':'fan',...promptText(redact(m.text))}));
@@ -128,8 +138,11 @@ export function buildPrompt(pool,input){
  while(bytes(messages())>PROMPT_BYTES&&conversation.length>2)conversation.splice(conversation.findIndex(m=>m!==incoming),1);
  while(bytes(messages())>PROMPT_BYTES&&examples.length>1)examples.pop();
  while(bytes(messages())>PROMPT_BYTES&&facts.length>0){facts.pop();fanMemory.limited=true}
- while(bytes(messages())>PROMPT_BYTES&&knowledge.length>0)knowledge.pop();
- if(!examples.length||bytes(messages())>PROMPT_BYTES)throw new GenerationFailure('AI_CONTEXT_LIMIT','El contexto supera el límite de esta consulta. Reduce las fuentes aprobadas o revisa el historial.',413);
+ // Optional facts/styles may be omitted, but approved boundaries never are.
+ // The reserved tone is removed only after all other optional knowledge, and
+ // only if it cannot fit beside the boundaries and minimum existing context.
+ while(bytes(messages())>PROMPT_BYTES&&knowledge.length>boundaries.length)knowledge.pop();
+ if(!examples.length||bytes(messages())>PROMPT_BYTES)throw contextLimit();
  return {messages:messages(),allowsChatPresence:incoming.truncated!==true&&asksCurrentActivity(incoming.text),memoryFactsUsed:facts.length,memoryLimited:fanMemory.limited,exampleMap:new Map(examples.map((x,i)=>[x.id,ranked[i]])),knowledgeMap:new Map(knowledge.map((x,i)=>[x.id,selectedKnowledge[i]]))};
 }
 export const OUTPUT_SCHEMA={type:'object',additionalProperties:false,required:['drafts','unknowns'],properties:{drafts:{type:'array',maxItems:3,items:{type:'object',additionalProperties:false,required:['id','english','spanish','exampleIds','knowledgeIds'],properties:{id:{type:'string',enum:['1','2','3']},english:{type:'string',minLength:1,maxLength:700},spanish:{type:'string',minLength:1,maxLength:1000},exampleIds:{type:'array',minItems:1,maxItems:6,items:{type:'string'}},knowledgeIds:{type:'array',maxItems:12,items:{type:'string'}}}}},unknowns:{type:'array',maxItems:5,items:{type:'string',minLength:1,maxLength:160}}}};
