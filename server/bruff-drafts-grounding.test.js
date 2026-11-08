@@ -16,7 +16,7 @@ test('every alternative targets the latest fan and distinguishes style from acto
  assert.equal(data.replyTargetIndex,2);
  assert.deepEqual(data.conversation[data.replyTargetIndex],{speaker:'fan',text:rows[2].text});
  for(const instruction of ['FAN statements and FAN memory never describe the MODEL','Every alternative is a separate complete response','not successive turns','acknowledge it naturally','brevity, casual spelling, casing and punctuation','observable participation in this chat','avoid repeating a question already answered'])assert.ok(policy.includes(instruction),instruction);
- assert.equal(buildGenerationContext(historySnapshot({data:{messages:rows}})).protocol,'bruff-generation-context-v5');
+ assert.equal(buildGenerationContext(historySnapshot({data:{messages:rows}})).protocol,'bruff-generation-context-v7');
 });
 
 test('past-day and current-activity targets keep their intent without a stock chat-activity answer',()=>{
@@ -119,6 +119,10 @@ const unsafe=[
  ['hey!!','descansando en casa'],
  ['hey!!','Viajé ayer.'],
  ['hey!!','yo viaje ayer.'],
+ ["It's okay, I'm up.",'Está bien, estoy despierto.'],
+ ["I'm awake now.",'Estoy despierta.'],
+ ['im still wide awake','hey!!'],
+ ['hey!!','Todavía estoy despierta.'],
 ];
 for(const [english,spanish] of unsafe)test('unsupported personal activity is discarded: '+english+' / '+spanish,()=>{
  const result=validate([candidate(1,english,spanish)]);
@@ -171,6 +175,43 @@ test('courtesies, style and observable chat actions remain usable without off-ch
   ["I've been here chatting with you.",'He estado aquí charlando contigo.'],
   ['im good too!! how is your day?','¡Yo también estoy bien! ¿Cómo va tu día?'],
   ['how was your trip?','¿Cómo fue tu viaje?'],
+  ["I'm up to chat!!",'podemos charlar!!'],
+  ["I'm up for a chat.",'Me apetece charlar.'],
+  ['Are you awake?','¿Estás despierto?'],
+  ["I'm awake?",'¿Estoy despierta?'],
  ];
- for(const [english,spanish] of safe){const result=validate([candidate(1,english,spanish)]);assert.equal(result.drafts.length,1,english+' / '+spanish);assert.deepEqual(result.unknowns,[])}
+ const p=pool(),prompt=promptFor([message(1,'What are you doing right now?',false)],p);
+ for(const [english,spanish] of safe){const result=validate([candidate(1,english,spanish)],p,prompt);assert.equal(result.drafts.length,1,english+' / '+spanish);assert.deepEqual(result.unknowns,[])}
+});
+
+test('stock chat-presence replies require an explicit current-activity question from the latest fan',()=>{
+ const denied=['How was your afternoon?','How are you doing?','That was kind, thanks!','What were you doing?','She asked what are you doing?','"What are you doing?" was the question.'];
+ for(const text of denied){const p=pool(),prompt=promptFor([message(1,'What are you doing?',false),message(2,'hello!!',true),message(3,text,false)],p);assert.equal(prompt.allowsChatPresence,false,text);const result=validate([candidate(1,'I was just here chatting with you.','Estaba aquí charlando contigo.')],p,prompt);assert.equal(result.drafts.length,0,text);assert.equal(result.unknowns.length,1);assert.match(result.unknowns[0],/actividad actual/u)}
+ const allowed=['What are you doing?','what are u doing rn','what r u up to?','what you doing','whatcha doing?','wyd?','¿Qué haces ahora?','Qué estás haciendo?','¿En qué andas?','How was your morning, and what are you up to now?'];
+ for(const text of allowed){const p=pool(),prompt=promptFor([message(1,text,false)],p);assert.equal(prompt.allowsChatPresence,true,text);const result=validate([candidate(1,"I'm just here chatting with you.",'Estoy aquí charlando contigo.')],p,prompt);assert.equal(result.drafts.length,1,text);assert.deepEqual(result.unknowns,[])}
+});
+
+test('truncated or missing activity gate cannot authorize a chat-presence filler',()=>{
+ const p=pool(),long='What are you doing? '+'neutral context '.repeat(150)+'What are you doing right now?';
+ const prompt=promptFor([message(1,long,false)],p);
+ assert.equal(JSON.parse(prompt.messages[1].content).data.conversation[0].truncated,true);assert.equal(prompt.allowsChatPresence,false);
+ assert.equal(validate([candidate(1,'just here chatting with you')],p,prompt).drafts.length,0);
+ const current=promptFor([message(1,'What are you doing?',false)],p),{allowsChatPresence,...missing}=current;
+ assert.equal(allowsChatPresence,true);assert.equal(validate([candidate(1,'hey!!','aquí charlando contigo')],p,missing).drafts.length,0);
+});
+
+test('invitations and courtesies are not chat-presence claims and discarded options do not refill the count',()=>{
+ const p=pool(),prompt=promptFor([message(1,'How was your day?',false)],p);
+ const safe=[candidate(1,"let's chat!!",'vamos a charlar!!'),candidate(2,"I'm glad you told me.",'Me alegra que me lo cuentes.')];
+ const result=validate([...safe,candidate(3,'I am just here chatting with you.')],p,prompt);
+ assert.deepEqual(result.drafts.map(x=>x.id),['1','2']);assert.equal(result.unknowns.length,1);
+ assert.deepEqual(validate(safe,p,prompt).unknowns,[]);
+ assert.deepEqual(validate([],p,prompt),{drafts:[],unknowns:[]});
+});
+
+test('presence filtering retains all other strict validation and both warnings fit the five-item limit',()=>{
+ const p=pool(),prompt=promptFor([message(1,'How was your day?',false)],p),unknowns=Array.from({length:5},(_,i)=>'No disponible '+String.fromCharCode(65+i)+'.');
+ const result=validate([candidate(1,'I slept earlier.'),candidate(2,'I was just here chatting with you.'),candidate(3,'thanks!!')],p,prompt,unknowns);
+ assert.deepEqual(result.drafts.map(x=>x.id),['3']);assert.equal(result.unknowns.length,5);assert.match(result.unknowns[3],/actividad personal/u);assert.match(result.unknowns[4],/actividad actual/u);
+ for(const patch of [{exampleIds:['E99']},{spanish:'Ve a https://invalid.test'},{english:'I am just here chatting with you for 8 minutes.'},{extra:true}])assert.throws(()=>validate([{...candidate(1,'I am just here chatting with you.'),...patch}],p,prompt),{code:'AI_DRAFT_RESPONSE'});
 });

@@ -44,7 +44,7 @@ export function validatedFanMemory(value,{actor,w,c,fan,binding}={}){
 // faulty revision cannot make changed memory reuse an older generated result.
 export function buildGenerationContext(history,fanMemory=null){
  if(!Array.isArray(history))throw memoryError();
- return {protocol:'bruff-generation-context-v5',history,fanMemory};
+ return {protocol:'bruff-generation-context-v7',history,fanMemory};
 }
 function memoryFacts(memory){
  if(!memory)return{confirmed:[],usable:[],conflicts:[]};
@@ -97,6 +97,12 @@ function promptText(text){
  let tail=text.slice(-(1200-head.length-marker.length));if(/^[\uDC00-\uDFFF]/u.test(tail))tail=tail.slice(1);
  return{text:head+marker+tail,truncated:true,omittedCharacters:text.length-head.length-tail.length};
 }
+function asksCurrentActivity(text){
+ const value=text.normalize('NFD').replace(/[\u0300-\u036f]/gu,'').replace(/[’‘]/gu,"'").toLowerCase();
+ // Only a bounded direct question, not wellbeing, a past day, a quotation or
+ // a report about somebody else. Missing/omitted context does not enable it.
+ return value.split(/[?!.;\n,]|\band\b|\by\b/u).some(part=>/^[\s¿]*(?:(?:hey|hi|hello|so|btw|hola|oye|entonces)\s+){0,3}(?:what\s+(?:(?:are|r)\s+(?:you|u)|(?:you|u|ya)|you(?:'re|\s+are))\s+(?:doing|up\s+to)|whatcha\s+doing|wyd|que\s+(?:haces|estas\s+haciendo|andas\s+haciendo)|en\s+que\s+andas)\b/u.test(part));
+}
 export function buildPrompt(pool,input){
  const context=Array.isArray(input)?buildGenerationContext(input):input,history=context.history,memory=context.fanMemory;
  const target=[...history].reverse().find(x=>!x.isFromMe);
@@ -124,7 +130,7 @@ export function buildPrompt(pool,input){
  while(bytes(messages())>PROMPT_BYTES&&facts.length>0){facts.pop();fanMemory.limited=true}
  while(bytes(messages())>PROMPT_BYTES&&knowledge.length>0)knowledge.pop();
  if(!examples.length||bytes(messages())>PROMPT_BYTES)throw new GenerationFailure('AI_CONTEXT_LIMIT','El contexto supera el límite de esta consulta. Reduce las fuentes aprobadas o revisa el historial.',413);
- return {messages:messages(),memoryFactsUsed:facts.length,memoryLimited:fanMemory.limited,exampleMap:new Map(examples.map((x,i)=>[x.id,ranked[i]])),knowledgeMap:new Map(knowledge.map((x,i)=>[x.id,selectedKnowledge[i]]))};
+ return {messages:messages(),allowsChatPresence:incoming.truncated!==true&&asksCurrentActivity(incoming.text),memoryFactsUsed:facts.length,memoryLimited:fanMemory.limited,exampleMap:new Map(examples.map((x,i)=>[x.id,ranked[i]])),knowledgeMap:new Map(knowledge.map((x,i)=>[x.id,selectedKnowledge[i]]))};
 }
 export const OUTPUT_SCHEMA={type:'object',additionalProperties:false,required:['drafts','unknowns'],properties:{drafts:{type:'array',maxItems:3,items:{type:'object',additionalProperties:false,required:['id','english','spanish','exampleIds','knowledgeIds'],properties:{id:{type:'string',enum:['1','2','3']},english:{type:'string',minLength:1,maxLength:700},spanish:{type:'string',minLength:1,maxLength:1000},exampleIds:{type:'array',minItems:1,maxItems:6,items:{type:'string'}},knowledgeIds:{type:'array',maxItems:12,items:{type:'string'}}}}},unknowns:{type:'array',maxItems:5,items:{type:'string',minLength:1,maxLength:160}}}};
 // These checks catch obvious unsupported claims; they cannot prove all prose
@@ -134,6 +140,14 @@ const disallowed=/(?:\b(?:fuck(?:ing)?|pussy|cock|dick|cum(?:ming)?|blowjob|sext
 // deliberately not a factuality proof. Style examples and fan statements cannot
 // establish a model's recent activities, even when their wording is identical.
 const autobiographyWarning='Se ha descartado un borrador porque atribuía a la modelo una actividad personal sin acreditar.';
+const chatPresenceWarning='Se ha descartado un borrador que respondía con presencia en el chat sin que el fan preguntara por la actividad actual.';
+function stockChatPresence(text){
+ const value=text.normalize('NFD').replace(/[\u0300-\u036f]/gu,'').replace(/[’‘]/gu,"'").toLowerCase();
+ return /\b(?:i(?:'m|\s+am|\s+was)|im)\s+(?:(?:just|only|still|right\s+now)\s+){0,2}(?:here\s+(?:chatting|talking|texting|messaging)|(?:chatting|talking|texting|messaging)\s+(?:here\s+)?(?:with|to)\s+(?:you|u))\b/u.test(value)
+  ||/^(?:just\s+)?here\s+(?:chatting|talking|texting|messaging)\b/u.test(value)
+  ||/\b(?:estoy|estaba|estamos|estabamos)\s+(?:(?:solo|justo|ahora)\s+){0,2}(?:aqui\s+(?:charlando|hablando|chateando|escribiendote)|(?:charlando|hablando|chateando)\s+(?:aqui\s+)?contigo)\b/u.test(value)
+  ||/^(?:solo\s+)?aqui\s+(?:charlando|hablando|chateando|escribiendote)\b/u.test(value);
+}
 function unsupportedAutobiography(text){
  const accented=text.normalize('NFC').toLowerCase();
  const value=text.normalize('NFD').replace(/[\u0300-\u036f]/gu,'').replace(/[’‘]/gu,"'").toLowerCase()
@@ -145,26 +159,31 @@ function unsupportedAutobiography(text){
   ||new RegExp("\\b(?:i|we)(?:'ve|\\s+have)\\s+"+adverbs+'(?:been(?!\\s+(?:here\\s+)?(?:chatting|talking)\\b)|had|slept|gone|eaten|drunk|cooked|worked|watched|visited|travelled|traveled|woken|spent|stayed|rested|relaxed|exercised|trained|hiked|showered|read(?!\\s+(?:your|the|this|that)\\s+message)|played|driven|walked|run|cleaned|shopped|finished|started|done|got|taken)\\b','u').test(value)
   ||new RegExp("\\b(?:i(?:'m|\\s+am)|im|we(?:'re|\\s+are))\\s+"+adverbs+'(?:sleeping|cooking|working|watching|visiting|travelling|traveling|eating|drinking|resting|relaxing|exercising|training|hiking|showering|bathing|playing|driving|walking|running|cleaning|shopping|having\\s+(?:a|my|some)|in\\s+bed)\\b','u').test(value)
   ||/\b(?:i|we)\s+(?:was|were|wasn't|weren't|didn't|did\s+not)\s+(?:just\s+|really\s+|actually\s+)?(?:asleep|sleeping|busy|out|away|at\s+|in\s+bed|working|watching|cooking|eating|drinking|resting|relaxing|hiking|walking|sleep|go|eat|drink|work|watch|cook|exercise|travel|rest|relax|hike|walk)\b/u.test(value)
+  ||/\b(?:i(?:'m|\s+am|\s+was)|im)\s+(?:(?:just|already|still|finally|fully|wide)\s+){0,2}(?:awake|up(?!\s+(?:to|for)\b))\b(?!\s*\?)/u.test(value)
   ||/^(?:(?:just|mostly|still|only|actually|currently)\s+)?(?:relaxing|resting|sleeping|cooking|working|watching|hiking|eating|drinking|exercising|training|showering|bathing|playing|driving|walking|running|cleaning|shopping)\b/u.test(value)
   ||/\b(?:my|our)\s+(?:day|night|morning|afternoon|evening|weekend)\s+(?:was|were|has\s+been|have\s+been|is|has\s+gone|went)\b/u.test(value)
   ||/\b(?:dormi|durmimos|comi|comimos|bebi|bebimos|cocine|cocinamos|trabaje|trabajamos|vi|vimos|visite|visitamos|viajamos|desperte|despertamos|pase|pasamos|descanse|descansamos|entrene|entrenamos|camine|caminamos|corri|corrimos|conduje|condujimos|limpie|limpiamos|jugue|jugamos|duche|duchamos|bane|banamos|sali|salimos|fui|fuimos|estuve|estuvimos|hice|hicimos|tuve|tuvimos)\b/u.test(value)
   ||/\bviajé(?![\p{L}\p{N}_])/u.test(accented)||/\byo\s+viaje\b/u.test(value)
   ||/\b(?:he|hemos)\s+(?:dormido|comido|bebido|cocinado|trabajado|visto|visitado|viajado|despertado|pasado|descansado|entrenado|caminado|corrido|conducido|limpiado|jugado|duchado|banado|salido|estado)\b/u.test(value)
   ||/\b(?:estoy|estamos|estaba|estabamos|estuve|estuvimos|ando)\s+(?:durmiendo|comiendo|bebiendo|cocinando|trabajando|viendo|visitando|viajando|descansando|entrenando|caminando|corriendo|conduciendo|limpiando|jugando|duchandome|en\s+la\s+cama)\b/u.test(value)
+  ||/\b(?:estoy|estaba)\s+(?:(?:ya|muy|bien|aun|todavia)\s+){0,2}despiert[oa]\b(?!\s*\?)/u.test(value)
   ||/^(?:(?:solo|justo|simplemente|aqui)\s+){0,2}(?:descansando|durmiendo|cocinando|trabajando|viendo|viajando|comiendo|bebiendo|entrenando|caminando|corriendo|conduciendo|limpiando|jugando|duchandome)\b/u.test(value)
   ||/\b(?:mi|nuestro)\s+(?:dia|noche|manana|tarde|fin\s+de\s+semana)\s+(?:fue|ha\s+sido|estuvo|esta\s+siendo)\b/u.test(value);
 }
 export function validateGeneratedOutput(raw,prompt,pool){
  if(!exact(raw,['drafts','unknowns'])||!Array.isArray(raw.drafts)||raw.drafts.length>pool.settings.maxResults||!Array.isArray(raw.unknowns)||raw.unknowns.length>5||raw.unknowns.some(x=>!clean(x,160)||disallowed.test(x)))throw invalid();
- const ids=new Set(),texts=new Set(),drafts=[];let discardedAutobiography=false;
+ const ids=new Set(),texts=new Set(),drafts=[];let discardedAutobiography=false,discardedChatPresence=false;
  for(const d of raw.drafts){
   if(!exact(d,['id','english','spanish','exampleIds','knowledgeIds'])||!['1','2','3'].includes(d.id)||ids.has(d.id)||!clean(d.english,700)||!clean(d.spanish,1000)||texts.has(d.english)||!Array.isArray(d.exampleIds)||!d.exampleIds.length||d.exampleIds.length>6||!Array.isArray(d.knowledgeIds)||d.knowledgeIds.length>12||new Set(d.exampleIds).size!==d.exampleIds.length||new Set(d.knowledgeIds).size!==d.knowledgeIds.length||d.exampleIds.some(id=>!prompt.exampleMap.has(id))||d.knowledgeIds.some(id=>!prompt.knowledgeMap.has(id))||disallowed.test(d.english)||disallowed.test(d.spanish))throw invalid();
   const facts=d.knowledgeIds.map(id=>prompt.knowledgeMap.get(id)).filter(k=>k.kind==='model_fact').map(k=>k.text).join(' ');
   const numbers=(d.english+' '+d.spanish).match(/\d+(?:[.,]\d+)?/gu)||[];
   if(numbers.some(n=>!new RegExp('(?:^|\\D)'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?:$|\\D)','u').test(facts))||/[$€£]|\b(?:dollars?|euros?|USD|EUR|dólares)\b/iu.test(d.english+' '+d.spanish))throw invalid();
   ids.add(d.id);texts.add(d.english);
-  if(unsupportedAutobiography(d.english)||unsupportedAutobiography(d.spanish)){discardedAutobiography=true;continue}
+  const autobiography=unsupportedAutobiography(d.english)||unsupportedAutobiography(d.spanish),chatPresence=prompt.allowsChatPresence!==true&&(stockChatPresence(d.english)||stockChatPresence(d.spanish));
+  discardedAutobiography||=autobiography;discardedChatPresence||=chatPresence;
+  if(autobiography||chatPresence)continue;
   drafts.push({id:d.id,english:d.english,spanish:d.spanish,exampleIds:d.exampleIds.map(id=>prompt.exampleMap.get(id).id),knowledgeIds:d.knowledgeIds.map(id=>prompt.knowledgeMap.get(id).id)});
  }
- return {drafts,unknowns:discardedAutobiography?[...raw.unknowns.filter(x=>x!==autobiographyWarning).slice(0,4),autobiographyWarning]:raw.unknowns.slice()};
+ const warnings=[...(discardedAutobiography?[autobiographyWarning]:[]),...(discardedChatPresence?[chatPresenceWarning]:[])];
+ return {drafts,unknowns:warnings.length?[...raw.unknowns.filter(x=>!warnings.includes(x)).slice(0,5-warnings.length),...warnings]:raw.unknowns.slice()};
 }
