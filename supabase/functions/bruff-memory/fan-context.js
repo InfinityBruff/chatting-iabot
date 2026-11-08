@@ -1,4 +1,5 @@
 import {emptyFanMemory,reviewMemoryCandidates,mergeMemoryCandidates,editMemoryItem} from '../../../server/fan-memory.js';
+import {prepareCitedCandidates} from './cited-candidates.js';
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(x);
 const id=x=>typeof x==='string'&&/^[1-9]\d{0,23}$/u.test(x);
@@ -75,5 +76,34 @@ export async function syncFanContext(scope,record,data,{scan='recent',now=Date.n
 export function editFanContext(scope,record,edit){
  const current=validateFanContext(scope,record);if(!object(edit)||Object.keys(edit).some(k=>!['key','action','value','expected_version'].includes(k))||typeof edit.key!=='string'||!/^[a-z0-9_-]{1,80}$/u.test(edit.key)||!['confirm','correct','pin','delete'].includes(edit.action)||!natural(edit.expected_version)||edit.action==='correct'&&!safe(edit.value)||edit.action!=='correct'&&edit.value!==undefined)throw failure('MEMORY_EDIT',400);
  if(edit.expected_version!==current.memory.version)throw failure('MEMORY_CONFLICT',409);if(!current.memory.items.some(item=>item.key===edit.key))throw failure('MEMORY_EDIT',400);
- const memory=editMemoryItem(scope,current.memory,edit.key,edit.action,edit.expected_version,edit.value);return validateFanContext(scope,{memory,scan:current.scan});
+ const memory=editMemoryItem(scope,current.memory,edit.key,edit.action,edit.expected_version,edit.value);
+ if(edit.action==='delete'){
+  const item=current.memory.items.find(item=>item.key===edit.key),marker='cited_source_'+item.category+'_'+item.source.messageId;
+  memory.suppressedKeys=[...new Set([...memory.suppressedKeys,marker])];
+  if(memory.suppressedKeys.length>1000)throw failure('MEMORY_CONTEXT_LIMIT',409);
+ }
+ return validateFanContext(scope,{memory,scan:current.scan});
+}
+
+// Importing reviewed excerpts is separate from walking history. Evidence and
+// values stay literal and pending; neither scan cursors nor coverage advance.
+export async function importCitedFanCandidates(scope,record,candidates,messages,expectedVersion){
+ const current=validateFanContext(scope,record);
+ if(!natural(expectedVersion)||expectedVersion>=Number.MAX_SAFE_INTEGER)throw failure('MEMORY_CANDIDATES',400);
+ if(current.memory.version!==expectedVersion)throw failure('MEMORY_CONFLICT',409);
+ const prepared=await prepareCitedCandidates(scope,candidates,messages),existing=new Set(current.memory.items.map(item=>JSON.stringify([item.category,item.source.messageId,item.source.quote]))),keys=new Set(current.memory.items.map(item=>item.key)),fresh=[];
+ const suppressed=current.memory.suppressedKeys;
+ let reused=0;
+ for(const item of prepared){
+  const semantic=JSON.stringify([item.category,item.source.messageId,item.source.quote]);
+  // Old single-field suppressions predate cited hashes. Preserve their clear
+  // category intent instead of using a different key to revive deleted data.
+  const legacySuppressed=suppressed.includes(item.category)||item.category==='interests'&&suppressed.some(key=>key.startsWith('interest_'));
+  if(existing.has(semantic)||keys.has(item.key)||suppressed.includes(item.key)||suppressed.includes('cited_source_'+item.category+'_'+item.source.messageId)||legacySuppressed){reused++;continue;}
+  existing.add(semantic);keys.add(item.key);fresh.push(item);
+ }
+ if(!fresh.length)return {record:current,importResult:{added:0,reused}};
+ if(current.memory.items.length+fresh.length>100)throw failure('MEMORY_CONTEXT_LIMIT',409);
+ const memory=mergeMemoryCandidates(scope,current.memory,fresh,expectedVersion);
+ return {record:validateFanContext(scope,{memory,scan:current.scan}),importResult:{added:fresh.length,reused}};
 }

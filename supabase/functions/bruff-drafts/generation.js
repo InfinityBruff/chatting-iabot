@@ -22,7 +22,7 @@ export const FAN_MEMORY_POLICY='Fan memory is optional, bounded context from ear
 const memoryError=()=>new GenerationFailure('AI_MEMORY','No se pudo comprobar la memoria de esta conversación. No se han utilizado recuerdos anteriores sin verificar.',503);
 const natural=value=>Number.isSafeInteger(value)&&value>=0;
 const numericId=value=>typeof value==='string'&&/^[1-9][0-9]{0,23}$/u.test(value);
-const memoryCategories=new Set(['preferred_name','language','interests','availability','pending_question','commitment']);
+const memoryCategories=new Set(['preferred_name','language','interests','availability','pending_question','commitment','personal_context']);
 const timestamp=value=>typeof value==='string'&&value.length<=40&&Number.isFinite(Date.parse(value));
 export function validatedFanMemory(value,{actor,w,c,fan,binding}={}){
  if(!record(value)||value.actorId!==actor||value.workspaceId!==w||value.creatorId!==c||value.fanId!==fan||typeof value.binding!=='string'||!/^acct_[A-Za-z0-9_-]{1,123}$/u.test(value.binding)||binding!==undefined&&value.binding!==binding)throw new GenerationFailure('AI_ACCESS','La memoria no pertenece al contexto autorizado.',403);

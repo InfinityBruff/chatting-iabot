@@ -1,5 +1,5 @@
 // Provider-independent memory boundary. No network, persistence or sending here.
-const categories = new Set(['preferred_name','language','interests','availability','pending_question','commitment']);
+const categories = new Set(['preferred_name','language','interests','availability','pending_question','commitment','personal_context']);
 const scopeFields = ['workspaceId','creatorId','fanId'];
 export function sameMemoryScope(a,b) {
   return scopeFields.every(k=>typeof a?.[k]==='string'&&a[k].length>0&&a[k]===b?.[k]);

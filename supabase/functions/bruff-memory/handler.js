@@ -4,7 +4,8 @@ import {createCatalogRecommendation} from './recommendation.js';
 import {createCommerceStore} from './commerce-store.js';
 import {extractPaidUnlockEvidence,reconcilePurchaseEvents,validatePlanInput,normalizeCommerceEvidence} from './commerce.js';
 import {createFanMemoryStore} from './fan-memory-store.js';
-import {createFanContext,syncFanContext,editFanContext} from './fan-context.js';
+import {createFanContext,syncFanContext,editFanContext,importCitedFanCandidates} from './fan-context.js';
+import {validateCitedCandidates} from './cited-candidates.js';
 
 const origins=['https://bruff-workspace.pages.dev','https://chatting-iabot-raul.infinitybruff.chatgpt.site'];
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(x);
@@ -27,7 +28,7 @@ function page(value){
 }
 
 // This gateway has no provider write credential, AI client or send operation.
-// Turso stores only server-read message/media metadata, never conversation text.
+// Turso stores bounded cited memories and message/media metadata, not transcripts.
 export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatch,enabled=false,fetcher=fetch,store:injectedStore,commerceStore:injectedCommerce,fanMemoryStore:injectedFanMemory,timeoutMs=30000,now=()=>Date.now()}={}){
  let base;try{const u=new URL(url);if(u.protocol==='https:'&&!u.username&&!u.password&&!u.search&&!u.hash&&['','/'].includes(u.pathname))base=u.origin}catch{}
  let store=injectedStore;try{if(!store&&enabled)store=createTursoMemoryStore({url:tursoUrl,token:tursoToken,fetcher})}catch{/* Configuration errors stay generic and never expose a credential. */}
@@ -56,7 +57,12 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
   try{
    if(!/^application\/json(?:\s*;|$)/iu.test(request.headers.get('Content-Type')||''))throw error(415,'MEMORY_TYPE','Se requiere JSON.');
    let input;try{input=await json(request,65536,signal)}catch(e){if(e.code==='MEMORY_SIZE')throw e;throw error(400,'MEMORY_INPUT','La consulta no contiene JSON válido.')}
-   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['operation','workspace_id','creator_id','conversation_id','scan','folder_id','media_id','proposal_id','plan','edit'].includes(k))||!['read','sync','recommend','verify_recommendation','save_plan','fan_memory_read','fan_memory_sync','fan_memory_edit'].includes(input.operation)||![input.workspace_id,input.creator_id].every(uuid)||typeof input.conversation_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.conversation_id)||input.scan!==undefined&&(!['sync','fan_memory_sync'].includes(input.operation)||!['recent','older'].includes(input.scan))||input.operation==='save_plan'&&(!input.plan||typeof input.plan!=='object'||Array.isArray(input.plan))||input.operation!=='save_plan'&&input.plan!==undefined||input.operation==='fan_memory_edit'&&(!input.edit||typeof input.edit!=='object'||Array.isArray(input.edit))||input.operation!=='fan_memory_edit'&&input.edit!==undefined)throw error(400,'MEMORY_INPUT','Revisa la modelo y el fan seleccionados.');
+   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['operation','workspace_id','creator_id','conversation_id','scan','folder_id','media_id','proposal_id','plan','edit','expected_version','cursor','candidates'].includes(k))||!['read','sync','recommend','verify_recommendation','save_plan','fan_memory_read','fan_memory_sync','fan_memory_edit','fan_memory_import_candidates'].includes(input.operation)||![input.workspace_id,input.creator_id].every(uuid)||typeof input.conversation_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.conversation_id)||input.scan!==undefined&&(!['sync','fan_memory_sync'].includes(input.operation)||!['recent','older'].includes(input.scan))||input.operation==='save_plan'&&(!input.plan||typeof input.plan!=='object'||Array.isArray(input.plan))||input.operation!=='save_plan'&&input.plan!==undefined||input.operation==='fan_memory_edit'&&(!input.edit||typeof input.edit!=='object'||Array.isArray(input.edit))||input.operation!=='fan_memory_edit'&&input.edit!==undefined)throw error(400,'MEMORY_INPUT','Revisa la modelo y el fan seleccionados.');
+   const importing=input.operation==='fan_memory_import_candidates';
+   if(importing){
+    if(Object.keys(input).some(k=>!['operation','workspace_id','creator_id','conversation_id','expected_version','cursor','candidates'].includes(k))||!Number.isSafeInteger(input.expected_version)||input.expected_version<0||input.expected_version>=Number.MAX_SAFE_INTEGER||input.cursor!==undefined&&input.cursor!==null&&(typeof input.cursor!=='string'||!input.cursor.trim()||input.cursor.length>2048||/[\u0000-\u001f\u007f]/u.test(input.cursor)||/(?:https?:\/\/|data:|blob:|javascript:|www\.)/iu.test(input.cursor)))throw error(400,'MEMORY_INPUT','Revisa la página de evidencia y la versión de memoria.');
+    validateCitedCandidates(input.candidates);
+   }else if(['expected_version','cursor','candidates'].some(key=>Object.hasOwn(input,key)))throw error(400,'MEMORY_INPUT','Los candidatos solo se admiten al importar memoria.');
    const recommending=['recommend','verify_recommendation'].includes(input.operation);
    if(input.folder_id!==undefined&&(!recommending||typeof input.folder_id!=='string'||!input.folder_id||input.folder_id!==input.folder_id.trim()||input.folder_id.length>256||/[\u0000-\u001f\u007f]/u.test(input.folder_id))||input.media_id!==undefined&&(!recommending||input.folder_id===undefined||typeof input.media_id!=='string'||!(/^[1-9]\d{0,23}$/u).test(input.media_id))||input.operation==='verify_recommendation'&&!hash(input.proposal_id)||input.proposal_id!==undefined&&input.operation!=='verify_recommendation')throw error(400,'MEMORY_INPUT','Revisa la selección del catálogo.');
    const user=await call('/auth/v1/user');
@@ -70,8 +76,20 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
     const resolved=await resolve(),scope={ownerId:resolved.ownerId,actorId,workspaceId,creatorId,binding,fanId};
     const check=async()=>{if(await authorize()!==binding||(await resolve()).ownerId!==scope.ownerId)throw access();signal.throwIfAborted()};
     const ownerCheck=async()=>{if(actorId!==scope.ownerId)throw access();const value=await call('/rest/v1/rpc/bruff_ai_models',{w:workspaceId});if(value?.actorId!==actorId||!Array.isArray(value.workspaces)||!value.workspaces.some(item=>item?.id===workspaceId&&Array.isArray(item.models)&&item.models.some(model=>model?.id===creatorId)))throw access()};
-    let record=await fanMemoryStore.read(scope,signal);
-    if(input.operation==='fan_memory_edit'){
+    if(importing)await ownerCheck();
+    let record=await fanMemoryStore.read(scope,signal),importResult;
+    if(importing){
+     if(record.memory.version!==input.expected_version)throw error(409,'MEMORY_CONFLICT','La memoria cambió. Vuelve a leerla antes de importar.');
+     const envelope=await call('/functions/v1/bruff-live',{workspace_id:workspaceId,creator_id:creatorId,operation:'messages',conversation_id:fanId,background:true,...(input.cursor?{cursor:input.cursor}:{})},2*1024*1024);
+     for(const [key,expected]of [['actorId',actorId],['workspaceId',workspaceId],['creatorId',creatorId],['modelId',creatorId],['fanId',fanId],['binding',binding]])if(Object.hasOwn(envelope,key)&&envelope[key]!==expected)throw access();
+     const data=page(envelope);
+     for(const [key,expected]of [['actorId',actorId],['workspaceId',workspaceId],['creatorId',creatorId],['modelId',creatorId],['fanId',fanId],['binding',binding]])if(Object.hasOwn(data,key)&&data[key]!==expected)throw access();
+     const imported=await importCitedFanCandidates(scope,record,input.candidates,data.messages,input.expected_version);importResult=imported.importResult;
+     await check();await ownerCheck();await check();
+     if(importResult.added>0)record=await fanMemoryStore.write(scope,record.memory.version,imported.record,signal);
+     else{record=await fanMemoryStore.read(scope,signal);if(record.memory.version!==input.expected_version)throw error(409,'MEMORY_CONFLICT','La memoria cambió. Vuelve a leerla antes de importar.');}
+     await check();await ownerCheck();
+    }else if(input.operation==='fan_memory_edit'){
      const next=editFanContext(scope,record,input.edit);await check();await ownerCheck();await check();record=await fanMemoryStore.write(scope,record.memory.version,next,signal);await check();await ownerCheck();
     }else if(input.operation==='fan_memory_sync'){
      const older=input.scan==='older'&&record.scan.pages>0;
@@ -81,7 +99,7 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
       const next=await syncFanContext(scope,record,data,{scan:older?'older':'recent',now:now()});await check();record=await fanMemoryStore.write(scope,record.memory.version,next,signal);
      }
     }
-    await check();const value=await createFanContext(scope,record,{actorId});signal.throwIfAborted();return reply(200,value);
+    await check();const value=await createFanContext(scope,record,{actorId});signal.throwIfAborted();return reply(200,{...value,...(importResult?{importResult}:{})});
    }
    if(!enabled||!store||!hash(catalogBatch))throw error(503,'MEMORY_CONFIG','El catálogo y el seguimiento aún no están conectados en el servidor.');
    const catalog=await store.readCatalog({workspaceId,creatorId,batchHash:catalogBatch},signal);

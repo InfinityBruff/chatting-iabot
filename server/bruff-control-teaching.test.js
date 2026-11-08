@@ -27,9 +27,9 @@ function fixture(options={}){
 }
 const result=async response=>(await response.json()).result;
 
-test('six owner additions are discovered only with the existing explicit owner flag and real authentication',async()=>{
+test('seven owner additions are discovered only with the existing explicit owner flag and real authentication',async()=>{
  const disabled=fixture({enabled:false}),legacy=await result(await disabled.list());assert.equal(legacy.tools.length,12);const before=disabled.calls.length;assert.equal((await disabled.run('bruff_read_teaching_permission')).status,400);assert.equal(disabled.calls.length,before);
- const f=fixture(),tools=(await result(await f.list())).tools;assert.equal(tools.length,31);for(const name of ['bruff_read_teaching_permission','bruff_save_teaching_permission','bruff_save_reviewed_teaching','bruff_read_fan_memory','bruff_sync_fan_memory','bruff_edit_fan_memory'])assert.ok(tools.some(t=>t.name===name));
+ const f=fixture(),tools=(await result(await f.list())).tools;assert.equal(tools.length,32);for(const name of ['bruff_read_teaching_permission','bruff_save_teaching_permission','bruff_save_reviewed_teaching','bruff_read_fan_memory','bruff_sync_fan_memory','bruff_import_fan_memory_candidates','bruff_edit_fan_memory'])assert.ok(tools.some(t=>t.name===name));
  assert.equal(tools.find(t=>t.name==='bruff_save_reviewed_teaching').annotations.idempotentHint,true);assert.equal(tools.find(t=>t.name==='bruff_sync_fan_memory').annotations.openWorldHint,false);assert.equal((await f.run('bruff_read_teaching_permission',{},false)).status,401);
 });
 

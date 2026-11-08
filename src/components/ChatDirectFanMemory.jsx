@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {authClient} from '../auth.js';
 import {createFanMemorySource} from '../fan-memory-source.js';
 import './chat-direct-fan-memory.css';
-const categories={preferred_name:'Nombre preferido',language:'Idioma',interests:'Intereses declarados',availability:'Disponibilidad declarada',pending_question:'Pregunta pendiente',commitment:'Compromiso registrado'};
+const categories={preferred_name:'Nombre preferido',language:'Idioma',interests:'Intereses declarados',availability:'Disponibilidad declarada',pending_question:'Pregunta pendiente',commitment:'Compromiso registrado',personal_context:'Datos declarados'};
 export default function ChatDirectFanMemory({actor,workspace,context,canManage,onChanged}){
  const key=JSON.stringify([actor,workspace,context?.account,context?.fanId,context?.canRead]);
  return <FanMemory key={key} {...{actor,workspace,context,canManage,onChanged}}/>;

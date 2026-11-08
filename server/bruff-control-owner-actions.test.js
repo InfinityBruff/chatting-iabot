@@ -46,7 +46,7 @@ const result=async response=>(await response.json()).result;
 
 test('advanced owner tools are off by default and do not widen legacy discovery or accepted arguments',async()=>{
  for(const enabled of [false,'true',1]){const f=fixture({enabled}),tools=(await result(await f.list())).tools;assert.equal(tools.length,12);const before=f.calls.length;assert.equal((await f.run('bruff_approve_source',{kind:'example',source_id:id,expected_version:1,review_hash:'a'.repeat(64),reviewed:true})).status,400);assert.equal(f.calls.length,before)}
- const f=fixture();const tools=(await result(await f.list())).tools;assert.equal(tools.length,31);assert.ok(tools.some(x=>x.name==='bruff_generate_replies'));assert.ok(!tools.some(x=>/send_message|run_bot/u.test(x.name)));assert.equal(tools.find(x=>x.name==='bruff_generate_replies').annotations.openWorldHint,true);assert.equal(tools.find(x=>x.name==='bruff_queue_selected_reply').annotations.openWorldHint,true);
+ const f=fixture();const tools=(await result(await f.list())).tools;assert.equal(tools.length,32);assert.ok(tools.some(x=>x.name==='bruff_generate_replies'));assert.ok(!tools.some(x=>/send_message|run_bot/u.test(x.name)));assert.equal(tools.find(x=>x.name==='bruff_generate_replies').annotations.openWorldHint,true);assert.equal(tools.find(x=>x.name==='bruff_queue_selected_reply').annotations.openWorldHint,true);
 });
 
 test('review and approval use real owner scope and preserve the exact stored source with fresh CAS',async()=>{

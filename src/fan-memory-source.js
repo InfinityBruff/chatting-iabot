@@ -9,7 +9,7 @@ export function validateFanMemory(value,scope){
  if(value?.actorId!==scope.actor||value.workspaceId!==scope.workspace||value.creatorId!==scope.account||value.fanId!==scope.fanId||!/^acct_[A-Za-z0-9_-]+$/u.test(value.binding||''))throw failure('La memoria no corresponde a esta sesión, modelo y fan.',403);
  if(!natural(value.version)||!(/^[a-f0-9]{64}$/u).test(value.contextRevision||'')||!Array.isArray(value.items)||value.items.length>1000)throw failure();
  const keys=new Set(),items=value.items.map(item=>{
-  if(!item||!text(item.key,80)||keys.has(item.key)||!['preferred_name','language','interests','availability','pending_question','commitment'].includes(item.category)||!text(item.value,1000)||!['pending','confirmed'].includes(item.status)||!['analysis','manual'].includes(item.origin)||typeof item.pinned!=='boolean'||!id(item.source?.messageId)||!text(item.source.quote,1000)||!date(item.source.at)||!['fan','model'].includes(item.source.author))throw failure();
+  if(!item||!text(item.key,80)||keys.has(item.key)||!['preferred_name','language','interests','availability','pending_question','commitment','personal_context'].includes(item.category)||!text(item.value,1000)||!['pending','confirmed'].includes(item.status)||!['analysis','manual'].includes(item.origin)||typeof item.pinned!=='boolean'||!id(item.source?.messageId)||!text(item.source.quote,1000)||!date(item.source.at)||!['fan','model'].includes(item.source.author))throw failure();
   keys.add(item.key);return {key:item.key,category:item.category,value:item.value,status:item.status,origin:item.origin,pinned:item.pinned,source:{messageId:item.source.messageId,quote:item.source.quote,at:item.source.at,author:item.source.author}};
  });
  const c=value.coverage;
