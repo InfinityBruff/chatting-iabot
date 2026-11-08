@@ -81,10 +81,18 @@ export function createMemoryHandler({url,anonKey,tursoUrl,tursoToken,catalogBatc
     if(importing){
      if(record.memory.version!==input.expected_version)throw error(409,'MEMORY_CONFLICT','La memoria cambió. Vuelve a leerla antes de importar.');
      const envelope=await call('/functions/v1/bruff-live',{workspace_id:workspaceId,creator_id:creatorId,operation:'messages',conversation_id:fanId,background:true,...(input.cursor?{cursor:input.cursor}:{})},2*1024*1024);
-     for(const [key,expected]of [['actorId',actorId],['workspaceId',workspaceId],['creatorId',creatorId],['modelId',creatorId],['fanId',fanId],['binding',binding]])if(Object.hasOwn(envelope,key)&&envelope[key]!==expected)throw access();
-     const data=page(envelope);
-     for(const [key,expected]of [['actorId',actorId],['workspaceId',workspaceId],['creatorId',creatorId],['modelId',creatorId],['fanId',fanId],['binding',binding]])if(Object.hasOwn(data,key)&&data[key]!==expected)throw access();
-     const imported=await importCitedFanCandidates(scope,record,input.candidates,data.messages,input.expected_version);importResult=imported.importResult;
+     const evidencePage=envelope=>{for(const [key,expected]of [['actorId',actorId],['workspaceId',workspaceId],['creatorId',creatorId],['modelId',creatorId],['fanId',fanId],['binding',binding]])if(Object.hasOwn(envelope,key)&&envelope[key]!==expected)throw access();const data=page(envelope);for(const [key,expected]of [['actorId',actorId],['workspaceId',workspaceId],['creatorId',creatorId],['modelId',creatorId],['fanId',fanId],['binding',binding]])if(Object.hasOwn(data,key)&&data[key]!==expected)throw access();return data;};
+     const data=evidencePage(envelope);let messages=data.messages;
+     const missingQuestion=input.candidates.some(candidate=>candidate.question_message_id&&!messages.some(message=>String(message.id)===candidate.question_message_id));
+     if(missingQuestion){
+      // One authoritative adjacent older page, never a client-selected URL or
+      // an unbounded search for evidence. Memory/coverage stay untouched here.
+      if(!data.hasMore||!data.cursor)throw error(400,'MEMORY_CANDIDATES','La pregunta no está en las páginas de evidencia admitidas.');
+      await check();await ownerCheck();await check();
+      const older=evidencePage(await call('/functions/v1/bruff-live',{workspace_id:workspaceId,creator_id:creatorId,operation:'messages',conversation_id:fanId,background:true,cursor:data.cursor},2*1024*1024));
+      messages=[...messages,...older.messages];
+     }
+     const imported=await importCitedFanCandidates(scope,record,input.candidates,messages,input.expected_version);importResult=imported.importResult;
      await check();await ownerCheck();await check();
      if(importResult.added>0)record=await fanMemoryStore.write(scope,record.memory.version,imported.record,signal);
      else{record=await fanMemoryStore.read(scope,signal);if(record.memory.version!==input.expected_version)throw error(409,'MEMORY_CONFLICT','La memoria cambió. Vuelve a leerla antes de importar.');}

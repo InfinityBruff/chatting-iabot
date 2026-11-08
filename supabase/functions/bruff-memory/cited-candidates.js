@@ -10,7 +10,11 @@ const sexual=/\b(?:fuck\w*|pussy|cock|dick|sext\w*|nudes?|naked|porn\w*|erotic\w
 const sensitive=/\b(?:race|racial|ethnic\w*|religio\w*|christian|muslim|jewish|hindu|buddh\w*|budis\w*|atheist|catholic|politic\w*|republican|democrat|vot(?:e|ing)|salud|health|medical|diagnos\w*|disease|cancer|diabet\w*|asthma|asma|depress\w*|anxi\w*|therapy|therapist|medicat\w*|disab\w*|embaraz\w*|pregnan\w*|suicid\w*|bipolar|autis\w*|hiv|sida|adic\w*|addict\w*|drugs?|cocaine|criminal|prison|carcel|religion|raza|etni\w*|enfermedad\w*|medic\w*|salud|orientacion|gay|lesbian\w*|bisexual|transgender|transexual|straight|heterosexual|homosexual|wife|husband|spouse|girlfriend|boyfriend|married|espos\w*|novi[oa]s?|casad[oa]s?|age|edad|years? old|anos de edad|minor|underage|menor(?:es)?|wealth\w*|rich|poverty|poor|homeless|refugio|albergue|pobre\w*|salary|income|savings|balance|financ\w*|purchased?|bought|buying|payment|paid|refund\w*|spent|spend\w*|tips?|propina\w*|compr\w*|pagad\w*|sueldo|ingresos|dinero|rica?|rico|ahorros)\b/u;
 const credential=/\b(?:bearer|password|passwd|passcode|pin|contrasena|clave|credencial\w*|secret|secreto|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|session[ _-]?(?:key|token)|jwt|oauth|ssn|passport|pasaporte|dni|iban|credit card|tarjeta|bank account|cuenta bancaria)\b/u;
 const validScope=scope=>object(scope)&&['ownerId','workspaceId','creatorId'].every(k=>uuid(scope[k]))&&id(scope.fanId)&&typeof scope.binding==='string'&&/^acct_[A-Za-z0-9_-]{1,123}$/u.test(scope.binding);
-const validAt=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,19)===value.slice(0,19);
+export function normalizeFanMemoryTimestamp(value){
+ if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|\+00:00)$/u.test(value))return null;
+ const utc=value.replace(/\+00:00$/u,'Z'),time=Date.parse(utc);if(!Number.isFinite(time))return null;const normalized=new Date(time).toISOString();return normalized.slice(0,19)===utc.slice(0,19)?normalized:null;
+}
+const validAt=value=>normalizeFanMemoryTimestamp(value)!==null;
 function safeQuote(quote,min=3,max=240){
  if(typeof quote!=='string'||quote!==quote.trim()||quote.length<min||quote.length>max||/[\u0000-\u001f\u007f]/u.test(quote))return false;
  const value=fold(quote);
@@ -67,8 +71,11 @@ export function isAllowedContextualReply(kind,quote){
 export function validateCitedCandidates(candidates){
  if(!Array.isArray(candidates)||candidates.length>20)throw fail();
  return candidates.map(candidate=>{
-  if(!exact(candidate,['category','message_id','quote'])||!citedMemoryCategories.includes(candidate.category)||!id(candidate.message_id)||!isNeutralMemoryQuote(candidate.quote,candidate.category))throw fail();
-  return {category:candidate.category,message_id:candidate.message_id,quote:candidate.quote};
+  const paired=object(candidate)&&Object.hasOwn(candidate,'question_message_id');
+  if(!exact(candidate,['category','message_id','quote',...(paired?['question_message_id']:[])])||!citedMemoryCategories.includes(candidate.category)||!id(candidate.message_id))throw fail();
+  if(paired){const kinds=candidate.category==='personal_context'?['where_from','where_based']:['preferred_name','language','interests'].includes(candidate.category)?[candidate.category]:[];if(!id(candidate.question_message_id)||candidate.question_message_id===candidate.message_id||!kinds.some(kind=>isAllowedContextualReply(kind,candidate.quote)))throw fail();}
+  else if(!isNeutralMemoryQuote(candidate.quote,candidate.category))throw fail();
+  return {category:candidate.category,message_id:candidate.message_id,quote:candidate.quote,...(paired?{question_message_id:candidate.question_message_id}:{})};
  });
 }
 // Ordinary declarations only: historical questions and promises are not an
@@ -99,6 +106,7 @@ export async function citedCandidateKey(scope,candidate){
 }
 export async function prepareCitedCandidates(scope,candidates,messages){
  const selected=validateCitedCandidates(candidates);if(!validScope(scope)||!Array.isArray(messages)||messages.length>200)throw fail(503);
+ if(selected.some(candidate=>Object.hasOwn(candidate,'question_message_id')))throw fail();
  const evidence=new Map();
  for(const message of messages){
   if(!object(message))throw fail(503);const messageId=typeof message.id==='number'&&Number.isSafeInteger(message.id)?String(message.id):message.id;
@@ -110,7 +118,7 @@ export async function prepareCitedCandidates(scope,candidates,messages){
  for(const candidate of selected){
   const message=evidence.get(candidate.message_id);
   if(!message||message.isFromMe!==false||message.delivery||message.pending||typeof message.text!=='string'||!message.text.includes(candidate.quote)||!validAt(message.createdAt))throw fail();
-  output.push({workspaceId:scope.workspaceId,creatorId:scope.creatorId,fanId:scope.fanId,key:await citedCandidateKey(scope,candidate),category:candidate.category,value:candidate.quote,status:'pending',origin:'analysis',pinned:false,source:{messageId:candidate.message_id,quote:candidate.quote,at:new Date(message.createdAt).toISOString(),author:'fan'}});
+  output.push({workspaceId:scope.workspaceId,creatorId:scope.creatorId,fanId:scope.fanId,key:await citedCandidateKey(scope,candidate),category:candidate.category,value:candidate.quote,status:'pending',origin:'analysis',pinned:false,source:{messageId:candidate.message_id,quote:candidate.quote,at:normalizeFanMemoryTimestamp(message.createdAt),author:'fan'}});
  }
  return output;
 }

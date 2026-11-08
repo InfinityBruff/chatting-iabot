@@ -1,6 +1,7 @@
 import {emptyFanMemory,reviewMemoryCandidates,mergeMemoryCandidates,editMemoryItem,validateMemoryQuestion} from '../../../server/fan-memory.js';
-import {prepareCitedCandidates,extractCitedCandidateInputs,isNeutralMemoryQuote} from './cited-candidates.js';
+import {prepareCitedCandidates,extractCitedCandidateInputs,isNeutralMemoryQuote,normalizeFanMemoryTimestamp} from './cited-candidates.js';
 import {extractContextualFanCandidates,validateContextualBoundaryShape,validateContextualBoundary} from './contextual-candidates.js';
+import {prepareManualCitedCandidates} from './manual-candidates.js';
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(x);
 const id=x=>typeof x==='string'&&/^[1-9]\d{0,23}$/u.test(x);
@@ -54,7 +55,7 @@ export async function fanMemoryContext(store,scope,{actorId=scope.actorId,signal
 
 function transcript(scope,messages){
  if(!Array.isArray(messages)||messages.length>200)throw failure();const seen=new Map();
- for(const message of messages){const key=typeof message?.id==='number'&&Number.isSafeInteger(message.id)?String(message.id):message?.id;if(!object(message)||!id(key)||typeof message.isFromMe!=='boolean'||typeof message.createdAt!=='string'||!Number.isFinite(Date.parse(message.createdAt))||message.text!=null&&typeof message.text!=='string')throw failure();for(const [field,expected]of [['workspaceId',scope.workspaceId],['creatorId',scope.creatorId],['modelId',scope.creatorId],['fanId',scope.fanId],['binding',scope.binding]])if(Object.hasOwn(message,field)&&message[field]!==expected)throw failure();if(message.delivery||message.pending)continue;const row={workspaceId:scope.workspaceId,creatorId:scope.creatorId,fanId:scope.fanId,id:key,author:message.isFromMe?'model':'fan',text:message.text||'',at:new Date(message.createdAt).toISOString()};const old=seen.get(key);if(old&&JSON.stringify(old)!==JSON.stringify(row))throw failure();seen.set(key,row)}
+ for(const message of messages){const key=typeof message?.id==='number'&&Number.isSafeInteger(message.id)?String(message.id):message?.id,at=normalizeFanMemoryTimestamp(message?.createdAt);if(!object(message)||!id(key)||typeof message.isFromMe!=='boolean'||!at||message.text!=null&&typeof message.text!=='string')throw failure();for(const [field,expected]of [['workspaceId',scope.workspaceId],['creatorId',scope.creatorId],['modelId',scope.creatorId],['fanId',scope.fanId],['binding',scope.binding]])if(Object.hasOwn(message,field)&&message[field]!==expected)throw failure();if(message.delivery||message.pending)continue;const row={workspaceId:scope.workspaceId,creatorId:scope.creatorId,fanId:scope.fanId,id:key,author:message.isFromMe?'model':'fan',text:message.text||'',at};const old=seen.get(key);if(old&&JSON.stringify(old)!==JSON.stringify(row))throw failure();seen.set(key,row)}
  return [...seen.values()];
 }
 export function extractNeutralFanCandidates(scope,messages){
@@ -131,7 +132,7 @@ export async function importCitedFanCandidates(scope,record,candidates,messages,
  const current=validateFanContext(scope,record);
  if(!natural(expectedVersion)||expectedVersion>=Number.MAX_SAFE_INTEGER)throw failure('MEMORY_CANDIDATES',400);
  if(current.memory.version!==expectedVersion)throw failure('MEMORY_CONFLICT',409);
- const prepared=await prepareCitedCandidates(scope,candidates,messages),existing=new Set(current.memory.items.map(item=>JSON.stringify([item.category,item.source.messageId,item.source.quote]))),keys=new Set(current.memory.items.map(item=>item.key)),fresh=[];
+ const prepared=await prepareManualCitedCandidates(scope,candidates,messages),existing=new Set(current.memory.items.map(item=>JSON.stringify([item.category,item.source.messageId,item.source.quote]))),keys=new Set(current.memory.items.map(item=>item.key)),fresh=[];
  let reused=0;
  for(const item of prepared){
   const semantic=JSON.stringify([item.category,item.source.messageId,item.source.quote]);

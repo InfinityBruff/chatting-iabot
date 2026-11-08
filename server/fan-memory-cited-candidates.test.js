@@ -86,18 +86,18 @@ test('stale versions, mixed bad evidence and storage caps fail without modifying
 });
 
 function fixture(options={}){
- let state=options.state?structuredClone(options.state):emptyFanContext(scope),binding=scope.binding,ownerChecks=0;const calls=[],writes=[];
+ let state=options.state?structuredClone(options.state):emptyFanContext(scope),binding=scope.binding,ownerChecks=0;const calls=[],writes=[],sourceReads=[];
  const handler=createMemoryHandler({url:'https://auth.test',anonKey:'public',enabled:true,fanMemoryStore:{read:async()=>structuredClone(state),write:async(s,expected,next)=>{if(options.conflict||state.memory.version!==expected)throw Object.assign(Error('CAS'),{code:'MEMORY_CONFLICT',status:409});state=structuredClone(next);writes.push({scope:s,expected,next});return structuredClone(state);}},fetcher:async(url,init)=>{
   const body=init.body?JSON.parse(init.body):null;calls.push({url,body});assert.equal(init.headers.Authorization,'Bearer owner-session');
   if(url.endsWith('/auth/v1/user'))return json({id:options.reader?other:owner,email_confirmed_at:at});
   if(url.endsWith('/bruff_live_authorize'))return json(binding);
   if(url.endsWith('/bruff_fan_memory_scope'))return json({actorId:options.reader?other:owner,ownerId:owner,workspaceId:w,creatorId:c,binding:scope.binding});
   if(url.endsWith('/bruff_ai_models')){ownerChecks++;if(ownerChecks===options.revokeOwnerAt)return json({code:'42501'},403);return json({actorId:owner,workspaces:[{id:w,models:[{id:c}]}]});}
-  if(url.endsWith('/bruff-live')){assert.equal(body.operation,'messages');assert.equal(body.background,true);assert.equal(body.conversation_id,'55');if(options.onPage)state=options.onPage(state);if(options.revokeBinding)binding='acct_other';if(options.providerStatus)return json({error:'private provider detail'},options.providerStatus,{'Retry-After':'17'});return json(options.envelope||{data:page(options.messages||[message()])});}
+  if(url.endsWith('/bruff-live')){assert.equal(body.operation,'messages');assert.equal(body.background,true);assert.equal(body.conversation_id,'55');sourceReads.push(structuredClone(body));if(options.onPage)state=options.onPage(state);if(options.revokeBinding)binding='acct_other';if(options.providerStatus)return json({error:'private provider detail'},options.providerStatus,{'Retry-After':'17'});if(options.envelopes){const next=options.envelopes[sourceReads.length-1];assert.notEqual(next,undefined,'Unexpected additional source page');return next instanceof Response?next:json(next)}return json(options.envelope||{data:page(options.messages||[message()])});}
   throw Error('Unexpected route');
  }});
  const run=(extra={})=>handler(new Request('https://edge.test',{method:'POST',headers:{Authorization:'Bearer owner-session','Content-Type':'application/json'},body:JSON.stringify({operation:'fan_memory_import_candidates',workspace_id:w,creator_id:c,conversation_id:'55',expected_version:state.memory.version,candidates:[candidate()],...extra})}));
- return{run,calls,writes,get state(){return state;}};
+ return{run,calls,writes,sourceReads,get state(){return state;}};
 }
 
 test('handler re-reads exactly the selected page and returns pending memory plus a truthful import receipt',async()=>{
@@ -105,6 +105,44 @@ test('handler re-reads exactly the selected page and returns pending memory plus
  assert.deepEqual(f.calls.find(x=>x.url.endsWith('/bruff-live')).body,{workspace_id:w,creator_id:c,operation:'messages',conversation_id:'55',background:true,cursor:'opaque&older'});assert.equal(f.calls.filter(x=>x.url.endsWith('/bruff_ai_models')).length,3);
  assert.ok(f.calls.every(x=>!/(?:cloudflare|bruff-drafts|generation_|send|prepare|autopilot)/u.test(x.url)));assert.equal(response.headers.get('Cache-Control'),'no-store');
  const noop=await f.run({cursor:null});assert.equal(noop.status,200);const repeated=await noop.json();assert.deepEqual(repeated.importResult,{added:0,reused:1});assert.equal(repeated.version,1);assert.equal(f.writes.length,1);
+});
+
+const pairedInput=()=>({...candidate('in mountains of Colorado','personal_context','17'),question_message_id:'16'});
+const pairedQuestion=(extra={})=>message('where are u from??',{id:'16',isFromMe:true,createdAt:'2026-11-08T08:59:00.000Z',...extra});
+const pairedAnswer=(extra={})=>message('I am a quiet person in mountains of Colorado.',{id:'17',...extra});
+const sourceEnvelope=(messages,cursor='server-adjacent',hasMore=true)=>({actorId:owner,workspaceId:w,creatorId:c,fanId:'55',binding:scope.binding,data:{messages,cursor,hasMore}});
+async function existingCoverage(){return syncFanContext(scope,emptyFanContext(scope),{messages:[message('Hello.',{id:'90'})],cursor:'preserved-history-checkpoint',hasMore:true});}
+
+test('paired handler uses only the selected page when its actual question is present and preserves all scan coverage',async()=>{
+ const initial=await existingCoverage(),f=fixture({state:initial,envelopes:[sourceEnvelope([pairedAnswer(),pairedQuestion()])]});
+ const response=await f.run({cursor:'selected-answer-page',candidates:[pairedInput()]}),data=await response.json();assert.equal(response.status,200);assert.equal(f.sourceReads.length,1);assert.equal(f.sourceReads[0].cursor,'selected-answer-page');assert.deepEqual(data.importResult,{added:1,reused:0});assert.equal(f.writes.length,1);assert.deepEqual(f.state.scan,initial.scan);assert.deepEqual(data.coverage,(await createFanContext(scope,initial)).coverage);assert.equal(data.version,initial.memory.version+1);
+ const saved=data.items.find(item=>item.source.messageId==='17');assert.equal(saved.status,'pending');assert.equal(saved.origin,'analysis');assert.equal(saved.value,pairedInput().quote);assert.deepEqual(saved.source.question,{messageId:'16',quote:'where are u from??',at:'2026-11-08T08:59:00.000Z',author:'model',kind:'where_from'});
+ assert.ok(f.calls.every(call=>!/(?:cloudflare|bruff-drafts|generation_|send|autopilot)/u.test(call.url)));
+});
+
+test('paired handler fetches one adjacent older page using only the returned server cursor when the question is missing',async()=>{
+ const initial=await existingCoverage(),f=fixture({state:initial,envelopes:[sourceEnvelope([pairedAnswer()],'provider-only&next=page2'),sourceEnvelope([pairedQuestion()],'still-more-pages')]});
+ const response=await f.run({cursor:'client-selected-page',candidates:[pairedInput()]}),data=await response.json();assert.equal(response.status,200);assert.deepEqual(f.sourceReads,[{workspace_id:w,creator_id:c,operation:'messages',conversation_id:'55',background:true,cursor:'client-selected-page'},{workspace_id:w,creator_id:c,operation:'messages',conversation_id:'55',background:true,cursor:'provider-only&next=page2'}]);assert.equal(f.writes.length,1);assert.equal(data.items.find(item=>item.source.messageId==='17').source.question.messageId,'16');assert.deepEqual(f.state.scan,initial.scan);assert.deepEqual(data.coverage,(await createFanContext(scope,initial)).coverage);assert.equal(f.calls.filter(call=>call.url.endsWith('/bruff_ai_models')).length,4);
+});
+
+test('missing paired questions never search a third page, and a present question never starts a search for a missing answer',async()=>{
+ const first=sourceEnvelope([pairedAnswer()],'server-page2'),second=sourceEnvelope([message('Neutral unrelated text.',{id:'15'})],'server-page3'),third=sourceEnvelope([pairedQuestion()],null,false),f=fixture({envelopes:[first,second,third]}),response=await f.run({candidates:[pairedInput()]});assert.equal(response.status,400);assert.equal(f.sourceReads.length,2);assert.equal(f.writes.length,0);assert.deepEqual(f.state,emptyFanContext(scope));
+ const eof=fixture({envelopes:[sourceEnvelope([pairedAnswer()],null,false)]});assert.equal((await eof.run({candidates:[pairedInput()]})).status,400);assert.equal(eof.sourceReads.length,1);assert.equal(eof.writes.length,0);
+ const missingAnswer=fixture({envelopes:[sourceEnvelope([pairedQuestion()]),sourceEnvelope([pairedAnswer()])]});assert.equal((await missingAnswer.run({candidates:[pairedInput()]})).status,400);assert.equal(missingAnswer.sourceReads.length,1);assert.equal(missingAnswer.writes.length,0);
+});
+
+test('owner or binding revocation after the first paired evidence page prevents the second read and every write',async()=>{
+ const initial=await existingCoverage();for(const options of [{revokeOwnerAt:2},{revokeBinding:true}]){const f=fixture({state:initial,...options,envelopes:[sourceEnvelope([pairedAnswer()]),sourceEnvelope([pairedQuestion()])]}),response=await f.run({candidates:[pairedInput()]});assert.equal(response.status,403);assert.equal(f.sourceReads.length,1);assert.equal(f.writes.length,0);assert.deepEqual(f.state,initial);assert.equal((await response.json()).items,undefined)}
+});
+
+test('a second-page cooldown or foreign evidence scope is terminal for that import without retry, partial write or coverage change',async()=>{
+ const initial=await existingCoverage(),limited=fixture({state:initial,envelopes:[sourceEnvelope([pairedAnswer()]),json({error:'private second-page detail'},429,{'Retry-After':'17'})]}),response=await limited.run({candidates:[pairedInput()]});assert.equal(response.status,429);assert.equal(response.headers.get('Retry-After'),'17');assert.equal(limited.sourceReads.length,2);assert.equal(limited.writes.length,0);assert.deepEqual(limited.state,initial);assert.ok(!(await response.text()).includes('private second-page detail'));
+ for(const corrupt of [envelope=>({...envelope,fanId:'56'}),envelope=>({...envelope,data:{...envelope.data,binding:'acct_other'}})]){const f=fixture({state:initial,envelopes:[sourceEnvelope([pairedAnswer()]),corrupt(sourceEnvelope([pairedQuestion()]))]});assert.equal((await f.run({candidates:[pairedInput()]})).status,403);assert.equal(f.sourceReads.length,2);assert.equal(f.writes.length,0);assert.deepEqual(f.state,initial)}
+});
+
+test('paired handler normalizes real UTC plus-zero timestamps but rejects impossible question or answer dates without writes',async()=>{
+ const initial=await existingCoverage(),good=fixture({state:initial,envelopes:[sourceEnvelope([pairedAnswer({createdAt:'2026-11-08T09:00:00+00:00'})]),sourceEnvelope([pairedQuestion({createdAt:'2026-11-08T08:59:00+00:00'})])]}),response=await good.run({candidates:[pairedInput()]}),data=await response.json();assert.equal(response.status,200);assert.equal(data.items[0].source.at,at);assert.equal(data.items[0].source.question.at,'2026-11-08T08:59:00.000Z');assert.deepEqual(good.state.scan,initial.scan);
+ for(const[answer,question]of [[pairedAnswer(),pairedQuestion({createdAt:'2026-02-31T08:59:00+00:00'})],[pairedAnswer({createdAt:'2026-02-31T09:00:00+00:00'}),pairedQuestion()]]){const f=fixture({state:initial,envelopes:[sourceEnvelope([answer]),sourceEnvelope([question])]}),bad=await f.run({candidates:[pairedInput()]});assert.equal(bad.status,503);assert.equal(f.sourceReads.length,2);assert.equal(f.writes.length,0);assert.deepEqual(f.state,initial);assert.equal((await bad.json()).items,undefined)}
 });
 
 test('import rejects readers and injected or malformed arguments before source reads or writes',async()=>{

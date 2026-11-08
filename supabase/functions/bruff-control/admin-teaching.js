@@ -70,7 +70,7 @@ export async function runFanMemoryAction({name,args,actor,w,c,call,recheckOwner}
   if(!exact(receipt,['added','reused'])||![receipt.added,receipt.reused].every(v=>natural(v)&&v<=20)||receipt.added+receipt.reused!==body.candidates.length||output.version!==args.expected_version+(receipt.added>0?1:0))throw error();
   // Structural receipt checks complement the endpoint's authoritative replay of
   // actual fan messages. Existing reviewed or suppressed duplicates stay intact.
-  const matching=new Set(body.candidates.filter(candidate=>output.items.some(item=>item.category===candidate.category&&item.value===candidate.quote&&item.source.quote===candidate.quote&&item.source.messageId===candidate.message_id&&item.source.author==='fan'&&item.status==='pending'&&item.origin==='analysis'&&item.pinned===false)).map(candidate=>JSON.stringify(candidate)));
+  const matching=new Set(body.candidates.filter(candidate=>output.items.some(item=>item.category===candidate.category&&item.value===candidate.quote&&item.source.quote===candidate.quote&&item.source.messageId===candidate.message_id&&(candidate.question_message_id===undefined||item.source.question?.messageId===candidate.question_message_id)&&item.source.author==='fan'&&item.status==='pending'&&item.origin==='analysis'&&item.pinned===false)).map(candidate=>JSON.stringify(candidate)));
   if(matching.size<receipt.added)throw error();
   output.importResult={added:receipt.added,reused:receipt.reused};
  }

@@ -7,7 +7,7 @@ const base='https://fixture.supabase.co',at='2026-11-08T00:00:00.000Z',tool='bru
 const candidate=()=>({category:'personal_context',message_id:'900',quote:'I work as a designer.'});
 const args=()=>({workspace_id:w,model_id:c,fan_id:'77',expected_version:4,candidates:[candidate()]});
 const coverage=()=>({historyComplete:false,cursor:'unread-history',pages:2,recentCheckedAt:at,historyCheckedAt:at,messagesObserved:20,contextLimited:false});
-const item=(entry,key='cited_0')=>({key,category:entry.category,value:entry.quote,status:'pending',origin:'analysis',pinned:false,source:{messageId:entry.message_id,quote:entry.quote,at,author:'fan'}});
+const item=(entry,key='cited_0')=>({key,category:entry.category,value:entry.quote,status:'pending',origin:'analysis',pinned:false,source:{messageId:entry.message_id,quote:entry.quote,at,author:'fan',...(entry.question_message_id?{question:{messageId:entry.question_message_id,quote:'Where are you from?',at:'2026-11-07T23:59:00.000Z',author:'model',kind:'where_from'}}:{})}});
 function snapshot(body){return{actorId:actor,workspaceId:w,creatorId:c,fanId:body.conversation_id,binding:'acct_fixture',version:body.expected_version+1,contextRevision:'a'.repeat(64),items:body.candidates.map((entry,i)=>item(entry,'cited_'+i)),coverage:coverage(),importResult:{added:body.candidates.length,reused:0}}}
 function fixture(options={}){
  const calls=[],state={revoked:false};
@@ -31,7 +31,7 @@ const memoryCalls=f=>f.calls.filter(call=>call.path==='/functions/v1/bruff-memor
 test('candidate import is one new owner-gated mutation with bounded exact schema, never a legacy or idempotent-send capability',async()=>{
  const f=fixture(),tools=(await result(await f.list())).tools,definition=tools.find(x=>x.name===tool);assert.equal(tools.length,32);assert.ok(definition);
  assert.deepEqual(definition.annotations,{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false});
- const schema=definition.inputSchema;assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.required,['workspace_id','model_id','fan_id','expected_version','candidates']);assert.equal(schema.properties.candidates.minItems,1);assert.equal(schema.properties.candidates.maxItems,20);assert.equal(schema.properties.candidates.items.additionalProperties,false);assert.deepEqual(Object.keys(schema.properties.candidates.items.properties),['category','message_id','quote']);assert.equal(schema.properties.candidates.items.properties.quote.maxLength,240);assert.ok(schema.properties.candidates.items.properties.category.enum.includes('personal_context'));
+ const schema=definition.inputSchema;assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.required,['workspace_id','model_id','fan_id','expected_version','candidates']);assert.equal(schema.properties.candidates.minItems,1);assert.equal(schema.properties.candidates.maxItems,20);assert.equal(schema.properties.candidates.items.additionalProperties,false);assert.deepEqual(Object.keys(schema.properties.candidates.items.properties),['category','message_id','quote','question_message_id']);assert.deepEqual(schema.properties.candidates.items.required,['category','message_id','quote']);assert.equal(schema.properties.candidates.items.properties.quote.maxLength,240);assert.equal(schema.properties.candidates.items.properties.quote.minLength,2);assert.ok(schema.properties.candidates.items.properties.category.enum.includes('personal_context'));assert.ok(definition.description.includes('question_message_id'));assert.ok(definition.description.includes('dos páginas adyacentes reales'));
  const legacy=fixture({enabled:false});assert.equal((await result(await legacy.list())).tools.length,12);const before=legacy.calls.length;assert.equal((await legacy.run()).status,400);assert.equal(legacy.calls.length,before);assert.equal((await f.run(args(),false)).status,401);
 });
 
@@ -77,4 +77,19 @@ test('the import helper itself rejects spoofed scope or unknown arguments and ne
 
 test('only the authorized import gets the bounded provider-read deadline, without retrying a slow operation',async()=>{
  const f=fixture({timeoutMs:40,draftsTimeoutMs:500,reply:async body=>{await new Promise(resolve=>setTimeout(resolve,70));return snapshot(body)}}),response=await result(await f.run());assert.equal(response.isError,false);assert.equal(memoryCalls(f).length,1);assert.equal(f.calls.filter(x=>x.path.endsWith('/bruff_ai_models')).length,2);
+});
+
+const paired=quote=>({...candidate(),quote,question_message_id:'899'});
+test('an optional canonical question ID is forwarded without invented question data and its literal two-character answer remains pending',async()=>{
+ for(const quote of ['Canada','UK']){const f=fixture(),selected=paired(quote),response=await result(await f.run({...args(),candidates:[selected]}));assert.equal(response.isError,false);assert.deepEqual(memoryCalls(f)[0].body.candidates,[selected]);assert.equal(response.structuredContent.items[0].value,quote);assert.equal(response.structuredContent.items[0].source.question.messageId,'899');assert.equal(response.structuredContent.items[0].status,'pending');assert.deepEqual(response.structuredContent.importResult,{added:1,reused:0});assert.equal(memoryCalls(f).length,1)}
+ const unpaired=fixture();await unpaired.run({...args(),candidates:[{...candidate(),quote:'UK'}]});assert.equal(memoryCalls(unpaired).length,0);
+});
+
+test('the optional question cannot supply an author, time, kind, body or approved state and must have a distinct canonical message ID',async()=>{
+ const f=fixture();for(const patch of [{question_message_id:'0899'},{question_message_id:899},{question_message_id:null},{question_message_id:'900'},{question:{messageId:'899',quote:'Where are you from?'}},{question_quote:'Where are you from?'},{question_at:at},{question_author:'model'},{question_kind:'where_from'},{source:{question:{messageId:'899'}}},{state:'confirmed'},{author:'model'},{createdAt:at}]){await f.run({...args(),candidates:[{...paired('Canada'),...patch}]});assert.equal(memoryCalls(f).length,0)}
+});
+
+test('an added receipt cannot substitute or omit the selected question ID, while deduplicated paired inputs retain CAS and no approval',async()=>{
+ for(const change of [data=>{delete data.items[0].source.question;return data},data=>{data.items[0].source.question.messageId='777';return data}]){const f=fixture({reply:body=>change(snapshot(body))}),response=await result(await f.run({...args(),candidates:[paired('Canada')]}));assert.equal(response.isError,true);assert.equal(memoryCalls(f).length,1)}
+ const f=fixture({reply:body=>{const data=snapshot(body);data.items=[data.items[0]];data.importResult={added:1,reused:1};return data}}),response=await result(await f.run({...args(),candidates:[paired('Canada'),paired('Canada')]}));assert.equal(response.isError,false);assert.equal(response.structuredContent.version,5);assert.equal(response.structuredContent.items.length,1);assert.deepEqual(response.structuredContent.importResult,{added:1,reused:1});assert.equal(response.structuredContent.items[0].source.question.messageId,'899');assert.equal(response.structuredContent.items[0].status,'pending');
 });
